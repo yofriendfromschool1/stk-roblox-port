@@ -59,6 +59,11 @@ Frame stepping loop (decoupled from variable-`dt` `Heartbeat` / render framerate
 4. If `steps == MAX_SUBSTEPS` and `accumulator + 1e-9 >= FIXED_DT`, drop `accumulator` to `0` and emit a telemetry/warn log with the dropped debt seconds (`onDebtDropped`).
 5. Render interpolation uses `alpha = math.clamp(accumulator / FIXED_DT, 0, 1)` to `Lerp` / `Slerp` `prevState → currState` before writing the visual `CFrame`.
 
+#### Multiplayer Clock & Debt-Shedding Invariants
+- **Substep cap & low-FPS shedding:** `MAX_SUBSTEPS = 8` caps simulation work per frame at `8 / 120 ≈ 66.7 ms` (`~15 fps`). Below `~15 fps`, remaining accumulator debt is shed via `onDebtDropped`.
+- **Single authoritative simulation clock:** The server's integer tick counter (`simTick`) is the **single authoritative simulation clock**. Because a lagging client or server can shed different tick counts if uncoordinated, server debt shedding must be broadcast with the authoritative `simTick` and state snapshot, and clients must always reconcile to the server's `simTick` — never their own local tick counter.
+- **Wall-clock race & lap timers:** Match clocks, lap timers, and split/finish times must use wall-clock time (`workspace:GetServerTimeNow()`), **never** accumulated simulation ticks (`simTick * FIXED_DT`), so a lagging server never yields slower race times for everyone.
+
 ### 2.2 Per-Tick Execution Order
 
 Preserves the exact causal ordering of `Kart::update` (`src/karts/kart.cpp:L1365-L1803`) → `Kart::updatePhysics` (`kart.cpp:L2610-L2675`) → `btKart::updateVehicle` (`src/physics/btKart.cpp:L428-L535`):

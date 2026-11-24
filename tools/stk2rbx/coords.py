@@ -59,8 +59,10 @@ def stk_to_rbx_vec_dir(x: float, y: float, z: float) -> Vec3:
 def stk_to_rbx_normal(nx: float, ny: float, nz: float) -> Vec3:
     """Transform a surface normal from STK (+Z fwd) to Roblox (-Z fwd).
 
-    For uniform scaling paired with reflection S = diag(1, 1, -1),
-    (S^-1)^T = S, so reflecting Z and re-normalizing preserves unit normals.
+    S = diag(1, 1, -1) is an improper reflection (det(S) = -1) converting
+    left-handed Irrlicht to right-handed Roblox. For uniform scaling paired
+    with S, (S^-1)^T = S, so reflecting Z and re-normalizing preserves unit
+    normals while triangle winding must be reversed via flip_triangle_winding.
     """
     return _normalize((nx, ny, -nz), (0.0, 1.0, 0.0))
 
@@ -68,9 +70,10 @@ def stk_to_rbx_normal(nx: float, ny: float, nz: float) -> Vec3:
 def flip_triangle_winding(indices: Sequence[int]) -> list[int]:
     """Reverse triangle index winding (i0, i1, i2) -> (i0, i2, i1).
 
-    Negating Z to convert from STK's left-handed frame to Roblox's right-handed
-    frame is a reflection (det = -1). Triangle winding must be reversed so faces
-    keep outward CCW orientation instead of culling inward.
+    S = diag(1, 1, -1) has det(S) = -1 (an improper reflection), which flips
+    triangle orientation when converting left-handed Irrlicht coordinates to
+    right-handed Roblox coordinates. Winding reversal is therefore mandatory
+    and must never be removed, or meshes will render inside-out.
     """
     if len(indices) % 3 != 0:
         raise ValueError(f"Expected multiple of 3 triangle indices, got {len(indices)}")
@@ -124,8 +127,12 @@ def stk_hpr_to_rbx_matrix(rot_x_deg: float, rot_y_deg: float, rot_z_deg: float) 
     (`src/tracks/track_object_presentation.cpp:L76, L137` (STK 1.5)). Irrlicht
     `CMatrix4::setRotationRadians` (`lib/irrlicht/include/matrix4.h:L828-L855`)
     builds R_irr = Rz(Z) * Ry(Y) * Rx(X) acting on column vectors via
-    `rotateVect` (`matrix4.h:L1104-L1110`). Similarity-transforming by
-    S = diag(1, 1, -1) produces R_rbx = S * R_irr * S with det = +1.
+    `rotateVect` (`matrix4.h:L1104-L1110`).
+    Because the coordinate reflection S = diag(1, 1, -1) (det(S) = -1) is
+    applied twice in the similarity transform R_rbx = S * R_irr * S, the
+    resulting orientation matrix R_rbx has det(R_rbx) = det(S)^2 * det(R_irr)
+    = (-1)^2 * (+1) = +1 (a proper RH orientation basis), while position/mesh
+    vertices transformed once by S require triangle winding reversal.
     """
     rx_rad = math.radians(rot_x_deg)
     ry_rad = math.radians(rot_y_deg)
@@ -140,8 +147,8 @@ def stk_hpr_to_rbx_matrix(rot_x_deg: float, rot_y_deg: float, rot_z_deg: float) 
     rz = [[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]]
     r_irr = _mat3_mul(rz, _mat3_mul(ry, rx))
 
-    # Similarity transform S * R_irr * S where S = diag(1, 1, -1) flips Z signs
-    # on off-diagonal row/col 2 while preserving det = +1.
+    # Similarity transform S * R_irr * S: S = diag(1, 1, -1) has det(S) = -1,
+    # applied on both sides so R_rbx has det = (-1)^2 * (+1) = +1.
     r_rbx = [
         [r_irr[0][0], r_irr[0][1], -r_irr[0][2]],
         [r_irr[1][0], r_irr[1][1], -r_irr[1][2]],

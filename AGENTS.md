@@ -46,11 +46,14 @@
   No magic numbers in the solver.
 
 ## Verify before claiming done
+    if (!(Test-Path types/globalTypes.d.luau)) { throw "Missing types/globalTypes.d.luau" }
     stylua --check src/ tests/
     selene src/ tests/
-    luau-lsp analyze --sourcemap sourcemap.json src/
+    luau-lsp analyze --definitions=@roblox=types/globalTypes.d.luau --sourcemap sourcemap.json src/
     lune run tests/run.luau
-Run these yourself. Fix failures before reporting success. Feel and visuals
+Run these yourself. Fix failures before reporting success. Missing Roblox global
+definitions (`types/globalTypes.d.luau`) or `[ERROR] Failed to read definitions file`
+is a hard failure — never ignore missing-definitions warnings. Feel and visuals
 require a human playtest — say so; never assert "feels good".
 
 ## Workflow

@@ -269,6 +269,110 @@ class TestStk2Rbx(unittest.TestCase):
             dot = look[0] * step[0] + look[1] * step[1] + look[2] * step[2]
             self.assertGreater(dot, 0.0, f"Quad_{q.index:03d} LookVector opposed successor step")
 
+    @unittest.skipUnless(
+        Path(r"C:\dev\stk-assets\tracks\sandtrack\sandtrack_track.spm").exists(),
+        "sandtrack_track.spm upstream asset not fetched",
+    )
+    def test_sandtrack_spm_winding_audit(self) -> None:
+        spm_path = Path(r"C:\dev\stk-assets\tracks\sandtrack\sandtrack_track.spm")
+        data = spm_path.read_bytes()
+        off = 4
+        flags = data[3]
+        read_normal = bool(flags & 1)
+        read_vcolor = bool(flags & 2)
+        read_tangent = bool(flags & 4)
+        self.assertTrue(read_normal)
+        off += 24
+        mat_count = struct.unpack_from("<H", data, off)[0]
+        off += 2
+        mats: list[tuple[str, str]] = []
+        for _ in range(mat_count):
+            l1 = data[off]
+            off += 1
+            t1 = data[off : off + l1].decode("utf-8", errors="replace")
+            off += l1
+            l2 = data[off]
+            off += 1
+            t2 = data[off : off + l2].decode("utf-8", errors="replace")
+            off += l2
+            mats.append((t1, t2))
+        sec_count = struct.unpack_from("<H", data, off)[0]
+        off += 2
+        self.assertEqual(sec_count, 1)
+        sub_count = struct.unpack_from("<H", data, off)[0]
+        off += 2
+
+        def _s10(v: int) -> float:
+            v &= 0x3FF
+            return (v - 1024) / 511.0 if v >= 512 else v / 511.0
+
+        all_three_verts_opposed = 0
+        non_degenerate_zero_dot = 0
+        road_non_deg_neg = 0
+
+        for _ in range(sub_count):
+            vc, ic, mid = struct.unpack_from("<IIH", data, off)
+            off += 10
+            tex = mats[mid][0]
+            uv1, uv2 = len(mats[mid][0]) > 0, len(mats[mid][1]) > 0
+            vs: list[tuple[float, float, float]] = []
+            ns: list[tuple[float, float, float]] = []
+            for _ in range(vc):
+                px, py, pz = struct.unpack_from("<fff", data, off)
+                off += 12
+                vs.append((px, py, pz))
+                pn = struct.unpack_from("<I", data, off)[0]
+                off += 4
+                ns.append((_s10(pn), _s10(pn >> 10), _s10(pn >> 20)))
+                if read_vcolor:
+                    ci = data[off]
+                    off += 1
+                    if ci != 128:
+                        off += 3
+                if uv1:
+                    off += 4
+                    if uv2:
+                        off += 4
+                    if read_tangent:
+                        off += 4
+
+            idx_fmt = "<I" if vc > 65535 else ("<H" if vc > 255 else "<B")
+            sz = struct.calcsize(idx_fmt)
+            idxs = [struct.unpack_from(idx_fmt, data, off + k * sz)[0] for k in range(ic)]
+            off += ic * sz
+
+            flipped = flip_triangle_winding(idxs)
+            for t in range(0, len(flipped), 3):
+                # Test in Roblox RH frame after S = diag(1, 1, -1) and flip_triangle_winding
+                i0, i1, i2 = flipped[t], flipped[t + 1], flipped[t + 2]
+                p0 = (vs[i0][0], vs[i0][1], -vs[i0][2])
+                p1 = (vs[i1][0], vs[i1][1], -vs[i1][2])
+                p2 = (vs[i2][0], vs[i2][1], -vs[i2][2])
+                e1 = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+                e2 = (p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])
+                cx = e1[1] * e2[2] - e1[2] * e2[1]
+                cy = e1[2] * e2[0] - e1[0] * e2[2]
+                cz = e1[0] * e2[1] - e1[1] * e2[0]
+                area = 0.5 * math.sqrt(cx * cx + cy * cy + cz * cz)
+                n_avg = stk_to_rbx_normal(
+                    (ns[i0][0] + ns[i1][0] + ns[i2][0]) / 3.0,
+                    (ns[i0][1] + ns[i1][1] + ns[i2][1]) / 3.0,
+                    (ns[i0][2] + ns[i1][2] + ns[i2][2]) / 3.0,
+                )
+                d = cx * n_avg[0] + cy * n_avg[1] + cz * n_avg[2]
+                if d == 0.0 and area >= 1e-6:
+                    non_degenerate_zero_dot += 1
+                if d < 0.0 and area >= 1e-5:
+                    if tex == "road.jpg":
+                        road_non_deg_neg += 1
+                    n_verts = [stk_to_rbx_normal(*ns[idx]) for idx in (i0, i1, i2)]
+                    if all(cx * nv[0] + cy * nv[1] + cz * nv[2] < 0.0 for nv in n_verts):
+                        all_three_verts_opposed += 1
+
+        self.assertEqual(non_degenerate_zero_dot, 0)
+        self.assertEqual(road_non_deg_neg, 0)
+        self.assertEqual(all_three_verts_opposed, 0)
+
     def test_xml_and_mesh_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tdir = Path(tmp) / "testtrack"
