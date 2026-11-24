@@ -1,2 +1,3 @@
 | Asset | Author | Source URL | License | Changes |
 |---|---|---|---|---|
+| `roblox/tracks/sandtrack.model.json` | ctdabomb, Benau, SuperTuxKart team (`stk-assets` rev `18627`, `tracks/sandtrack/licenses.txt` & `License.txt`) | https://svn.code.sf.net/p/supertuxkart/code/stk-assets/tracks/sandtrack/ | GPL-3.0-or-later / CC-BY-SA 3.0 / CC-BY-SA 4.0 (derived XML geometry & mesh bounding metadata only; no raw textures/meshes copied) | Converted track/scene/quads/graph XMLs to Rojo `.model.json` driveline slabs, checkpoints, item markers, and mesh-audited object proxies via `tools/stk2rbx`. |

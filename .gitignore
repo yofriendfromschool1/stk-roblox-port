@@ -9,4 +9,6 @@ secrets/
 *.rbxl
 *.exe
 .upstream/
+__pycache__/
+*.pyc
 
