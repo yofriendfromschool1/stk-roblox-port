@@ -1,0 +1,12 @@
+*.rbxlx.lock
+*.rbxl.lock
+sourcemap.json
+/Packages
+/build
+/telemetry
+.env
+secrets/
+*.rbxl
+*.exe
+.upstream/
+
