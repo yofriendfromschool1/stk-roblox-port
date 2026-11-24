@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.exe  binary
+*.png  binary
+*.jpg  binary
+*.ogg  binary
+*.wav  binary
+*.mp3  binary
+*.spm  binary
+*.b3d  binary
+*.rbxm binary
+*.rbxl binary
