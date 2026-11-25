@@ -113,18 +113,81 @@ return {
 		end,
 	},
 	{
-		name = "PowerupManager gated to IMPLEMENTED_POWERUPS only rolls implemented behaviors",
+		name = "PowerupManager gated to IMPLEMENTED_POWERUPS rolls BUBBLEGUM and ZIPPER proportionally",
 		fn = function()
 			local gated = PowerupManager.new("NORMAL_RACE", 1, ItemTuning.IMPLEMENTED_POWERUPS)
 			local weights = gated:getRankWeights(1)
-			assertEqual(weights.total, 140, "gated total equals implemented bubblegum weight")
+			assertEqual(weights.total, 240, "gated total equals BUBBLEGUM(140) + ZIPPER(100)")
 			assertEqual(weights.single[ItemTuning.POWERUP_BUBBLEGUM], 140, "bubblegum weight preserved")
+			assertEqual(weights.single[ItemTuning.POWERUP_ZIPPER], 100, "zipper weight preserved")
 			assertEqual(weights.single[ItemTuning.POWERUP_BOWLING], 0, "unimplemented bowling zeroed")
-			for seed = 0, 19 do
-				local pid, cnt = gated:getRandomPowerup(1, seed * 37, 0.0)
-				assertEqual(pid, ItemTuning.POWERUP_BUBBLEGUM, "gated roll yields bubblegum")
+			local sawBubble = false
+			local sawZipper = false
+			for seed = 0, 239 do
+				local pid, cnt = gated:getRandomPowerup(1, seed, 0.0)
+				assert(
+					pid == ItemTuning.POWERUP_BUBBLEGUM or pid == ItemTuning.POWERUP_ZIPPER,
+					"gated roll yields only implemented powerups"
+				)
 				assertEqual(cnt, 1, "gated roll count=1")
+				if pid == ItemTuning.POWERUP_BUBBLEGUM then
+					sawBubble = true
+				elseif pid == ItemTuning.POWERUP_ZIPPER then
+					sawZipper = true
+				end
 			end
+			assert(sawBubble and sawZipper, "gated table rolls both bubblegum and zipper")
+		end,
+	},
+	{
+		name = "PowerupManager 10000-roll solo distribution matches upstream data/powerup.xml weights",
+		fn = function()
+			local mgr = PowerupManager.new("NORMAL_RACE", 1, nil)
+			local weights = mgr:getRankWeights(1)
+			local counts = table.create(ItemTuning.POWERUP_LAST, 0)
+			local nRolls = 10000
+			math.randomseed(42)
+			for _ = 1, nRolls do
+				local seed = math.random(0, 2147483646)
+				local pid, _ = mgr:getRandomPowerup(1, seed, 20.0)
+				counts[pid] += 1
+			end
+			for i = ItemTuning.POWERUP_FIRST, ItemTuning.POWERUP_LAST do
+				local expectedFrac = (weights.single[i] + weights.multi[i]) / weights.total
+				local actualFrac = counts[i] / nRolls
+				assertNear(
+					actualFrac,
+					expectedFrac,
+					0.015,
+					"10000-roll distribution for " .. ItemTuning.POWERUP_NAMES[i]
+				)
+			end
+		end,
+	},
+	{
+		name = "PA_FIRE on POWERUP_ZIPPER triggers MaxSpeed ZIPPER boost and consumes charge",
+		fn = function()
+			local world = makeFlatPlaneWorld(0.0)
+			local profile = KartTuning.buildProfile("medium", "best")
+			local state = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			state.linVel = { x = 0, y = 0, z = 20.0 }
+			state.speed = 20.0
+			local itemWorld = ItemWorld.createEmpty("NORMAL_RACE")
+			KartSolver.setPowerup(state, ItemTuning.POWERUP_ZIPPER, 1)
+
+			KartSolver.stepWithItems(state, {
+				accel = 1.0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				fire = true,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 3 })
+
+			assertEqual(state.heldPowerup, ItemTuning.POWERUP_NONE, "ZIPPER consumed")
+			assertEqual(state.heldPowerupCount, 0, "ZIPPER charge decremented to 0")
+			assert(state.maxSpeedState.increases["ZIPPER"] ~= nil, "ZIPPER MaxSpeed category active")
+			assertNear(state.speed, 24.5, 0.5, "ZIPPER grants instant +4.5 m/s speed gain")
+			assertEqual(#itemWorld.items, 0, "ZIPPER does not drop a hazard")
 		end,
 	},
 	{

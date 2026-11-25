@@ -172,7 +172,7 @@ local function hydrateModelFolder(folder: Instance?, boundsLookup: { [string]: {
 		if allReady and boundsLookup ~= nil then
 			local expected = boundsLookup[assetModel.Name]
 			if expected ~= nil then
-				KartAssetHydrator.assertSubmeshBounds(assetModel, expected, TuxBoundsData.TOLERANCE_STUDS)
+				KartAssetHydrator.assertSubmeshBounds(assetModel, expected, ItemBoundsData.TOLERANCE_STUDS)
 			end
 		end
 		assetModel:SetAttribute("MeshesHydrated", allReady)
@@ -197,11 +197,22 @@ function KartAssetHydrator.hydrateAll(): number
 		end
 		itemBounds[itemId] = byPart
 	end
-	local itemsCount = hydrateModelFolder(assets:FindFirstChild("Items"), nil)
+	local itemsCount = hydrateModelFolder(assets:FindFirstChild("Items"), itemBounds)
 	local itemsFolder = assets:FindFirstChild("Items")
 	if itemsFolder then
 		for _, itemModel in itemsFolder:GetChildren() do
-			if itemModel:IsA("Model") and itemModel:GetAttribute("HasUploadedMeshes") == true then
+			if itemModel:IsA("Model") then
+				for _, child in itemModel:GetChildren() do
+					if child:IsA("BasePart") and not child:IsA("MeshPart") then
+						error(
+							string.format(
+								"[OpenKart] Non-MeshPart '%s' found in item template '%s'",
+								child.Name,
+								itemModel.Name
+							)
+						)
+					end
+				end
 				local expected = itemBounds[itemModel.Name]
 				if expected ~= nil then
 					KartAssetHydrator.assertSubmeshBounds(itemModel, expected, ItemBoundsData.TOLERANCE_STUDS)

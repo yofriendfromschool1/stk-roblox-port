@@ -1,0 +1,27 @@
+<roblox version="4">
+  <Item class="Model" referent="RBX0">
+    <Properties>
+      <string name="Name">bubblegum</string>
+      <BinaryString name="AttributesSerialize">BgAAAAYAAABJdGVtSWQCCQAAAGJ1YmJsZWd1bQsAAABTb3VyY2VNb2RlbAINAAAAYnViYmxlZ3VtLnNwbQYAAABYbWxLZXkCCQAAAGJ1YmJsZWd1bQ4AAABTb3VyY2VSZXZpc2lvbgIFAAAAMTg2MjcNAAAATWV0ZXJzUGVyU3R1ZAYAAAAAAADwPxEAAABIYXNVcGxvYWRlZE1lc2hlcwMB</BinaryString>
+    </Properties>
+    <Item class="MeshPart" referent="RBX1">
+      <Properties>
+        <string name="Name">Main</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://113585863042816</url></Content>
+        <Content name="TextureID"><url>rbxassetid://105928017738116</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>2.199</X><Y>0.3196</Y><Z>2.1906</Z></Vector3>
+        <Vector3 name="size"><X>2.199</X><Y>0.3196</Y><Z>2.1906</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>-0.00617</X><Y>0.15982</Y><Z>0.0606</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzExMzU4NTg2MzA0MjgxNgcAAABHbGJGaWxlAhcAAABidWJibGVndW0vYnViYmxlZ3VtLmdsYg4AAABTb3VyY2VNYXRlcmlhbAINAAAAYnViYmxlZ3VtLnBuZwsAAABWZXJ0ZXhDb3VudAYAAAAAAIBmQA0AAABUcmlhbmdsZUNvdW50BgAAAAAAYHNADgAAAEltcG9ydEZsaXBZMTgwAwEJAAAATG9jYWxQb3NYBvYLdsO2RXm/CQAAAExvY2FsUG9zWQaFlJ9U+3TEPwkAAABMb2NhbFBvc1oGgnNGlPYGrz8=</BinaryString>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

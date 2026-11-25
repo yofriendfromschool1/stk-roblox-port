@@ -1,0 +1,46 @@
+<roblox version="4">
+  <Item class="Model" referent="RBX0">
+    <Properties>
+      <string name="Name">nitrotank-small</string>
+      <BinaryString name="AttributesSerialize">BgAAAAYAAABJdGVtSWQCDwAAAG5pdHJvdGFuay1zbWFsbAsAAABTb3VyY2VNb2RlbAITAAAAbml0cm90YW5rLXNtYWxsLnNwbQYAAABYbWxLZXkCCwAAAG5pdHJvLXNtYWxsDgAAAFNvdXJjZVJldmlzaW9uAgUAAAAxODYyNw0AAABNZXRlcnNQZXJTdHVkBgAAAAAAAPA/EQAAAEhhc1VwbG9hZGVkTWVzaGVzAwE=</BinaryString>
+    </Properties>
+    <Item class="MeshPart" referent="RBX1">
+      <Properties>
+        <string name="Name">Bottle</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://110939829171083</url></Content>
+        <Content name="TextureID"><url>rbxassetid://107179474425477</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.4003</X><Y>0.719</Y><Z>0.719</Z></Vector3>
+        <Vector3 name="size"><X>0.4003</X><Y>0.719</Y><Z>0.719</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>-0.0</X><Y>0.44541</Y><Z>-0.03884</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzExMDkzOTgyOTE3MTA4MwcAAABHbGJGaWxlAjkAAABuaXRyb3Rhbmstc21hbGwvbml0cm90YW5rLXNtYWxsXzBfc3RrX21vZF9uaXRyb0JvdHRsZS5nbGIOAAAAU291cmNlTWF0ZXJpYWwCFwAAAHN0a19tb2Rfbml0cm9Cb3R0bGUucG5nCwAAAFZlcnRleENvdW50BgAAAAAAAHFADQAAAFRyaWFuZ2xlQ291bnQGAAAAAADgdkAOAAAASW1wb3J0RmxpcFkxODADAQkAAABMb2NhbFBvc1gGAAAAAAAAAIAJAAAATG9jYWxQb3NZBlLt0/GYgdw/CQAAAExvY2FsUG9zWgbCo40j1uKjvw==</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX2">
+      <Properties>
+        <string name="Name">Logo</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://74243363453916</url></Content>
+        <Content name="TextureID"><url>rbxassetid://136049163003941</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.2831</X><Y>0.5775</Y><Z>0.5775</Z></Vector3>
+        <Vector3 name="size"><X>0.2831</X><Y>0.5775</Y><Z>0.5775</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>-0.0</X><Y>0.43153</Y><Z>-0.02496</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIbAAAAcmJ4YXNzZXRpZDovLzc0MjQzMzYzNDUzOTE2BwAAAEdsYkZpbGUCNwAAAG5pdHJvdGFuay1zbWFsbC9uaXRyb3Rhbmstc21hbGxfMV9zdGtfbW9kX25pdHJvTG9nby5nbGIOAAAAU291cmNlTWF0ZXJpYWwCFQAAAHN0a19tb2Rfbml0cm9Mb2dvLnBuZwsAAABWZXJ0ZXhDb3VudAYAAAAAAAA+QA0AAABUcmlhbmdsZUNvdW50BgAAAAAAAEBADgAAAEltcG9ydEZsaXBZMTgwAwEJAAAATG9jYWxQb3NYBgAAAAAAAACACQAAAExvY2FsUG9zWQZZi08BMJ7bPwkAAABMb2NhbFBvc1oG5SfVPh2Pmb8=</BinaryString>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

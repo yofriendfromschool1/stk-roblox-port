@@ -30,19 +30,19 @@ local GAUGE_FULL_BRIGHT_ASSET = "rbxassetid://103689241713508"
 -- Tux character by Larry Ewing using The GIMP; audited in assets/CREDITS.md)
 local TUX_ICON_ASSET = "rbxassetid://106784086588016"
 
--- Powerup HUD icons mapped per data/powerup.xml & DEP-5 re-audit (data/gui/icons/licenses.txt:L13-L24 + data/models/licenses.txt).
--- Empty strings await Creator upload approval for assets/gui/icons/; fallback renders a clean bordered slot badge.
+-- Powerup HUD icons mapped per data/powerup.xml & DEP-5 re-audit (data/gui/icons/licenses.txt:L13-L24 + data/models/licenses.txt;
+-- audited in assets/CREDITS.md, uploaded via upload_image).
 local POWERUP_ICON_ASSETS: { [number]: string } = {
-	[ItemTuning.POWERUP_BUBBLEGUM] = "",
-	[ItemTuning.POWERUP_CAKE] = "",
-	[ItemTuning.POWERUP_BOWLING] = "",
-	[ItemTuning.POWERUP_ZIPPER] = "",
-	[ItemTuning.POWERUP_PLUNGER] = "",
-	[ItemTuning.POWERUP_SWITCH] = "",
-	[ItemTuning.POWERUP_SWATTER] = "",
-	[ItemTuning.POWERUP_RUBBERBALL] = "",
-	[ItemTuning.POWERUP_PARACHUTE] = "",
-	[ItemTuning.POWERUP_ANVIL] = "",
+	[ItemTuning.POWERUP_BUBBLEGUM] = "rbxassetid://101181393814939",
+	[ItemTuning.POWERUP_CAKE] = "rbxassetid://79582540802688",
+	[ItemTuning.POWERUP_BOWLING] = "rbxassetid://130692326246436",
+	[ItemTuning.POWERUP_ZIPPER] = "rbxassetid://105041309293311",
+	[ItemTuning.POWERUP_PLUNGER] = "rbxassetid://101469144956890",
+	[ItemTuning.POWERUP_SWITCH] = "rbxassetid://106092822459296",
+	[ItemTuning.POWERUP_SWATTER] = "rbxassetid://126762223468459",
+	[ItemTuning.POWERUP_RUBBERBALL] = "rbxassetid://73902710731702",
+	[ItemTuning.POWERUP_PARACHUTE] = "rbxassetid://84448883940909",
+	[ItemTuning.POWERUP_ANVIL] = "rbxassetid://85031117296474",
 }
 
 local RANK_ANIM_DURATION_SEC = 0.4 -- race_gui.cpp:L953

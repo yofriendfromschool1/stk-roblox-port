@@ -16,11 +16,12 @@ from .kart_emit import (
     _make_mesh_part,
     _part_metrics,
     convert_submesh_to_rbx,
+    emit_kart_rbxmx,
     read_spm_mesh,
     verify_submesh_outward_winding,
     write_glb_scene,
 )
-from .rbx_emit import IDENTITY_MAT3, _encode_attributes, _make_part
+from .rbx_emit import IDENTITY_MAT3, _encode_attributes
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,7 @@ class ItemDef:
     item_id: str
     spm_file: str
     xml_key: str
-    emit_model_json: bool = False
+    emit_model_json: bool = True
 
 
 AUTHORITATIVE_ITEMS: tuple[ItemDef, ...] = (
@@ -37,17 +38,17 @@ AUTHORITATIVE_ITEMS: tuple[ItemDef, ...] = (
     ItemDef("nitrotank-big", "nitrotank-big.spm", "nitro-big", emit_model_json=True),
     ItemDef("nitrotank-small", "nitrotank-small.spm", "nitro-small", emit_model_json=True),
     ItemDef("bubblegum", "bubblegum.spm", "bubblegum", emit_model_json=True),
-    ItemDef("bubblegum-nolok", "bubblegum-nolok.spm", "bubblegum-nolok", emit_model_json=False),
-    ItemDef("easter_egg", "easter_egg.spm", "easter-egg", emit_model_json=False),
-    ItemDef("bowling", "bowling.spm", "bowling", emit_model_json=False),
-    ItemDef("cake", "cake.spm", "cake", emit_model_json=False),
-    ItemDef("anchor", "anchor.spm", "anchor", emit_model_json=False),
-    ItemDef("rubber_ball", "rubber_ball.spm", "rubber-ball", emit_model_json=False),
-    ItemDef("parachute", "parachute.spm", "parachute", emit_model_json=False),
-    ItemDef("plunger", "plunger.spm", "plunger", emit_model_json=False),
-    ItemDef("swatter", "swatter.spm", "swatter", emit_model_json=False),
-    ItemDef("bomb", "bomb.spm", "bomb", emit_model_json=False),
-    ItemDef("bubblegum_shield", "bubblegum_shield.spm", "bubblegum-shield", emit_model_json=False),
+    ItemDef("bubblegum-nolok", "bubblegum-nolok.spm", "bubblegum-nolok", emit_model_json=True),
+    ItemDef("easter_egg", "easter_egg.spm", "easter-egg", emit_model_json=True),
+    ItemDef("bowling", "bowling.spm", "bowling", emit_model_json=True),
+    ItemDef("cake", "cake.spm", "cake", emit_model_json=True),
+    ItemDef("anchor", "anchor.spm", "anchor", emit_model_json=True),
+    ItemDef("rubber_ball", "rubber_ball.spm", "rubber-ball", emit_model_json=True),
+    ItemDef("parachute", "parachute.spm", "parachute", emit_model_json=True),
+    ItemDef("plunger", "plunger.spm", "plunger", emit_model_json=True),
+    ItemDef("swatter", "swatter.spm", "swatter", emit_model_json=True),
+    ItemDef("bomb", "bomb.spm", "bomb", emit_model_json=True),
+    ItemDef("bubblegum_shield", "bubblegum_shield.spm", "bubblegum-shield", emit_model_json=True),
 )
 
 SUBMESH_FRIENDLY_NAMES: dict[str, str] = {
@@ -83,7 +84,7 @@ def _emit_bounds_lua(items_report: list[dict[str, Any]], out_lua: Path, revision
         "",
         "local ItemBoundsData = {}",
         "",
-        "ItemBoundsData.TOLERANCE_STUDS = 0.01",
+        "ItemBoundsData.TOLERANCE_STUDS = 0.002",
         "",
         "ItemBoundsData.items = table.freeze({",
     ]
@@ -113,68 +114,55 @@ def _build_item_model_json(
     manifest_items: dict[str, Any],
     revision: str,
 ) -> dict[str, Any]:
-    item_meta = manifest_items.get(item_entry["item_id"], {})
+    item_id = item_entry["item_id"]
+    item_meta = manifest_items.get(item_id, {})
     parts_meta = item_meta.get("parts", {})
     children: list[dict[str, Any]] = []
-    has_uploaded = False
 
     for sp in item_entry["subparts"]:
         sp_name = sp["part_name"]
         sp_pos = [round(v, 5) for v in sp["world_center_studs"]]
         sp_size, _, _ = stk_to_rbx_size(*sp["size_studs"], min_studs=0.05)
         p_meta = parts_meta.get(sp_name)
+        if not (p_meta and p_meta.get("meshId")):
+            raise ValueError(
+                f"Missing uploaded meshId for {item_id}.{sp_name} in manifest (primitive Part fallback disabled)"
+            )
+        flip_y180 = bool(p_meta.get("importFlipY180", False))
         attrs: dict[str, Any] = {
             "GlbFile": sp["glb_file"],
             "SourceMaterial": sp["texture_1"],
             "VertexCount": sp["vertex_count"],
             "TriangleCount": sp["triangle_count"],
+            "ImportFlipY180": flip_y180,
             "LocalPosX": sp_pos[0],
             "LocalPosY": sp_pos[1],
             "LocalPosZ": sp_pos[2],
         }
-        if p_meta and p_meta.get("meshId"):
-            has_uploaded = True
-            flip_y180 = bool(p_meta.get("importFlipY180", False))
-            attrs["ImportFlipY180"] = flip_y180
-            children.append(
-                _make_mesh_part(
-                    name=sp_name,
-                    mesh_id=p_meta["meshId"],
-                    texture_id=p_meta.get("textureId", ""),
-                    size=sp_size,
-                    pos=sp_pos,
-                    orient=FLIP_Y180_MAT3 if flip_y180 else IDENTITY_MAT3,
-                    material=p_meta.get("robloxMaterial", "SmoothPlastic"),
-                    attributes=attrs,
-                )
+        children.append(
+            _make_mesh_part(
+                name=sp_name,
+                mesh_id=p_meta["meshId"],
+                texture_id=p_meta.get("textureId", ""),
+                size=sp_size,
+                pos=sp_pos,
+                orient=FLIP_Y180_MAT3 if flip_y180 else IDENTITY_MAT3,
+                material=p_meta.get("robloxMaterial", "SmoothPlastic"),
+                attributes=attrs,
             )
-        else:
-            children.append(
-                _make_part(
-                    name=sp_name,
-                    size=sp_size,
-                    pos=sp_pos,
-                    orient=IDENTITY_MAT3,
-                    color=[0.95, 0.85, 0.25],
-                    transparency=0.0,
-                    can_collide=False,
-                    can_touch=False,
-                    can_query=False,
-                    attributes=attrs,
-                )
-            )
+        )
 
     return {
         "ClassName": "Model",
         "Properties": {
             "Attributes": _encode_attributes(
                 {
-                    "ItemId": item_entry["item_id"],
+                    "ItemId": item_id,
                     "SourceModel": item_entry["spm_file"],
                     "XmlKey": item_entry["xml_key"],
                     "SourceRevision": revision,
                     "MetersPerStud": METERS_PER_STUD,
-                    "HasUploadedMeshes": has_uploaded,
+                    "HasUploadedMeshes": True,
                 }
             )
         },
@@ -250,8 +238,8 @@ def convert_items(
 
         if item_def.emit_model_json:
             model_doc = _build_item_model_json(entry, manifest_items, revision)
-            (out_models_dir / f"{item_def.item_id}.model.json").write_text(
-                json.dumps(model_doc, indent=2) + "\n", encoding="utf-8"
+            (out_models_dir / f"{item_def.item_id}.rbxmx").write_text(
+                emit_kart_rbxmx(item_def.item_id, model_doc), encoding="utf-8"
             )
 
     full_report = {

@@ -1,0 +1,243 @@
+{
+  "assets_revision": "18627",
+  "meters_per_stud": 1.0,
+  "creator_user_id": "7225229891",
+  "status": "ALL_19_MESHES_AND_15_VERIFIED_TEXTURES_UPLOADED",
+  "items": {
+    "gift-box": {
+      "spm_file": "gift-box.spm",
+      "parts": {
+        "Box": {
+          "glbFile": "build/items/gift-box/gift-box_0_gift-box.glb",
+          "meshId": "rbxassetid://127276263939528",
+          "textureId": "rbxassetid://107846360759656",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "136901640723815"
+        },
+        "Ribbon": {
+          "glbFile": "build/items/gift-box/gift-box_1_gift-loop.glb",
+          "meshId": "rbxassetid://86911603959019",
+          "textureId": "rbxassetid://100000796845527",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "83771315051518"
+        }
+      }
+    },
+    "nitrotank-small": {
+      "spm_file": "nitrotank-small.spm",
+      "parts": {
+        "Bottle": {
+          "glbFile": "build/items/nitrotank-small/nitrotank-small_0_stk_mod_nitroBottle.glb",
+          "meshId": "rbxassetid://110939829171083",
+          "textureId": "rbxassetid://107179474425477",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "110480827015378"
+        },
+        "Logo": {
+          "glbFile": "build/items/nitrotank-small/nitrotank-small_1_stk_mod_nitroLogo.glb",
+          "meshId": "rbxassetid://74243363453916",
+          "textureId": "rbxassetid://136049163003941",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "118229865455944"
+        }
+      }
+    },
+    "nitrotank-big": {
+      "spm_file": "nitrotank-big.spm",
+      "parts": {
+        "Barrel": {
+          "glbFile": "build/items/nitrotank-big/nitrotank-big_0_stk_mod_nitroBarrel.glb",
+          "meshId": "rbxassetid://82088479870838",
+          "textureId": "rbxassetid://106940829877475",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "127367433556724"
+        },
+        "Logo": {
+          "glbFile": "build/items/nitrotank-big/nitrotank-big_1_stk_mod_nitroLogo.glb",
+          "meshId": "rbxassetid://97180557447323",
+          "textureId": "rbxassetid://136049163003941",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "119553436749709"
+        }
+      }
+    },
+    "banana": {
+      "spm_file": "banana.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/banana/banana.glb",
+          "meshId": "rbxassetid://131804762309036",
+          "textureId": "rbxassetid://106173646197072",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "130035441016393"
+        }
+      }
+    },
+    "bubblegum": {
+      "spm_file": "bubblegum.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/bubblegum/bubblegum.glb",
+          "meshId": "rbxassetid://113585863042816",
+          "textureId": "rbxassetid://105928017738116",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "128227266765604"
+        }
+      }
+    },
+    "bubblegum-nolok": {
+      "spm_file": "bubblegum-nolok.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/bubblegum-nolok/bubblegum-nolok.glb",
+          "meshId": "rbxassetid://128373552755946",
+          "textureId": "rbxassetid://103519845976138",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "98395830412764"
+        }
+      }
+    },
+    "bubblegum_shield": {
+      "spm_file": "bubblegum_shield.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/bubblegum_shield/bubblegum_shield.glb",
+          "meshId": "rbxassetid://128447851044490",
+          "textureId": "rbxassetid://80288773666429",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "89487414528365"
+        }
+      }
+    },
+    "cake": {
+      "spm_file": "cake.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/cake/cake.glb",
+          "meshId": "rbxassetid://85501313523818",
+          "textureId": "rbxassetid://82651998785415",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "121917838656896"
+        }
+      }
+    },
+    "bowling": {
+      "spm_file": "bowling.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/bowling/bowling.glb",
+          "meshId": "rbxassetid://101827176710317",
+          "textureId": "rbxassetid://117229361812991",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "82703273461090"
+        }
+      }
+    },
+    "plunger": {
+      "spm_file": "plunger.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/plunger/plunger.glb",
+          "meshId": "rbxassetid://126847769869106",
+          "textureId": "",
+          "unverifiedTexture": "plunger.png (unlisted in data/models/licenses.txt)",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "94188413923570"
+        }
+      }
+    },
+    "rubber_ball": {
+      "spm_file": "rubber_ball.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/rubber_ball/rubber_ball.glb",
+          "meshId": "rbxassetid://106998861157599",
+          "textureId": "",
+          "unverifiedTexture": "balldimpleddark.jpg (licenses.txt:L74 typo balldimpledark.jpg)",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "102976549375979"
+        }
+      }
+    },
+    "parachute": {
+      "spm_file": "parachute.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/parachute/parachute.glb",
+          "meshId": "rbxassetid://82137743983041",
+          "textureId": "",
+          "unverifiedTexture": "parachute.png (unlisted in data/models/licenses.txt)",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "94507501574308"
+        }
+      }
+    },
+    "anchor": {
+      "spm_file": "anchor.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/anchor/anchor.glb",
+          "meshId": "rbxassetid://107034166982502",
+          "textureId": "rbxassetid://75906298613930",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "121505818874678"
+        }
+      }
+    },
+    "bomb": {
+      "spm_file": "bomb.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/bomb/bomb.glb",
+          "meshId": "rbxassetid://84863425496993",
+          "textureId": "rbxassetid://97844507669944",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "112983099415632"
+        }
+      }
+    },
+    "swatter": {
+      "spm_file": "swatter.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/swatter/swatter.glb",
+          "meshId": "rbxassetid://89711722142902",
+          "textureId": "rbxassetid://89673417063080",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "122745302217822"
+        }
+      }
+    },
+    "easter_egg": {
+      "spm_file": "easter_egg.spm",
+      "parts": {
+        "Main": {
+          "glbFile": "build/items/easter_egg/easter_egg.glb",
+          "meshId": "rbxassetid://119350117005418",
+          "textureId": "rbxassetid://105468532473316",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "102581588103773"
+        }
+      }
+    }
+  }
+}

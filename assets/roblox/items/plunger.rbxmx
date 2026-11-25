@@ -1,0 +1,27 @@
+<roblox version="4">
+  <Item class="Model" referent="RBX0">
+    <Properties>
+      <string name="Name">plunger</string>
+      <BinaryString name="AttributesSerialize">BgAAAAYAAABJdGVtSWQCBwAAAHBsdW5nZXILAAAAU291cmNlTW9kZWwCCwAAAHBsdW5nZXIuc3BtBgAAAFhtbEtleQIHAAAAcGx1bmdlcg4AAABTb3VyY2VSZXZpc2lvbgIFAAAAMTg2MjcNAAAATWV0ZXJzUGVyU3R1ZAYAAAAAAADwPxEAAABIYXNVcGxvYWRlZE1lc2hlcwMB</BinaryString>
+    </Properties>
+    <Item class="MeshPart" referent="RBX1">
+      <Properties>
+        <string name="Name">Main</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://126847769869106</url></Content>
+        <Content name="TextureID"><url></url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.3924</X><Y>0.3924</Y><Z>0.8388</Z></Vector3>
+        <Vector3 name="size"><X>0.3924</X><Y>0.3924</Y><Z>0.8388</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.0103</X><Y>0.01939</Y><Z>-0.00823</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzEyNjg0Nzc2OTg2OTEwNgcAAABHbGJGaWxlAhMAAABwbHVuZ2VyL3BsdW5nZXIuZ2xiDgAAAFNvdXJjZU1hdGVyaWFsAgsAAABwbHVuZ2VyLnBuZwsAAABWZXJ0ZXhDb3VudAYAAAAAAIBiQA0AAABUcmlhbmdsZUNvdW50BgAAAAAAAGtADgAAAEltcG9ydEZsaXBZMTgwAwEJAAAATG9jYWxQb3NYBg6+MJkqGIU/CQAAAExvY2FsUG9zWQZ7Tnrf+NqTPwkAAABMb2NhbFBvc1oGl8XE5uPagL8=</BinaryString>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

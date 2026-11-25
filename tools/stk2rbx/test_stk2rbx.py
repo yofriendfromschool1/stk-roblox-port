@@ -751,7 +751,31 @@ class TestStk2Rbx(unittest.TestCase):
         from tools.stk2rbx.item_emit import AUTHORITATIVE_ITEMS, convert_items
         from tools.stk2rbx.spm_writer import SpmSubmesh, SpmVertex, build_box_geometry, write_spmn
 
-        # 1) Synthetic multi-submesh SPMN roundtrip check
+        def make_synthetic_manifest(items_dir: Path, out_manifest: Path) -> Path:
+            items_map: dict[str, Any] = {}
+            for item_def in AUTHORITATIVE_ITEMS:
+                if item_def.spm_file == "gift-box.spm":
+                    parts = {
+                        "Box": {"meshId": "rbxassetid://1001", "textureId": "", "importFlipY180": True},
+                        "Ribbon": {"meshId": "rbxassetid://1002", "textureId": "", "importFlipY180": True},
+                    }
+                elif item_def.spm_file == "nitrotank-big.spm":
+                    parts = {
+                        "Barrel": {"meshId": "rbxassetid://1003", "textureId": "", "importFlipY180": True},
+                        "Logo": {"meshId": "rbxassetid://1004", "textureId": "", "importFlipY180": True},
+                    }
+                elif item_def.spm_file == "nitrotank-small.spm":
+                    parts = {
+                        "Bottle": {"meshId": "rbxassetid://1005", "textureId": "", "importFlipY180": True},
+                        "Logo": {"meshId": "rbxassetid://1006", "textureId": "", "importFlipY180": True},
+                    }
+                else:
+                    parts = {"Main": {"meshId": "rbxassetid://1000", "textureId": "", "importFlipY180": True}}
+                items_map[item_def.item_id] = {"parts": parts}
+            out_manifest.write_text(json.dumps({"items": items_map}), encoding="utf-8")
+            return out_manifest
+
+        # 1) Synthetic multi-submesh SPMN roundtrip check (no primitive Part fallback)
         with tempfile.TemporaryDirectory() as tmp:
             mdir = Path(tmp) / "models"
             mdir.mkdir()
@@ -766,16 +790,38 @@ class TestStk2Rbx(unittest.TestCase):
                             SpmSubmesh("gift-loop.png", v1, i1),
                         ],
                     )
+                elif item_def.spm_file == "nitrotank-big.spm":
+                    v0, i0 = build_box_geometry((0.0, 0.5, 0.0), (0.81, 1.39, 1.39))
+                    v1, i1 = build_box_geometry((0.0, 0.5, 0.0), (0.80, 0.86, 0.86))
+                    write_spmn(
+                        mdir / item_def.spm_file,
+                        [
+                            SpmSubmesh("stk_mod_nitroBarrel.png", v0, i0),
+                            SpmSubmesh("stk_mod_nitroLogo.png", v1, i1),
+                        ],
+                    )
+                elif item_def.spm_file == "nitrotank-small.spm":
+                    v0, i0 = build_box_geometry((0.0, 0.4, 0.0), (0.40, 0.72, 0.72))
+                    v1, i1 = build_box_geometry((0.0, 0.4, 0.0), (0.28, 0.58, 0.58))
+                    write_spmn(
+                        mdir / item_def.spm_file,
+                        [
+                            SpmSubmesh("stk_mod_nitroBottle.png", v0, i0),
+                            SpmSubmesh("stk_mod_nitroLogo.png", v1, i1),
+                        ],
+                    )
                 else:
                     vs, idxs = build_box_geometry((0.0, 0.5, 0.0), (0.6, 1.0, 0.6))
                     write_spmn(mdir / item_def.spm_file, [SpmSubmesh("placeholder.png", vs, idxs)])
 
+            manifest_path = make_synthetic_manifest(mdir, Path(tmp) / "manifest.json")
             rep = convert_items(
                 models_dir=mdir,
                 out_glb_dir=Path(tmp) / "glbs",
                 out_models_dir=Path(tmp) / "rbx_items",
                 report_path=Path(tmp) / "items-report.json",
                 out_bounds_lua=Path(tmp) / "ItemBoundsData.lua",
+                assets_manifest_path=manifest_path,
                 revision="test",
             )
             self.assertEqual(rep["item_count"], len(AUTHORITATIVE_ITEMS))
@@ -783,10 +829,15 @@ class TestStk2Rbx(unittest.TestCase):
             self.assertEqual(len(gb["subparts"]), 2)
             self.assertAlmostEqual(gb["subparts"][0]["size_studs"][0], 0.88, delta=0.001)
             self.assertAlmostEqual(gb["subparts"][1]["size_studs"][1], 0.99, delta=0.001)
+            for item_def in AUTHORITATIVE_ITEMS:
+                rbxmx = (Path(tmp) / "rbx_items" / f"{item_def.item_id}.rbxmx").read_text(encoding="utf-8")
+                self.assertIn('class="MeshPart"', rbxmx)
+                self.assertNotIn('class="Part"', rbxmx)
 
         # 2) Upstream STK 1.5 models bounds audit when installed
         stk_models = Path(r"C:\Program Files\SuperTuxKart 1.5\data\models")
-        if stk_models.is_dir():
+        manifest_file = Path("assets/items/roblox_assets.json")
+        if stk_models.is_dir() and manifest_file.is_file():
             with tempfile.TemporaryDirectory() as tmp:
                 rep = convert_items(
                     models_dir=stk_models,
@@ -794,6 +845,7 @@ class TestStk2Rbx(unittest.TestCase):
                     out_models_dir=Path(tmp) / "rbx_items",
                     report_path=Path(tmp) / "items-report.json",
                     out_bounds_lua=Path(tmp) / "ItemBoundsData.lua",
+                    assets_manifest_path=manifest_file,
                     revision="18627",
                 )
                 by_id = {it["item_id"]: it for it in rep["items"]}

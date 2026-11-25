@@ -1496,15 +1496,37 @@ function KartSolver.stepWithItems(
 	state.fireWasDown = fireDown
 
 	if fireClicked and itemWorld ~= nil and state.heldPowerupCount > 0 then
+		local firedPowerup = state.heldPowerup
 		state.heldPowerupCount -= 1
 		if state.heldPowerupCount <= 0 then
 			state.heldPowerup = ItemTuning.POWERUP_NONE
 			state.heldPowerupCount = 0
 		end
-		local _, _, fwd = Math3D.quatBasis(state.rot)
-		local backDist = 0.5 * state.profile.length + ItemTuning.geometry.BANANA_DROP_CLEARANCE
-		local dropPos = Math3D.sub(state.pos, Math3D.scale(fwd, backDist))
-		ItemWorld.dropBanana(itemWorld, dropPos, options.kartId or 1, worldQuery)
+		if firedPowerup == ItemTuning.POWERUP_ZIPPER then
+			-- Ported from src/items/powerup.cpp:L285-L287 & kart.cpp handleZipper
+			local z = KartTuning.zipper
+			local instantMinSpeed = MaxSpeed.instantSpeedIncrease(
+				state.maxSpeedState,
+				"ZIPPER",
+				z.maxSpeedIncrease,
+				z.speedGain,
+				z.force,
+				FixedStep.timeToTicks(z.duration),
+				FixedStep.timeToTicks(z.fadeOutTime),
+				math.max(0.0, state.speed),
+				state.isOnGround
+			)
+			if instantMinSpeed > state.speed then
+				local _, _, fwd = Math3D.quatBasis(state.rot)
+				state.linVel = Math3D.add(state.linVel, Math3D.scale(fwd, instantMinSpeed - state.speed))
+				state.speed = instantMinSpeed
+			end
+		else
+			local _, _, fwd = Math3D.quatBasis(state.rot)
+			local backDist = 0.5 * state.profile.length + ItemTuning.geometry.BANANA_DROP_CLEARANCE
+			local dropPos = Math3D.sub(state.pos, Math3D.scale(fwd, backDist))
+			ItemWorld.dropBanana(itemWorld, dropPos, options.kartId or 1, worldQuery)
+		end
 	end
 
 	if itemWorld == nil then

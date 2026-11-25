@@ -2,11 +2,13 @@
 -- src/client/items/ItemPresentation.lua
 -- SPDX-License-Identifier: GPL-3.0-or-later
 -- ported from src/items/item.cpp:L458-L508, src/items/item.hpp:L415 (STK 1.5)
--- Non-yielding visual renderer for arena pickups & dropped hazards.
--- Prefers hydrated ReplicatedStorage.Assets.Items templates (with live MeshPart.Size/MeshSize
--- assertions against ItemBoundsData.lua); falls back immediately without yielding to exact
--- ItemBoundsData-sized submesh Parts when a template is absent or unhydrated, upgrading cleanly
--- once ready. Applies STK spin (3.0 rad/s = 120/40 for rotating items) and 1.0s respawn appear scale.
+-- Visual renderer for arena pickups & dropped hazards.
+-- Strictly requires hydrated MeshPart templates from ReplicatedStorage.Assets.Items
+-- (zero primitive Part fallbacks) and asserts live MeshId + 2 mm bounds against ItemBoundsData.
+-- Bubblegum visual roles:
+--   - Held powerup: HUD icon bubblegum-icon.png (bound in GameHud.client.lua)
+--   - Dropped road hazard: bubblegum.rbxmx (gum mesh below)
+--   - Forward-fired shield bubble: bubblegum_shield.rbxmx (in Assets.Items; Attachment runtime flagged in port-map.md)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -17,7 +19,7 @@ local ItemWorld = require(Shared.items.ItemWorld)
 local Units = require(Shared.Units)
 
 export type VisualSubpart = {
-	part: BasePart,
+	part: MeshPart,
 	localPos: Vector3,
 	baseRot: CFrame,
 	baseSize: Vector3,
@@ -28,7 +30,6 @@ export type ItemVisualInstance = {
 	modelId: string,
 	container: Model,
 	subparts: { VisualSubpart },
-	usingFallback: boolean,
 	wasAvailable: boolean,
 	respawnAnimStartSec: number?,
 }
@@ -46,16 +47,6 @@ local TYPE_TO_MODEL_ID: { [ItemWorld.ItemType]: string } = {
 	["bubblegum"] = "bubblegum",
 }
 
-local TYPE_FALLBACK_COLORS: { [string]: Color3 } = {
-	["nitrotank-small"] = Color3.fromRGB(70, 175, 255),
-	["nitrotank-big"] = Color3.fromRGB(0, 225, 255),
-	["gift-box"] = Color3.fromRGB(255, 205, 45),
-	["banana"] = Color3.fromRGB(255, 235, 45),
-	["bubblegum"] = Color3.fromRGB(246, 150, 209),
-}
-
-local warnedState: { [string]: boolean } = {}
-
 local ItemPresentation = {}
 
 -- Strictly non-yielding lookup so BindToRenderStep never stalls waiting on missing assets.
@@ -72,7 +63,10 @@ local function resolveReadyItemTemplate(modelId: string): Model?
 	if not (template and template:IsA("Model")) then
 		return nil
 	end
-	if template:GetAttribute("HasUploadedMeshes") == true and template:GetAttribute("MeshesHydrated") ~= true then
+	if template:GetAttribute("HasUploadedMeshes") ~= true then
+		error(string.format("[OpenKart] Item template %s missing HasUploadedMeshes=true", modelId))
+	end
+	if template:GetAttribute("MeshesHydrated") ~= true then
 		return nil
 	end
 	return template
@@ -84,6 +78,11 @@ local function assertItemLiveBounds(model: Model, modelId: string)
 		return
 	end
 	local tol = ItemBoundsData.TOLERANCE_STUDS
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and not child:IsA("MeshPart") then
+			error(string.format("[OpenKart] Primitive BasePart '%s' forbidden in item %s", child.Name, modelId))
+		end
+	end
 	for partName, expected in expectedParts do
 		local child = model:FindFirstChild(partName)
 		if not (child and child:IsA("MeshPart")) then
@@ -97,6 +96,9 @@ local function assertItemLiveBounds(model: Model, modelId: string)
 			or math.abs(mp.Size.X - expSize[1]) > tol
 			or math.abs(mp.Size.Y - expSize[2]) > tol
 			or math.abs(mp.Size.Z - expSize[3]) > tol
+			or math.abs(mp.MeshSize.X - expSize[1]) > tol
+			or math.abs(mp.MeshSize.Y - expSize[2]) > tol
+			or math.abs(mp.MeshSize.Z - expSize[3]) > tol
 		then
 			error(
 				string.format(
@@ -118,119 +120,53 @@ local function assertItemLiveBounds(model: Model, modelId: string)
 	end
 end
 
-local function buildBoundsFallback(
-	entryId: number,
-	modelId: string,
-	folder: Folder,
-	initiallyAvailable: boolean
-): ItemVisualInstance
-	local container = Instance.new("Model")
-	container.Name = string.format("Item_%d_%s", entryId, modelId)
-	local subparts: { VisualSubpart } = {}
-	local expectedParts = ItemBoundsData.items[modelId]
-	local color = TYPE_FALLBACK_COLORS[modelId] or Color3.fromRGB(255, 220, 60)
-
-	if expectedParts ~= nil then
-		for partName, info in expectedParts do
-			local p = Instance.new("Part")
-			p.Name = partName
-			p.Anchored = true
-			p.CanCollide = false
-			p.CanTouch = false
-			p.CanQuery = false
-			p.Massless = true
-			p.TopSurface = Enum.SurfaceType.Smooth
-			p.BottomSurface = Enum.SurfaceType.Smooth
-			p.Material = Enum.Material.SmoothPlastic
-			p.Color = if partName == "Logo" or partName == "Ribbon" then Color3.fromRGB(245, 248, 255) else color
-			local sizeVec = Vector3.new(info.size[1], info.size[2], info.size[3])
-			p.Size = sizeVec
-			p.Parent = container
-			table.insert(subparts, {
-				part = p :: BasePart,
-				localPos = Vector3.new(info.center[1], info.center[2], info.center[3]),
-				baseRot = CFrame.identity,
-				baseSize = sizeVec,
-			})
-		end
+local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): ItemVisualInstance?
+	local modelId = TYPE_TO_MODEL_ID[entry.itemType]
+	if modelId == nil then
+		error(string.format("[OpenKart] Unmapped ItemType '%s' for MeshPart lookup", tostring(entry.itemType)))
 	end
-
-	container.Parent = folder
-	return {
-		id = entryId,
-		modelId = modelId,
-		container = container,
-		subparts = subparts,
-		usingFallback = true,
-		wasAvailable = initiallyAvailable,
-		respawnAnimStartSec = nil,
-	}
-end
-
-local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): ItemVisualInstance
-	local modelId = TYPE_TO_MODEL_ID[entry.itemType] or "banana"
 	local initiallyAvailable = entry.ticksTillReturn <= 0
 	local template = resolveReadyItemTemplate(modelId)
 	if template == nil then
-		if not warnedState[modelId .. "_fallback"] then
-			warnedState[modelId .. "_fallback"] = true
-			warn(
-				string.format(
-					"[OpenKart] ReplicatedStorage.Assets.Items.%s unavailable; rendering ItemBoundsData-sized Parts without yielding",
-					modelId
-				)
-			)
-		end
-		return buildBoundsFallback(entry.id, modelId, folder, initiallyAvailable)
+		return nil
 	end
 
 	local cloned = template:Clone()
 	cloned.Name = string.format("Item_%d_%s", entry.id, modelId)
-
-	local hasMeshes = cloned:GetAttribute("HasUploadedMeshes") == true
-	if hasMeshes then
-		assertItemLiveBounds(cloned, modelId)
-	elseif not warnedState[modelId .. "_noupload"] then
-		warnedState[modelId .. "_noupload"] = true
-		warn(
-			string.format(
-				"[OpenKart] Item %s has HasUploadedMeshes=false; awaiting Roblox asset IDs in assets/items/roblox_assets.json",
-				modelId
-			)
-		)
-	end
+	assertItemLiveBounds(cloned, modelId)
 
 	local subparts: { VisualSubpart } = {}
 	for _, child in cloned:GetChildren() do
-		if child:IsA("BasePart") then
-			local bp = child :: BasePart
-			bp.Anchored = true
-			bp.CanCollide = false
-			bp.CanTouch = false
-			bp.CanQuery = false
-			bp.Massless = true
-			if not bp:IsA("MeshPart") then
-				bp.Color = TYPE_FALLBACK_COLORS[modelId] or bp.Color
-				bp.Material = Enum.Material.SmoothPlastic
-			end
-			local lx = bp:GetAttribute("LocalPosX")
-			local ly = bp:GetAttribute("LocalPosY")
-			local lz = bp:GetAttribute("LocalPosZ")
+		if child:IsA("MeshPart") then
+			local mp = child :: MeshPart
+			mp.Anchored = true
+			mp.CanCollide = false
+			mp.CanTouch = false
+			mp.CanQuery = false
+			mp.Massless = true
+			local lx = mp:GetAttribute("LocalPosX")
+			local ly = mp:GetAttribute("LocalPosY")
+			local lz = mp:GetAttribute("LocalPosZ")
 			local localPos = if type(lx) == "number"
 					and type(ly) == "number"
 					and type(lz) == "number"
 				then Vector3.new(lx, ly, lz)
-				else bp.Position
-			local baseRot = if bp:GetAttribute("ImportFlipY180") == true
+				else mp.Position
+			local baseRot = if mp:GetAttribute("ImportFlipY180") == true
 				then CFrame.Angles(0, math.pi, 0)
 				else CFrame.identity
 			table.insert(subparts, {
-				part = bp,
+				part = mp,
 				localPos = localPos,
 				baseRot = baseRot,
-				baseSize = bp.Size,
+				baseSize = mp.Size,
 			})
+		elseif child:IsA("BasePart") then
+			error(string.format("[OpenKart] Non-MeshPart '%s' inside cloned item %s", child.Name, modelId))
 		end
+	end
+	if #subparts == 0 then
+		error(string.format("[OpenKart] Cloned item %s has zero MeshPart children", modelId))
 	end
 
 	cloned.Parent = folder
@@ -239,7 +175,6 @@ local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): It
 		modelId = modelId,
 		container = cloned,
 		subparts = subparts,
-		usingFallback = false,
 		wasAvailable = initiallyAvailable,
 		respawnAnimStartSec = nil,
 	}
@@ -265,30 +200,15 @@ function ItemPresentation.sync(ctrl: ItemPresentationController, itemWorld: Item
 	for _, entry in itemWorld.items do
 		seen[entry.id] = true
 		local vis: ItemVisualInstance? = ctrl.instances[entry.id]
-		local prevWasAvailable: boolean? = nil
-		local prevRespawnAnimStartSec: number? = nil
-		if vis ~= nil and vis.usingFallback then
-			local readyTemplate = resolveReadyItemTemplate(vis.modelId)
-			if readyTemplate ~= nil then
-				prevWasAvailable = vis.wasAvailable
-				prevRespawnAnimStartSec = vis.respawnAnimStartSec
-				vis.container:Destroy()
-				ctrl.instances[entry.id] = nil
-				vis = nil
-			end
-		end
-		local activeVis: ItemVisualInstance
 		if vis == nil then
 			local created = instantiateVisual(entry, ctrl.folder)
-			if prevWasAvailable ~= nil then
-				created.wasAvailable = prevWasAvailable
-				created.respawnAnimStartSec = prevRespawnAnimStartSec
+			if created == nil then
+				continue
 			end
 			ctrl.instances[entry.id] = created
-			activeVis = created
-		else
-			activeVis = vis
+			vis = created
 		end
+		local activeVis = vis :: ItemVisualInstance
 		local originPos = Vector3.new(
 			Units.metersToStuds(entry.pos.x),
 			Units.metersToStuds(entry.pos.y),

@@ -66,3 +66,8 @@ require a human playtest — say so; never assert "feels good".
 ## Current phase
 Month 1: upstream pin + stk2rbx spike on ONE track + kart physics skeleton.
 GO/NO-GO at end of month 2 is "does drift feel good". No content ahead of that gate.
+
+## Secrets
+- ROBLOX_OPEN_CLOUD_KEY is an env var. Never print, echo, log, or write its
+  value to any file. Never commit it. Reference it only as os.environ[...].
+- If a command would echo the key, redact it. Report "key present" not the value.

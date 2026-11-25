@@ -250,6 +250,15 @@ KartTuning.nitro = {
 	minConsumptionTicks = 64, -- src/karts/kart_properties.cpp:L102 (64 ticks at 120 Hz)
 }
 
+-- Zipper item / pad speed boost (data/kart_characteristics.xml:L249-L250)
+KartTuning.zipper = {
+	duration = 3.5, -- L249 duration="3.5" (s)
+	force = 250.0, -- L249 force="250.0" (N)
+	speedGain = 4.5, -- L249 speed-gain="4.5" (m/s)
+	maxSpeedIncrease = 15.0, -- L249 max-speed-increase="15" (m/s)
+	fadeOutTime = 1.0, -- L250 fade-out-time="1.0" (s)
+}
+
 -- Swept chassis, overlap manifold, & wheel depenetration constants
 KartTuning.collision = {
 	-- Upstream STK speed-dependent kart restitution curve (data/stk_config.xml:L480, src/karts/kart.cpp:L742, L1454)

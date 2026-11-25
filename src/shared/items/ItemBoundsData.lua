@@ -11,7 +11,7 @@ export type ItemSubmeshBounds = {
 
 local ItemBoundsData = {}
 
-ItemBoundsData.TOLERANCE_STUDS = 0.01
+ItemBoundsData.TOLERANCE_STUDS = 0.002
 
 ItemBoundsData.items = table.freeze({
 	["gift-box"] = table.freeze({

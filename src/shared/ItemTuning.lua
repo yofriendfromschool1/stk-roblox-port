@@ -47,10 +47,11 @@ ItemTuning.POWERUP_NAMES = table.freeze({
 	[10] = "ANVIL",
 })
 
--- Slice 1 roll gate: restrict live server bonus-box rolls to implemented behaviors only.
+-- Live roll gate: restrict server bonus-box rolls to implemented behaviors only.
 -- Full data/powerup.xml tables remain intact in WEIGHT_LISTS; logged in docs/divergences.md.
 ItemTuning.IMPLEMENTED_POWERUPS = table.freeze({
 	[ItemTuning.POWERUP_BUBBLEGUM] = true,
+	[ItemTuning.POWERUP_ZIPPER] = true,
 }) :: { [number]: boolean }
 
 -- Item / powerup timing and geometry constants (120 Hz fixed-step).
