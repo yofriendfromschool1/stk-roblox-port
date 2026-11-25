@@ -1,7 +1,7 @@
 ![](https://github.com/yofriendfromschool1/stk-roblox-port/blob/main/OpenKart.jpg?raw=true)
 
 # OpenKart
-https://www.roblox.com/games/90228466903424/OpenKart
+- https://www.roblox.com/games/90228466903424/OpenKart
 **Unofficial port of [SuperTuxKart](https://supertuxkart.net/) (`1.5`) to Roblox.**
 
 - **Upstream source:** https://github.com/supertuxkart/stk-code (pinned tag `1.5`, commit `1fb491f507216c5d181ccd85f29ff08eca003827`)
