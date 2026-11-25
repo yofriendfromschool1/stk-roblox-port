@@ -49,9 +49,12 @@ ItemTuning.POWERUP_NAMES = table.freeze({
 
 -- Live roll gate: restrict server bonus-box rolls to implemented behaviors only.
 -- Full data/powerup.xml tables remain intact in WEIGHT_LISTS; logged in docs/divergences.md.
+-- Note: ITEM_BANANA is a track hazard in data/items.xml (never in powerup.xml).
 ItemTuning.IMPLEMENTED_POWERUPS = table.freeze({
 	[ItemTuning.POWERUP_BUBBLEGUM] = true,
 	[ItemTuning.POWERUP_ZIPPER] = true,
+	[ItemTuning.POWERUP_SWITCH] = true,
+	[ItemTuning.POWERUP_SWATTER] = true,
 }) :: { [number]: boolean }
 
 -- Item / powerup timing and geometry constants (120 Hz fixed-step).
@@ -93,6 +96,7 @@ ItemTuning.ATTACHMENT_PARACHUTE = 1
 ItemTuning.ATTACHMENT_ANVIL = 2
 ItemTuning.ATTACHMENT_BOMB = 3
 ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD = 4
+ItemTuning.ATTACHMENT_SWATTER = 5
 
 ItemTuning.ATTACHMENT_NAMES = table.freeze({
 	[0] = "NONE",
@@ -100,6 +104,7 @@ ItemTuning.ATTACHMENT_NAMES = table.freeze({
 	[2] = "ANVIL",
 	[3] = "BOMB",
 	[4] = "BUBBLEGUM_SHIELD",
+	[5] = "SWATTER",
 })
 
 -- Floor bubblegum & shield constants (data/kart_characteristics.xml:L238-L239, data/stk_config.xml:L248)
@@ -131,7 +136,22 @@ ItemTuning.anvil = table.freeze({
 ItemTuning.bomb = table.freeze({
 	DURATION_SEC = 30.0, -- data/stk_config.xml:L221 time="30.0"
 	EXPLOSION_DURATION_SEC = 1.5, -- data/kart_characteristics.xml:L301 duration="1.5"
-	EXPLOSION_UP_VEL = 4.5, -- explosion bounce impulse on bomb detonation
+	RADIUS = 6.0, -- data/kart_characteristics.xml:L301 radius="6"
+	INVULNERABILITY_SEC = 7.0, -- data/kart_characteristics.xml:L302 invulnerability-time="7"
+})
+
+-- Switch (swapper) duration (data/stk_config.xml:L242 <switch time="5" items="1 0 4 4 2 2 6"/>)
+ItemTuning.switch = table.freeze({
+	DURATION_SEC = 5.0,
+})
+
+-- Swatter constants (data/kart_characteristics.xml:L260-L261, src/items/swatter.cpp:L79-L82)
+ItemTuning.swatter = table.freeze({
+	DURATION_SEC = 10.0,
+	DISTANCE_SQUARED = 9.0,
+	SQUASH_DURATION_SEC = 5.0,
+	SQUASH_SLOWDOWN = 0.5,
+	BOMB_REMOVE_SEC = 40.0 / 25.0,
 })
 
 -- Deprecated alias preserved only for squash constants referenced by rubber-ball/swatter tuning

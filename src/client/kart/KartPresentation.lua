@@ -19,6 +19,7 @@ local Units = require(Shared.Units)
 export type StaticSubpart = {
 	part: BasePart,
 	localCf: CFrame,
+	baseSize: Vector3,
 }
 
 export type WheelVisual = {
@@ -299,8 +300,8 @@ local function buildGreyboxFallback(model: Model, profile: KartTuning.KartProfil
 	)
 
 	local staticParts: { StaticSubpart } = {
-		{ part = chassis :: BasePart, localCf = CFrame.new(0, hStuds * 0.5, 0) },
-		{ part = nose :: BasePart, localCf = CFrame.new(0, hStuds * 0.75, -lStuds * 0.35) },
+		{ part = chassis :: BasePart, localCf = CFrame.new(0, hStuds * 0.5, 0), baseSize = chassis.Size },
+		{ part = nose :: BasePart, localCf = CFrame.new(0, hStuds * 0.75, -lStuds * 0.35), baseSize = nose.Size },
 	}
 
 	local wheels: { WheelVisual } = {}
@@ -359,6 +360,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 			table.insert(staticParts, {
 				part = chassisRoot,
 				localCf = chassisRoot.CFrame,
+				baseSize = chassisRoot.Size,
 			})
 		end
 
@@ -382,6 +384,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 				table.insert(staticParts, {
 					part = p,
 					localCf = CFrame.new(pos) * orient,
+					baseSize = p.Size,
 				})
 			end
 		end
@@ -430,7 +433,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 		)
 		rootPart.Transparency = 1
 		model.PrimaryPart = rootPart
-		table.insert(staticParts, { part = rootPart :: BasePart, localCf = CFrame.identity })
+		table.insert(staticParts, { part = rootPart :: BasePart, localCf = CFrame.identity, baseSize = rootPart.Size })
 	end
 
 	local sparkLeft, sparkRight, sparkLocalLeftCf, sparkLocalRightCf, skidEmitterL, skidEmitterR, exhaustLeft, exhaustRight, exhaustLocalLeftCf, exhaustLocalRightCf, nitroEmitterL, nitroEmitterR, nitroLight =
@@ -441,6 +444,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 		{ atype = ItemTuning.ATTACHMENT_PARACHUTE, itemId = "parachute", trans = 0.0 },
 		{ atype = ItemTuning.ATTACHMENT_ANVIL, itemId = "anchor", trans = 0.0 },
 		{ atype = ItemTuning.ATTACHMENT_BOMB, itemId = "bomb", trans = 0.0 },
+		{ atype = ItemTuning.ATTACHMENT_SWATTER, itemId = "swatter", trans = 0.0 },
 	}
 	local attachments: { [number]: AttachmentVisual } = {}
 	local assetsRoot = ReplicatedStorage:FindFirstChild("Assets")
@@ -522,12 +526,15 @@ function KartPresentation.update(
 	skidTier: number,
 	skidState: string,
 	nitroActive: boolean,
-	attachmentType: number?
+	attachmentType: number?,
+	isSquashed: boolean?
 )
 	local groundOffsetY = Units.metersToStuds(KartVisualMath.computeBodyGroundOffsetY())
 	local kartOriginCf = bodyCFrame * CFrame.new(0, groundOffsetY, 0)
+	local squashScaleY = if isSquashed == true then 0.5 else 1.0
 
 	for _, sp in visuals.staticParts do
+		sp.part.Size = Vector3.new(sp.baseSize.X, sp.baseSize.Y * squashScaleY, sp.baseSize.Z)
 		sp.part.CFrame = kartOriginCf * sp.localCf
 	end
 

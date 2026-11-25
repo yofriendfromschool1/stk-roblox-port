@@ -6,6 +6,7 @@
 -- Pure-math Luau raycast kart physics solver (zero Roblox API dependencies).
 
 local FixedStep = require("./FixedStep")
+local ItemEffectState = require("./ItemEffectState")
 local ItemTuning = require("../ItemTuning")
 local ItemWorld = require("../items/ItemWorld")
 local KartTuning = require("../KartTuning")
@@ -98,12 +99,11 @@ export type KartState = {
 	heldPowerup: number,
 	heldPowerupCount: number,
 	fireWasDown: boolean,
-	-- Attachments & floor bubblegum state (attachment.cpp:L270-L567, kart.cpp:L1160-L1386, L2791-L2798)
+	-- Attachments & unified item-hit effect state (attachment.cpp:L270-L567, explosion_animation.cpp, kart.cpp)
 	attachmentType: number,
 	attachmentTicksLeft: number,
 	attachmentInitialSpeed: number,
-	bubblegumTicks: number,
-	bubblegumTorqueSign: boolean,
+	itemEffect: ItemEffectState.State,
 	-- Timed impulses & post-skid alignment rotation (btKart.cpp:L504-L533)
 	timedImpulseTicks: number,
 	timedImpulsePerSec: Vec3,
@@ -174,8 +174,7 @@ export type NetState = {
 	attachmentType: number?,
 	attachmentTicksLeft: number?,
 	attachmentInitialSpeed: number?,
-	bubblegumTicks: number?,
-	bubblegumTorqueSign: boolean?,
+	itemEffect: ItemEffectState.NetEffectState?,
 	bubbleFraction: number?,
 	bubbleTargetFraction: number?,
 	bubbleFadeTicks: number?,
@@ -207,6 +206,11 @@ export type KartTelemetry = {
 	attachmentType: number,
 	attachmentTicksLeft: number,
 	bubblegumTicks: number,
+	effectType: number,
+	effectTicksRemaining: number,
+	inputSuppressed: boolean,
+	invulnerableTicks: number,
+	isSquashed: boolean,
 	maxCompressionRatio: number,
 	chassisSweepHits: number,
 }
@@ -263,8 +267,7 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 		attachmentType = ItemTuning.ATTACHMENT_NONE,
 		attachmentTicksLeft = 0,
 		attachmentInitialSpeed = 0.0,
-		bubblegumTicks = 0,
-		bubblegumTorqueSign = false,
+		itemEffect = ItemEffectState.create(),
 		timedImpulseTicks = 0,
 		timedImpulsePerSec = { x = 0, y = 0, z = 0 },
 		timedRotationTicks = 0,
@@ -341,8 +344,7 @@ function KartSolver.captureNetState(state: KartState, itemWorld: ItemWorld.ItemW
 		attachmentType = state.attachmentType,
 		attachmentTicksLeft = state.attachmentTicksLeft,
 		attachmentInitialSpeed = state.attachmentInitialSpeed,
-		bubblegumTicks = state.bubblegumTicks,
-		bubblegumTorqueSign = state.bubblegumTorqueSign,
+		itemEffect = ItemEffectState.captureNet(state.itemEffect),
 		bubbleFraction = if bubble then bubble.currentFraction else 1.0,
 		bubbleTargetFraction = if bubble then bubble.targetFraction else 1.0,
 		bubbleFadeTicks = if bubble then bubble.fadeInTicks else 0,
@@ -384,8 +386,12 @@ function KartSolver.applyNetState(state: KartState, snap: NetState, itemWorld: I
 	state.attachmentType = snap.attachmentType or ItemTuning.ATTACHMENT_NONE
 	state.attachmentTicksLeft = snap.attachmentTicksLeft or 0
 	state.attachmentInitialSpeed = snap.attachmentInitialSpeed or 0.0
-	state.bubblegumTicks = snap.bubblegumTicks or 0
-	state.bubblegumTorqueSign = snap.bubblegumTorqueSign == true
+	if snap.itemEffect ~= nil then
+		ItemEffectState.applyNet(state.itemEffect, snap.itemEffect)
+	else
+		ItemEffectState.clear(state.itemEffect)
+		state.itemEffect.invulnerableTicks = 0
+	end
 
 	state.timedImpulseTicks = snap.timedImpulseTicks
 	state.timedImpulsePerSec = {
@@ -484,14 +490,77 @@ function KartSolver.applyShieldHit(state: KartState): boolean
 	return false
 end
 
--- Ported from Kart::setSquash (src/karts/kart.cpp:L1862-L1882)
-function KartSolver.applySquashHit(state: KartState, durationSec: number?, slowdown: number?): boolean
+function KartSolver.isDriverInputSuppressed(state: KartState): boolean
+	return ItemEffectState.isDriverInputSuppressed(state.itemEffect)
+end
+
+-- Ported from ExplosionAnimation::create & constructor (explosion_animation.cpp:L44-L124).
+function KartSolver.triggerExplosion(state: KartState, worldTicks: number?, directHit: boolean?): boolean
+	if not ItemEffectState.canTrigger(state.itemEffect, ItemEffectState.EFFECT_EXPLOSION) then
+		return false
+	end
 	if KartSolver.applyShieldHit(state) then
 		return false
+	end
+	local normal: Vec3 = { x = 0, y = 1, z = 0 }
+	for i = 1, 4 do
+		if state.wheels[i].isInContact then
+			normal = state.wheels[i].contactNormalWS
+			break
+		end
+	end
+	local ok = ItemEffectState.triggerExplosion(
+		state.itemEffect,
+		state.pos,
+		state.rot,
+		normal,
+		state.gravity,
+		worldTicks,
+		directHit
+	)
+	if not ok then
+		return false
+	end
+	state.attachmentType = ItemTuning.ATTACHMENT_NONE
+	state.attachmentTicksLeft = 0
+	state.attachmentInitialSpeed = 0.0
+	Skidding.reset(state.skid)
+	state.maxSpeedState.decreases["SQUASH"] = nil
+	state.linVel = { x = 0, y = 0, z = 0 }
+	state.angVel = { x = 0, y = 0, z = 0 }
+	state.speed = 0.0
+	state.steer = 0.0
+	local noneCtrl: SkidControl = "NONE"
+	state.latchedSkidControl = noneCtrl
+	state.timedImpulseTicks = 0
+	state.timedRotationTicks = 0
+	return true
+end
+
+-- Ported from Kart::setSquash (src/karts/kart.cpp:L1862-L1882) via unified ItemEffectState.
+function KartSolver.applySquashHit(
+	state: KartState,
+	durationSec: number?,
+	slowdown: number?,
+	worldTicks: number?
+): boolean
+	if
+		ItemEffectState.isInvulnerable(state.itemEffect) or ItemEffectState.isDriverInputSuppressed(state.itemEffect)
+	then
+		return false
+	end
+	if KartSolver.applyShieldHit(state) then
+		return false
+	end
+	if state.attachmentType == ItemTuning.ATTACHMENT_BOMB then
+		return KartSolver.triggerExplosion(state, worldTicks, true)
 	end
 	local rb = ItemTuning.rubberBall
 	local dSec = durationSec or rb.SQUASH_DURATION_SEC
 	local slow = slowdown or rb.SQUASH_SLOWDOWN
+	if not ItemEffectState.triggerSquash(state.itemEffect, dSec, slow) then
+		return false
+	end
 	MaxSpeed.setSlowdown(
 		state.maxSpeedState,
 		"SQUASH",
@@ -502,14 +571,20 @@ function KartSolver.applySquashHit(state: KartState, durationSec: number?, slowd
 	return true
 end
 
--- Floor bubblegum contact (src/karts/kart.cpp:L1160-L1180, data/kart_characteristics.xml:L238)
-function KartSolver.applyBubblegumHit(state: KartState, worldTicks: number?)
+-- Floor bubblegum contact (src/karts/kart.cpp:L1160-L1180, data/kart_characteristics.xml:L238) via ItemEffectState.
+function KartSolver.applyBubblegumHit(state: KartState, worldTicks: number?): boolean
+	if not ItemEffectState.triggerBubblegumSlow(state.itemEffect, worldTicks) then
+		return false
+	end
 	local bg = ItemTuning.bubblegum
-	local ticks = FixedStep.timeToTicks(bg.DURATION_SEC)
-	local tNow = worldTicks or 0
-	state.bubblegumTicks = ticks
-	state.bubblegumTorqueSign = (math.floor(tNow / 10) % 2) == 0
-	MaxSpeed.setSlowdown(state.maxSpeedState, "BUBBLE", bg.SPEED_FRACTION, FixedStep.timeToTicks(bg.FADE_IN_SEC), ticks)
+	MaxSpeed.setSlowdown(
+		state.maxSpeedState,
+		"BUBBLE",
+		bg.SPEED_FRACTION,
+		FixedStep.timeToTicks(bg.FADE_IN_SEC),
+		FixedStep.timeToTicks(bg.DURATION_SEC)
+	)
+	return true
 end
 
 -- Track banana contact -> shield pop or Parachute / Anvil / Bomb attachment (attachment.cpp:L270-L393)
@@ -527,11 +602,7 @@ function KartSolver.applyBananaHit(state: KartState, worldTicks: number?, isTime
 	local pickedSlot: number
 	if state.attachmentType == ItemTuning.ATTACHMENT_BOMB then
 		addNewItem = false
-		state.linVel.y = math.max(state.linVel.y, ItemTuning.bomb.EXPLOSION_UP_VEL)
-		state.bounceBackTicks = FixedStep.timeToTicks(ItemTuning.bomb.EXPLOSION_DURATION_SEC)
-		state.attachmentType = ItemTuning.ATTACHMENT_NONE
-		state.attachmentTicksLeft = 0
-		state.attachmentInitialSpeed = 0.0
+		KartSolver.triggerExplosion(state, worldTicks, true)
 		pickedSlot = timeBucket % 3
 	elseif state.attachmentType == ItemTuning.ATTACHMENT_ANVIL then
 		newAttachment = ItemTuning.ATTACHMENT_ANVIL
@@ -1078,6 +1149,31 @@ local function resolveContacts(state: KartState, contacts: { Contact })
 end
 
 function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQuery, dt: number)
+	if ItemEffectState.isDriverInputSuppressed(state.itemEffect) then
+		local effStep = ItemEffectState.tick(state.itemEffect)
+		if effStep.explosionPos ~= nil then
+			state.pos = effStep.explosionPos
+		end
+		if effStep.explosionRot ~= nil then
+			state.rot = effStep.explosionRot
+		end
+		state.linVel = { x = 0, y = 0, z = 0 }
+		state.angVel = { x = 0, y = 0, z = 0 }
+		state.speed = 0.0
+		state.steer = 0.0
+		local noneCtrl: SkidControl = "NONE"
+		state.latchedSkidControl = noneCtrl
+		state.maxSlipAngleRad = 0.0
+		state.frontSteerAngleRad = 0.0
+		MaxSpeed.update(state.maxSpeedState, 1, false)
+		if effStep.finishedExplosion then
+			state.lastSafePos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
+			state.lastSafeRot = { w = state.rot.w, x = state.rot.x, y = state.rot.y, z = state.rot.z }
+		end
+		return
+	end
+	local effStep = ItemEffectState.tick(state.itemEffect)
+
 	local profile = state.profile
 	local suspCfg = KartTuning.suspension
 	local stabCfg = KartTuning.stability
@@ -1214,12 +1310,10 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 	end
 
 	-- Floor bubblegum zeroes engine power and applies yaw torque (kart.cpp:L1385-L1386, L2791-L2798)
-	local bubblegumActive = false
-	if state.bubblegumTicks > 0 then
-		bubblegumActive = true
-		state.bubblegumTicks -= 1
-		local torqueSign = if state.bubblegumTorqueSign then 1.0 else -1.0
-		applyWorldTorqueImpulse(state, { x = 0, y = ItemTuning.bubblegum.TORQUE * torqueSign * dt, z = 0 })
+	local bubblegumActive = ItemEffectState.isThrottleSuppressed(state.itemEffect)
+		or effStep.activeType == ItemEffectState.EFFECT_BUBBLEGUM_SLOW
+	if effStep.activeType == ItemEffectState.EFFECT_BUBBLEGUM_SLOW and effStep.bubblegumTorqueY ~= 0.0 then
+		applyWorldTorqueImpulse(state, { x = 0, y = effStep.bubblegumTorqueY * dt, z = 0 })
 	end
 
 	local accel = math.clamp(input.accel, 0.0, 1.0)
@@ -1659,7 +1753,8 @@ local function finalizeExpiredAttachment(
 	state: KartState,
 	itemWorld: ItemWorld.ItemWorldState?,
 	kartId: number,
-	worldQuery: WorldQuery
+	worldQuery: WorldQuery,
+	worldTicks: number?
 )
 	if state.attachmentType == ItemTuning.ATTACHMENT_NONE or state.attachmentTicksLeft > 0 then
 		return
@@ -1668,8 +1763,8 @@ local function finalizeExpiredAttachment(
 		-- Bubblegum shield drops ITEM_BUBBLEGUM at kart ground position on pop or expiry (attachment.cpp:L545-L560)
 		ItemWorld.dropBubblegum(itemWorld, state.pos, kartId, worldQuery)
 	elseif state.attachmentType == ItemTuning.ATTACHMENT_BOMB then
-		state.linVel.y = math.max(state.linVel.y, ItemTuning.bomb.EXPLOSION_UP_VEL)
-		state.bounceBackTicks = FixedStep.timeToTicks(ItemTuning.bomb.EXPLOSION_DURATION_SEC)
+		KartSolver.triggerExplosion(state, worldTicks, true)
+		return
 	end
 	state.attachmentType = ItemTuning.ATTACHMENT_NONE
 	state.attachmentTicksLeft = 0
@@ -1690,24 +1785,30 @@ function KartSolver.stepWithItems(
 		ItemWorld.tick(itemWorld)
 	end
 
+	local suppressedAtStart = ItemEffectState.isDriverInputSuppressed(state.itemEffect)
+
 	-- Decrement active attachment duration BEFORE physics/fire/hits (attachment.cpp:L462-L567)
 	if state.attachmentType ~= ItemTuning.ATTACHMENT_NONE then
-		state.attachmentTicksLeft -= 1
-		if state.attachmentType == ItemTuning.ATTACHMENT_PARACHUTE then
-			local initSpeed = state.attachmentInitialSpeed
-			local para = ItemTuning.parachute
-			local f = math.clamp(initSpeed / para.MAX_SPEED, 0.0, 1.0)
-			local thresh = initSpeed * (para.LBOUND_FRACTION + f * (para.UBOUND_FRACTION - para.LBOUND_FRACTION))
-			if state.speed <= thresh then
-				state.attachmentTicksLeft = -1
+		-- Suspend bomb countdown during active kart animation (attachment.cpp:L468)
+		if not (state.attachmentType == ItemTuning.ATTACHMENT_BOMB and suppressedAtStart) then
+			state.attachmentTicksLeft -= 1
+			if state.attachmentType == ItemTuning.ATTACHMENT_PARACHUTE then
+				local initSpeed = state.attachmentInitialSpeed
+				local para = ItemTuning.parachute
+				local f = math.clamp(initSpeed / para.MAX_SPEED, 0.0, 1.0)
+				local thresh = initSpeed * (para.LBOUND_FRACTION + f * (para.UBOUND_FRACTION - para.LBOUND_FRACTION))
+				if state.speed <= thresh then
+					state.attachmentTicksLeft = -1
+				end
 			end
 		end
 	end
 
 	KartSolver.step(state, input, worldQuery, dt)
 
+	local inputSuppressed = suppressedAtStart or ItemEffectState.isDriverInputSuppressed(state.itemEffect)
 	local fireDown = (input.fire == true)
-	local fireClicked = fireDown and not state.fireWasDown
+	local fireClicked = fireDown and not state.fireWasDown and not inputSuppressed
 	state.fireWasDown = fireDown
 
 	if fireClicked and itemWorld ~= nil and state.heldPowerupCount > 0 then
@@ -1750,11 +1851,22 @@ function KartSolver.stepWithItems(
 					state.attachmentInitialSpeed = 0.0
 				end
 			end
+		elseif firedPowerup == ItemTuning.POWERUP_SWITCH then
+			-- Global swapper toggle (powerup.cpp:L288-L297, item_manager.cpp:L560-L591)
+			ItemWorld.switchItems(itemWorld)
+		elseif firedPowerup == ItemTuning.POWERUP_SWATTER then
+			-- Timed melee swatter attachment or bomb-removal swing (powerup.cpp:L312-L316, swatter.cpp:L76-L83)
+			local durationSec = if state.attachmentType == ItemTuning.ATTACHMENT_BOMB
+				then ItemTuning.swatter.BOMB_REMOVE_SEC
+				else ItemTuning.swatter.DURATION_SEC
+			state.attachmentType = ItemTuning.ATTACHMENT_SWATTER
+			state.attachmentTicksLeft = FixedStep.timeToTicks(durationSec)
+			state.attachmentInitialSpeed = 0.0
 		end
 	end
 
 	local events: { ItemWorld.ItemPickupEvent } = {}
-	if itemWorld ~= nil then
+	if itemWorld ~= nil and not inputSuppressed then
 		events = ItemWorld.checkHits(
 			itemWorld,
 			state.pos,
@@ -1779,13 +1891,48 @@ function KartSolver.stepWithItems(
 		end
 	end
 
-	finalizeExpiredAttachment(state, itemWorld, kartId, worldQuery)
+	finalizeExpiredAttachment(state, itemWorld, kartId, worldQuery, if itemWorld then itemWorld.elapsedTicks else 0)
 	return events
+end
+
+-- Ported from Swatter::updateAndTestFinished proximity check (swatter.cpp:L249-L310).
+function KartSolver.checkSwatterHits(attacker: KartState, targets: { KartState }, worldTicks: number?): number
+	if
+		attacker.attachmentType ~= ItemTuning.ATTACHMENT_SWATTER
+		or attacker.attachmentTicksLeft <= 0
+		or ItemEffectState.isDriverInputSuppressed(attacker.itemEffect)
+	then
+		return 0
+	end
+	local maxD2 = ItemTuning.swatter.DISTANCE_SQUARED
+	local hits = 0
+	for _, target in targets do
+		if target ~= attacker then
+			local dx = target.pos.x - attacker.pos.x
+			local dy = target.pos.y - attacker.pos.y
+			local dz = target.pos.z - attacker.pos.z
+			if (dx * dx + dy * dy + dz * dz) <= maxD2 then
+				if
+					KartSolver.applySquashHit(
+						target,
+						ItemTuning.swatter.SQUASH_DURATION_SEC,
+						ItemTuning.swatter.SQUASH_SLOWDOWN,
+						worldTicks
+					)
+				then
+					hits += 1
+				end
+			end
+		end
+	end
+	return hits
 end
 
 KartSolver.evalWallRestitution = evalWallRestitution
 
 function KartSolver.getTelemetry(state: KartState): KartTelemetry
+	local eff = state.itemEffect
+	local bubbleTicks = if eff.effectType == ItemEffectState.EFFECT_BUBBLEGUM_SLOW then eff.ticksRemaining else 0
 	return {
 		speedMps = state.speed,
 		maxSlipAngleRad = state.maxSlipAngleRad,
@@ -1808,7 +1955,12 @@ function KartSolver.getTelemetry(state: KartState): KartTelemetry
 		nitroActive = state.nitro.active,
 		attachmentType = state.attachmentType,
 		attachmentTicksLeft = state.attachmentTicksLeft,
-		bubblegumTicks = state.bubblegumTicks,
+		bubblegumTicks = bubbleTicks,
+		effectType = eff.effectType,
+		effectTicksRemaining = eff.ticksRemaining,
+		inputSuppressed = ItemEffectState.isDriverInputSuppressed(eff),
+		invulnerableTicks = eff.invulnerableTicks,
+		isSquashed = state.maxSpeedState.decreases["SQUASH"] ~= nil,
 		maxCompressionRatio = state.maxCompressionRatio,
 		chassisSweepHits = state.chassisSweepHitCount,
 	}

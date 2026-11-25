@@ -199,7 +199,13 @@ function ItemPresentation.sync(ctrl: ItemPresentationController, itemWorld: Item
 	local seen: { [number]: boolean } = {}
 	for _, entry in itemWorld.items do
 		seen[entry.id] = true
+		local expectedModelId = TYPE_TO_MODEL_ID[entry.itemType]
 		local vis: ItemVisualInstance? = ctrl.instances[entry.id]
+		if vis ~= nil and vis.modelId ~= expectedModelId then
+			vis.container:Destroy()
+			ctrl.instances[entry.id] = nil
+			vis = nil
+		end
 		if vis == nil then
 			local created = instantiateVisual(entry, ctrl.folder)
 			if created == nil then

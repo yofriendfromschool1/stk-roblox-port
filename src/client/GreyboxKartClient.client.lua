@@ -510,7 +510,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		tel.skidTier,
 		tel.skidState,
 		tel.nitroActive,
-		tel.attachmentType
+		tel.attachmentType,
+		tel.isSquashed
 	)
 	debug.profileend()
 
@@ -652,11 +653,18 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		local attName = ItemTuning.ATTACHMENT_NAMES[tel.attachmentType] or "ATTACH"
 		statusTags ..= string.format(" [%s %.1fs]", attName, FixedStep.ticksToTime(tel.attachmentTicksLeft))
 	end
-	if tel.bubblegumTicks > 0 then
+	if tel.inputSuppressed then
+		statusTags ..= string.format(" [EXPLODE %.1fs]", FixedStep.ticksToTime(tel.effectTicksRemaining))
+	elseif tel.bubblegumTicks > 0 then
 		statusTags ..= string.format(" [BUBBLE %.1fs]", FixedStep.ticksToTime(tel.bubblegumTicks))
+	elseif tel.isSquashed then
+		statusTags ..= string.format(" [SQUASH %.1fs]", FixedStep.ticksToTime(tel.effectTicksRemaining))
 	end
-	if localState.maxSpeedState.decreases["SQUASH"] ~= nil then
-		statusTags ..= " [SQUASH]"
+	if tel.invulnerableTicks > 0 and not tel.inputSuppressed then
+		statusTags ..= string.format(" [INVULN %.1fs]", FixedStep.ticksToTime(tel.invulnerableTicks))
+	end
+	if localItemWorld.switchTicks >= 0 then
+		statusTags ..= string.format(" [SWITCH %.1fs]", FixedStep.ticksToTime(localItemWorld.switchTicks))
 	end
 	if localState.heldPowerupCount > 0 then
 		hud.item.Text = string.format("ITEM:  %s x%d%s", powerupName, localState.heldPowerupCount, statusTags)

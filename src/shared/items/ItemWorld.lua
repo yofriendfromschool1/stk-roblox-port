@@ -18,6 +18,7 @@ export type ItemType = "small-nitro" | "big-nitro" | "item" | "banana" | "bubble
 export type ItemEntry = {
 	id: number,
 	itemType: ItemType,
+	originalType: ItemType?,
 	pos: Math3D.Vec3,
 	ticksTillReturn: number,
 	deactiveTicks: number,
@@ -33,6 +34,7 @@ export type ItemWorldState = {
 	isBattle: boolean,
 	numTrackItems: number,
 	elapsedTicks: number,
+	switchTicks: number,
 }
 
 export type ItemPickupEvent = {
@@ -54,6 +56,7 @@ export type NetTrackCooldown = {
 export type NetDynamicItem = {
 	id: number,
 	itemType: ItemType,
+	originalType: ItemType?,
 	pos: Math3D.Vec3,
 	deactiveTicks: number,
 	disappearCounter: number,
@@ -63,8 +66,17 @@ export type NetDynamicItem = {
 export type ItemWorldSnapshot = {
 	elapsedTicks: number,
 	nextDynamicId: number,
+	switchTicks: number?,
 	trackCooldowns: { NetTrackCooldown },
 	dynamicItems: { NetDynamicItem },
+}
+
+local SWITCH_MAP: { [ItemType]: ItemType } = {
+	["item"] = "banana",
+	["banana"] = "item",
+	["big-nitro"] = "bubblegum",
+	["small-nitro"] = "bubblegum",
+	["bubblegum"] = "big-nitro",
 }
 
 local function cloneVec3(v: Math3D.Vec3): Math3D.Vec3
@@ -97,6 +109,7 @@ function ItemWorld.createEmpty(modeName: string?): ItemWorldState
 		isBattle = modeInfo.isBattle,
 		numTrackItems = 0,
 		elapsedTicks = 0,
+		switchTicks = -1,
 	}
 end
 
@@ -234,9 +247,52 @@ function ItemWorld.dropBanana(world: ItemWorldState, stkPos: Math3D.Vec3, ownerI
 	return ItemWorld.dropNewItem(world, "banana", stkPos, ownerId, worldQuery)
 end
 
+local function applyEntrySwitchTo(entry: ItemEntry)
+	if entry.originalType ~= nil then
+		return
+	end
+	local mapped: ItemType? = SWITCH_MAP[entry.itemType] :: ItemType?
+	if mapped == nil or mapped == entry.itemType then
+		return
+	end
+	entry.originalType = entry.itemType
+	entry.itemType = mapped
+end
+
+local function applyEntrySwitchBack(entry: ItemEntry)
+	if entry.originalType ~= nil then
+		entry.itemType = entry.originalType
+		entry.originalType = nil
+	end
+end
+
+-- Ported from ItemManager::switchItemsInternal (src/items/item_manager.cpp:L560-L591)
+-- & data/stk_config.xml:L242 (<switch time="5" items="1 0 4 4 2 2 6"/>).
+function ItemWorld.switchItems(world: ItemWorldState)
+	if world.switchTicks < 0 then
+		for _, entry in world.items do
+			applyEntrySwitchTo(entry)
+		end
+		world.switchTicks = FixedStep.timeToTicks(ItemTuning.switch.DURATION_SEC)
+	else
+		for _, entry in world.items do
+			applyEntrySwitchBack(entry)
+		end
+		world.switchTicks = -1
+	end
+end
+
 -- Ported from ItemManager::update + ItemState::update (item_manager.cpp:L479-L507, item.cpp:L185-L212).
 function ItemWorld.tick(world: ItemWorldState)
 	world.elapsedTicks += 1
+	if world.switchTicks >= 0 then
+		world.switchTicks -= 1
+		if world.switchTicks < 0 then
+			for _, entry in world.items do
+				applyEntrySwitchBack(entry)
+			end
+		end
+	end
 	for i = #world.items, 1, -1 do
 		local entry = world.items[i]
 		if entry.deactiveTicks > 0 then
@@ -343,6 +399,7 @@ function ItemWorld.captureSnapshot(world: ItemWorldState): ItemWorldSnapshot
 			table.insert(dynamicItems, {
 				id = entry.id,
 				itemType = entry.itemType,
+				originalType = entry.originalType,
 				pos = cloneVec3(entry.pos),
 				deactiveTicks = entry.deactiveTicks,
 				disappearCounter = entry.disappearCounter,
@@ -353,6 +410,7 @@ function ItemWorld.captureSnapshot(world: ItemWorldState): ItemWorldSnapshot
 	return {
 		elapsedTicks = world.elapsedTicks,
 		nextDynamicId = world.nextDynamicId,
+		switchTicks = world.switchTicks,
 		trackCooldowns = trackCooldowns,
 		dynamicItems = dynamicItems,
 	}
@@ -361,6 +419,8 @@ end
 function ItemWorld.applySnapshot(world: ItemWorldState, snap: ItemWorldSnapshot)
 	world.elapsedTicks = snap.elapsedTicks
 	world.nextDynamicId = snap.nextDynamicId
+	local targetSwitchTicks = snap.switchTicks or -1
+	world.switchTicks = targetSwitchTicks
 
 	local cooldownById: { [number]: NetTrackCooldown } = {}
 	for _, cd in snap.trackCooldowns do
@@ -370,6 +430,11 @@ function ItemWorld.applySnapshot(world: ItemWorldState, snap: ItemWorldSnapshot)
 	for i = #world.items, 1, -1 do
 		local entry = world.items[i]
 		if entry.original then
+			if targetSwitchTicks >= 0 then
+				applyEntrySwitchTo(entry)
+			else
+				applyEntrySwitchBack(entry)
+			end
 			local cd = cooldownById[entry.id]
 			if cd ~= nil then
 				entry.ticksTillReturn = cd.ticksTillReturn
@@ -387,6 +452,7 @@ function ItemWorld.applySnapshot(world: ItemWorldState, snap: ItemWorldSnapshot)
 		table.insert(world.items, {
 			id = dyn.id,
 			itemType = dyn.itemType,
+			originalType = dyn.originalType,
 			pos = cloneVec3(dyn.pos),
 			ticksTillReturn = 0,
 			deactiveTicks = dyn.deactiveTicks,

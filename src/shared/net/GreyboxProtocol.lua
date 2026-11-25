@@ -139,13 +139,48 @@ function GreyboxProtocol.packSnapshot(
 		ns.attachmentType or 0,
 		ns.attachmentTicksLeft or 0,
 		ns.attachmentInitialSpeed or 0.0,
-		ns.bubblegumTicks or 0,
-		if ns.bubblegumTorqueSign then 1 else 0,
 		ns.bubbleFraction or 1.0,
 		ns.bubbleTargetFraction or 1.0,
 		ns.bubbleFadeTicks or 0,
 		ns.bubbleDurationTicks or 0,
 	}
+
+	local eff = ns.itemEffect
+	if eff ~= nil then
+		local flags = (if eff.suppressThrottle then 1 else 0)
+			+ (if eff.suppressSteer then 2 else 0)
+			+ (if eff.suppressDrift then 4 else 0)
+			+ (if eff.suppressFire then 8 else 0)
+			+ (if eff.torqueSign then 16 else 0)
+		nums[57] = eff.effectType
+		nums[58] = eff.ticksRemaining
+		nums[59] = eff.totalTicks
+		nums[60] = flags
+		nums[61] = eff.invulnerableTicks
+		nums[62] = eff.originPos[1]
+		nums[63] = eff.originPos[2]
+		nums[64] = eff.originPos[3]
+		nums[65] = eff.originRot[1]
+		nums[66] = eff.originRot[2]
+		nums[67] = eff.originRot[3]
+		nums[68] = eff.originRot[4]
+		nums[69] = eff.normal[1]
+		nums[70] = eff.normal[2]
+		nums[71] = eff.normal[3]
+		nums[72] = eff.initUpVel
+		nums[73] = eff.gravity
+		nums[74] = eff.addHeadingRate
+		nums[75] = eff.addPitchRate
+		nums[76] = eff.addRollRate
+		nums[77] = eff.slowdownFraction
+	else
+		for i = 57, 76 do
+			nums[i] = 0
+		end
+		nums[65] = 1
+		nums[70] = 1
+		nums[77] = 1.0
+	end
 
 	local incs: { { number } }? = nil
 	if #ns.increases > 0 then
@@ -181,13 +216,15 @@ function GreyboxProtocol.packSnapshot(
 				dyn.deactiveTicks,
 				dyn.disappearCounter,
 				dyn.ownerId,
+				if dyn.originalType then (ITEM_TYPE_TO_ID[dyn.originalType] or 0) else 0,
 			})
 		end
-		local packed: { any } = table.create(4)
+		local packed: { any } = table.create(5)
 		packed[1] = iw.elapsedTicks
 		packed[2] = iw.nextDynamicId
 		packed[3] = cooldownRows
 		packed[4] = dynRows
+		packed[5] = iw.switchTicks or -1
 		itemsArg = packed
 	end
 
@@ -196,7 +233,7 @@ function GreyboxProtocol.packSnapshot(
 end
 
 function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: any, rawItems: any): TelemetryPacket?
-	if type(rawNums) ~= "table" or #rawNums < 58 then
+	if type(rawNums) ~= "table" or #rawNums < 77 then
 		return nil
 	end
 	local nums = rawNums :: { number }
@@ -238,9 +275,14 @@ function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: a
 		if type(ri[4]) == "table" then
 			for _, row in ri[4] :: { { number } } do
 				if type(row) == "table" and #row >= 8 then
+					local origId = row[9]
+					local origType: ItemWorld.ItemType? = if type(origId) == "number" and origId > 0
+						then ITEM_TYPES[origId] :: ItemWorld.ItemType?
+						else nil
 					table.insert(dynamics, {
 						id = row[1],
 						itemType = (ITEM_TYPES[row[2]] or "banana") :: ItemWorld.ItemType,
+						originalType = origType,
 						pos = { x = row[3], y = row[4], z = row[5] },
 						deactiveTicks = row[6],
 						disappearCounter = row[7],
@@ -252,6 +294,7 @@ function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: a
 		itemWorldSnapshot = {
 			elapsedTicks = if type(ri[1]) == "number" then ri[1] else 0,
 			nextDynamicId = if type(ri[2]) == "number" then ri[2] else 1,
+			switchTicks = if type(ri[5]) == "number" then ri[5] else -1,
 			trackCooldowns = cooldowns,
 			dynamicItems = dynamics,
 		}
@@ -296,12 +339,30 @@ function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: a
 		attachmentType = nums[50],
 		attachmentTicksLeft = nums[51],
 		attachmentInitialSpeed = nums[52],
-		bubblegumTicks = nums[53],
-		bubblegumTorqueSign = nums[54] == 1,
-		bubbleFraction = nums[55],
-		bubbleTargetFraction = nums[56],
-		bubbleFadeTicks = nums[57],
-		bubbleDurationTicks = nums[58],
+		bubbleFraction = nums[53],
+		bubbleTargetFraction = nums[54],
+		bubbleFadeTicks = nums[55],
+		bubbleDurationTicks = nums[56],
+		itemEffect = {
+			effectType = nums[57],
+			ticksRemaining = nums[58],
+			totalTicks = nums[59],
+			suppressThrottle = (math.floor(nums[60]) % 2) == 1,
+			suppressSteer = (math.floor(nums[60] / 2) % 2) == 1,
+			suppressDrift = (math.floor(nums[60] / 4) % 2) == 1,
+			suppressFire = (math.floor(nums[60] / 8) % 2) == 1,
+			torqueSign = (math.floor(nums[60] / 16) % 2) == 1,
+			invulnerableTicks = nums[61],
+			originPos = { nums[62], nums[63], nums[64] },
+			originRot = { nums[65], nums[66], nums[67], nums[68] },
+			normal = { nums[69], nums[70], nums[71] },
+			initUpVel = nums[72],
+			gravity = nums[73],
+			addHeadingRate = nums[74],
+			addPitchRate = nums[75],
+			addRollRate = nums[76],
+			slowdownFraction = nums[77],
+		},
 		increases = increases,
 		itemWorldSnapshot = itemWorldSnapshot,
 	}

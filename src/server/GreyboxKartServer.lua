@@ -416,6 +416,24 @@ function GreyboxKartServer.start()
 					end
 				end
 			end
+
+			local activeStates: { KartSolver.KartState } = {}
+			for _, entry in entries do
+				table.insert(activeStates, entry.state)
+			end
+			if #activeStates > 1 then
+				for _, entry in entries do
+					if entry.state.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
+						if KartSolver.checkSwatterHits(entry.state, activeStates, itemWorld.elapsedTicks) > 0 then
+							for _, other in entries do
+								if other ~= entry then
+									other.forceSnapshot = true
+								end
+							end
+						end
+					end
+				end
+			end
 		end)
 		debug.profileend()
 
