@@ -590,6 +590,149 @@ class TestStk2Rbx(unittest.TestCase):
             for fname in ("track.xml", "materials.xml", "quads.xml", "graph.xml", "scene.xml", "sand.png", "road.jpg"):
                 self.assertTrue((stk_out / fname).exists(), f"Missing {fname}")
 
+    def test_kart_emitter_synthetic_spma_assembly(self) -> None:
+        from tools.stk2rbx.kart_emit import convert_kart
+
+        with tempfile.TemporaryDirectory() as tmp:
+            kdir = Path(tmp) / "tux"
+            kdir.mkdir()
+            (kdir / "kart.xml").write_text(
+                '<kart name="Tux" version="3" model-file="tux.spm" type="medium">'
+                "<wheels>"
+                '<front-left position="-0.32 0.11 0.41" model="wheel-front-left.spm"/>'
+                '<front-right position="0.32 0.11 0.41" model="wheel-front-right.spm"/>'
+                '<rear-left position="-0.36 0.14 -0.34" model="wheel-rear-left.spm"/>'
+                '<rear-right position="0.36 0.14 -0.34" model="wheel-rear-right.spm"/>'
+                "</wheels>"
+                "<nitro-emitter>"
+                '<nitro-emitter-a position="0.2 0.36 -0.58"/>'
+                '<nitro-emitter-b position="-0.2 0.36 -0.58"/>'
+                "</nitro-emitter>"
+                "</kart>",
+                encoding="utf-8",
+            )
+            # Build a 2-submesh SPMA main mesh (tuxkart.png + tux_body.png) with 1-bone armature trailer
+            buf = bytearray()
+            buf.extend(b"SP")
+            buf.append((1 << 3) | 1)  # v1 SPMA
+            buf.append(0x01)  # read_normal only
+            buf.extend(struct.pack("<6f", -0.4, 0.1, -0.7, 0.4, 0.8, 0.7))
+            buf.extend(struct.pack("<H", 2))
+            for tex in (b"tuxkart.png", b"tux_body.png"):
+                buf.append(len(tex))
+                buf.extend(tex)
+                buf.append(0)
+            buf.extend(struct.pack("<H", 1))  # 1 sector
+            buf.extend(struct.pack("<H", 2))  # 2 submeshes
+            # Submesh 0: tuxkart.png (Body)
+            buf.extend(struct.pack("<IIH", 3, 3, 0))
+            for px, py, pz in ((-0.4, 0.1, 0.7), (0.4, 0.1, 0.7), (0.0, 0.1, -0.7)):
+                buf.extend(struct.pack("<3f", px, py, pz))
+                buf.extend(struct.pack("<I", 0x1FF << 10))
+                buf.extend(struct.pack("<ee", 0.0, 0.0))
+                buf.extend(struct.pack("<4h4H", 0, -1, -1, -1, 15360, 0, 0, 0))
+            buf.extend(struct.pack("<3B", 0, 1, 2))
+            # Submesh 1: tux_body.png (Driver)
+            buf.extend(struct.pack("<IIH", 3, 3, 1))
+            for px, py, pz in ((-0.15, 0.2, 0.2), (0.15, 0.2, 0.2), (0.0, 0.8, -0.1)):
+                buf.extend(struct.pack("<3f", px, py, pz))
+                buf.extend(struct.pack("<I", 0x1FF << 10))
+                buf.extend(struct.pack("<ee", 0.0, 0.0))
+                buf.extend(struct.pack("<4h4H", 0, -1, -1, -1, 15360, 0, 0, 0))
+            buf.extend(struct.pack("<3B", 0, 1, 2))
+            # Minimal valid SPMA armature trailer (1 joint, 1 keyframe at frame 20)
+            buf.extend(struct.pack("<BH", 1, 20))
+            buf.extend(struct.pack("<HH", 1, 1))
+            buf.append(3)
+            buf.extend(b"Car")
+            buf.extend(struct.pack("<10f", 0, 0, 0, 0, 0, 0, 1, 1, 1, 1))
+            buf.extend(struct.pack("<h", -1))
+            buf.extend(struct.pack("<H", 1))
+            buf.extend(struct.pack("<H10f", 20, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1))
+            (kdir / "tux.spm").write_bytes(bytes(buf))
+
+            from tools.stk2rbx.spm_writer import SpmSubmesh, build_box_geometry, write_spmn
+
+            for wf, r in (
+                ("wheel-front-left.spm", 0.11),
+                ("wheel-front-right.spm", 0.11),
+                ("wheel-rear-left.spm", 0.14),
+                ("wheel-rear-right.spm", 0.14),
+            ):
+                wv, wi = build_box_geometry((0.0, 0.0, 0.0), (0.2, r * 2.0, r * 2.0), (0.0, 0.0, 0.0))
+                write_spmn(kdir / wf, [SpmSubmesh(texture_1="wheel.png", vertices=wv, indices=wi)])
+
+            out_dir = Path(tmp) / "out"
+            out_model = out_dir / "tux.model.json"
+            out_glb_dir = out_dir / "glb"
+            report = convert_kart(kdir, out_model, out_glb_dir, revision="18627")
+
+            raw_glb = (out_glb_dir / "tux_assembly.glb").read_bytes()
+            magic, version, total_len = struct.unpack_from("<III", raw_glb, 0)
+            self.assertEqual(magic, 0x46546C67)
+            self.assertEqual(version, 2)
+            self.assertEqual(total_len, len(raw_glb))
+            jlen, _ = struct.unpack_from("<II", raw_glb, 12)
+            gltf = json.loads(raw_glb[20 : 20 + jlen].decode("utf-8"))
+            node_map = {n["name"]: n for n in gltf["nodes"]}
+            for expected in ("Tux", "Body", "Driver", "WheelFrontLeft", "WheelFrontRight", "WheelRearLeft", "WheelRearRight"):
+                self.assertIn(expected, node_map)
+            # STK +Z forward -> Roblox -Z forward at METERS_PER_STUD = 1.0
+            self.assertEqual(node_map["WheelFrontLeft"]["translation"], [-0.32, 0.11, -0.41])
+            self.assertEqual(node_map["WheelRearRight"]["translation"], [0.36, 0.14, 0.34])
+            self.assertEqual(report["body_driver_combined_bounds_studs"]["size"], [0.8, 0.7, 1.4])
+
+            model_doc = json.loads(out_model.read_text(encoding="utf-8"))
+            child_names = {c["Name"] for c in model_doc["Children"]}
+            self.assertEqual(
+                child_names,
+                {"ChassisRoot", "Body", "Driver", "WheelFrontLeft", "WheelFrontRight", "WheelRearLeft", "WheelRearRight"},
+            )
+
+    @unittest.skipUnless(
+        Path(r"C:\dev\stk-assets\karts\tux\kart.xml").exists()
+        and Path(r"C:\dev\stk-code\data\official_karts.xml").exists(),
+        "tux upstream assets or official_karts.xml not present",
+    )
+    def test_tux_mesh_bounds_match_official_karts_xml(self) -> None:
+        import xml.etree.ElementTree as ET
+        from tools.stk2rbx.kart_emit import convert_kart, parse_kart_xml
+
+        official_root = ET.parse(r"C:\dev\stk-code\data\official_karts.xml").getroot()
+        tux_entry = next(el for el in official_root.findall("kart") if el.get("name") == "tux")
+        expected_w = float(tux_entry.get("width", "0"))
+        expected_h = float(tux_entry.get("height", "0"))
+        expected_l = float(tux_entry.get("length", "0"))
+
+        kdir = Path(r"C:\dev\stk-assets\karts\tux")
+        spec = parse_kart_xml(kdir / "kart.xml")
+        with tempfile.TemporaryDirectory() as tmp:
+            out_model = Path(tmp) / "tux.model.json"
+            out_glb_dir = Path(tmp) / "glb"
+            report = convert_kart(kdir, out_model, out_glb_dir, revision="18627")
+
+            bounds = report["body_driver_combined_bounds_studs"]
+            w, h, length = bounds["size"]
+            # At METERS_PER_STUD = 1.0, emitted Body+Driver mesh bounds match official_karts.xml within 2 mm
+            self.assertAlmostEqual(w, expected_w, delta=0.002)
+            self.assertAlmostEqual(h, expected_h, delta=0.002)
+            self.assertAlmostEqual(length, expected_l, delta=0.002)
+            # And exact KartModel::loadModels 3-decimal truncation (kart_model.cpp:L775-L777)
+            self.assertEqual(bounds["truncated_3dp"], [expected_w, expected_h, expected_l])
+
+            # Check wheel radii vs kart.xml vertical wheel centers (wheel bottoms touch Y = 0)
+            parts_by_name = {p["node_name"]: p for p in report["parts"]}
+            for wheel in spec.wheels:
+                p = parts_by_name[wheel.node_name]
+                self.assertAlmostEqual(p["wheel_radius_studs"], wheel.position_m[1], delta=0.001)
+                self.assertAlmostEqual(p["origin_studs"][2], -wheel.position_m[2], delta=1e-4)
+
+            arm = report["armature"]
+            self.assertIsNotNone(arm)
+            self.assertEqual(arm["bind_frame"], 20)
+            self.assertEqual(arm["joint_used"], 16)
+            self.assertEqual(arm["keyframe_count"], 60)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
 
+from .kart_emit import convert_kart
 from .mesh_inspect import (
     ROBLOX_HARD_TRI_CAP,
     ROBLOX_MAX_PART_SIZE_STUDS,
@@ -84,6 +85,16 @@ def fetch_library(
 ) -> tuple[str, list[str]]:
     """Download one STK stk-assets/library/<lib_name> directory at pinned revision."""
     return _fetch_svn_dir(f"library/{lib_name}", dest_dir, revision=revision, include_media=include_media)
+
+
+def fetch_kart(
+    kart_id: str,
+    dest_dir: Path,
+    revision: str = "",
+    include_media: bool = False,
+) -> tuple[str, list[str]]:
+    """Download one STK stk-assets/karts/<kart_id> directory at pinned revision."""
+    return _fetch_svn_dir(f"karts/{kart_id}", dest_dir, revision=revision, include_media=include_media)
 
 
 def fetch_track(
@@ -355,6 +366,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_conv.add_argument("--report", type=Path, default=None, help="Optional JSON audit report path")
     p_conv.add_argument("--revision", default="", help="Override upstream SVN revision string")
 
+    p_fk = sub.add_parser("fetch-kart", help="Download one kart directory from STK SourceForge SVN")
+    p_fk.add_argument("kart_id", help="Upstream kart directory name (e.g. tux)")
+    p_fk.add_argument("--dest", required=True, type=Path, help="Output directory outside repo")
+    p_fk.add_argument("--revision", default="", help="Pin SVN revision via !svn/bc/<rev>/ (e.g. 18627)")
+    p_fk.add_argument("--include-media", action="store_true", help="Also download textures/audio")
+
+    p_ck = sub.add_parser("convert-kart", help="Emit static kart .glb assembly + Rojo .model.json")
+    p_ck.add_argument("kart_dir", type=Path, help="Local upstream kart directory")
+    p_ck.add_argument("--out-model", required=True, type=Path, help="Output .model.json path")
+    p_ck.add_argument("--out-glb-dir", required=True, type=Path, help="Output directory for .glb files")
+    p_ck.add_argument("--report", type=Path, default=None, help="Optional JSON audit report path")
+    p_ck.add_argument("--revision", default="", help="Override upstream SVN revision string")
+    p_ck.add_argument(
+        "--assets-manifest",
+        type=Path,
+        default=None,
+        help="Optional JSON mapping part names to uploaded Roblox MeshId/TextureID assets",
+    )
+
     args = parser.parse_args(argv)
     if args.cmd == "fetch":
         rev, files, libs = fetch_track(
@@ -375,6 +405,35 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.cmd == "convert":
         report = convert_track(args.track_dir, args.out, args.report, revision=args.revision)
         _print_report(report)
+        return 0
+
+    if args.cmd == "fetch-kart":
+        rev, files = fetch_kart(
+            args.kart_id,
+            args.dest,
+            revision=args.revision,
+            include_media=args.include_media,
+        )
+        print(f"Fetched kart {args.kart_id} (rev {rev}): {len(files)} files -> {args.dest}")
+        for f in files:
+            print(f"  {f}")
+        return 0
+
+    if args.cmd == "convert-kart":
+        report = convert_kart(
+            args.kart_dir,
+            args.out_model,
+            args.out_glb_dir,
+            report_path=args.report,
+            revision=args.revision,
+            assets_manifest_path=args.assets_manifest,
+        )
+        b = report["body_driver_combined_bounds_studs"]
+        print(
+            f"Converted kart {report['kart_id']} (rev={report['assets_revision']}): "
+            f"verts={report['total_vertices']} tris={report['total_triangles']} "
+            f"body+driver_size={b['size']} trunc3dp={b['truncated_3dp']}"
+        )
         return 0
 
     return 1

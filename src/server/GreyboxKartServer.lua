@@ -14,6 +14,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FixedStep = require(Shared.sim.FixedStep)
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
+local KartAssetHydrator = require("./KartAssetHydrator")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
@@ -277,6 +278,7 @@ end
 
 function GreyboxKartServer.start()
 	Players.CharacterAutoLoads = false
+	KartAssetHydrator.hydrateAll()
 
 	-- Hide static converter debug volumes under Workspace.Tracks during greybox playtests
 	local tracksFolder = Workspace:FindFirstChild("Tracks")

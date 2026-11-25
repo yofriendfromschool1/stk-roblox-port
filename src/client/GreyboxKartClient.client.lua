@@ -15,6 +15,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FixedStep = require(Shared.sim.FixedStep)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local HudState = require("./HudState")
+local KartPresentation = require("./kart/KartPresentation")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local Math3D = require(Shared.sim.Math3D)
@@ -38,17 +39,6 @@ type InputHistoryEntry = {
 	input: KartSolver.KartInput,
 }
 
-type LocalVisualKart = {
-	model: Model,
-	sparkLeft: Part,
-	sparkRight: Part,
-	skidEmitterL: ParticleEmitter,
-	skidEmitterR: ParticleEmitter,
-	nitroEmitterL: ParticleEmitter,
-	nitroEmitterR: ParticleEmitter,
-	nitroLight: PointLight,
-}
-
 local remotesFolder = ReplicatedStorage:WaitForChild(GreyboxProtocol.REMOTES_FOLDER)
 local inputRemote = remotesFolder:WaitForChild(GreyboxProtocol.INPUT_REMOTE) :: RemoteEvent
 local telemetryRemote = remotesFolder:WaitForChild(GreyboxProtocol.TELEMETRY_REMOTE) :: UnreliableRemoteEvent
@@ -58,180 +48,6 @@ local SPAWN_HEIGHT_METERS = GreyboxProtocol.SPAWN_HEIGHT_METERS
 local VOID_RESET_Y_METERS = GreyboxProtocol.VOID_RESET_Y_METERS
 local INPUT_HEARTBEAT_SEC = 1 / GreyboxProtocol.SNAPSHOT_RATE_HZ
 local MAX_INPUT_HISTORY = 240
-
-local TIER_COLORS = {
-	[0] = Color3.fromRGB(220, 225, 235),
-	[1] = Color3.fromRGB(255, 210, 40),
-	[2] = Color3.fromRGB(255, 65, 45),
-}
-
-local function buildLocalVisualKart(profile: KartTuning.KartProfile): LocalVisualKart
-	local folder = Workspace:FindFirstChild(GreyboxProtocol.LOCAL_KARTS_FOLDER)
-	if not folder then
-		local f = Instance.new("Folder")
-		f.Name = GreyboxProtocol.LOCAL_KARTS_FOLDER
-		f.Parent = Workspace
-		folder = f
-	end
-
-	local existing = (folder :: Folder):FindFirstChild("Kart_" .. tostring(localPlayer.UserId))
-	if existing then
-		existing:Destroy()
-	end
-
-	local model = Instance.new("Model")
-	model.Name = "Kart_" .. tostring(localPlayer.UserId)
-
-	local wStuds = Units.metersToStuds(profile.width)
-	local hStuds = Units.metersToStuds(profile.collisionHeight)
-	local lStuds = Units.metersToStuds(profile.length)
-
-	local root = Instance.new("Part")
-	root.Name = "Root"
-	root.Anchored = true
-	root.CanCollide = false
-	root.CanTouch = false
-	root.CanQuery = false
-	root.Transparency = 1
-	root.Size = Vector3.new(0.2, 0.2, 0.2)
-	root.CFrame = CFrame.new(0, 2, 0)
-	root.Parent = model
-
-	local chassis = Instance.new("Part")
-	chassis.Name = "Chassis"
-	chassis.Anchored = true
-	chassis.CanCollide = false
-	chassis.CanTouch = false
-	chassis.CanQuery = false
-	chassis.Size = Vector3.new(wStuds, hStuds * 0.65, lStuds)
-	chassis.Color = Color3.fromRGB(45, 130, 235)
-	chassis.Material = Enum.Material.SmoothPlastic
-	chassis.TopSurface = Enum.SurfaceType.Smooth
-	chassis.BottomSurface = Enum.SurfaceType.Smooth
-	chassis.CFrame = root.CFrame * CFrame.new(0, hStuds * 0.5, 0)
-	chassis.Parent = model
-
-	local nose = Instance.new("Part")
-	nose.Name = "NoseMarker"
-	nose.Anchored = true
-	nose.CanCollide = false
-	nose.CanTouch = false
-	nose.CanQuery = false
-	nose.Size = Vector3.new(wStuds * 0.65, hStuds * 0.35, lStuds * 0.25)
-	nose.Color = Color3.fromRGB(245, 245, 250)
-	nose.Material = Enum.Material.SmoothPlastic
-	nose.CFrame = chassis.CFrame * CFrame.new(0, hStuds * 0.25, -lStuds * 0.35)
-	nose.Parent = model
-
-	local wheelNames = { "WheelFL", "WheelFR", "WheelRL", "WheelRR" }
-	local wheelSize = Vector3.new(Units.metersToStuds(0.18), Units.metersToStuds(0.31), Units.metersToStuds(0.31))
-	for i, hp in profile.wheelHardpoints do
-		local wheel = Instance.new("Part")
-		wheel.Name = wheelNames[i]
-		wheel.Anchored = true
-		wheel.CanCollide = false
-		wheel.CanTouch = false
-		wheel.CanQuery = false
-		wheel.Size = wheelSize
-		wheel.Color = Color3.fromRGB(30, 32, 36)
-		wheel.Material = Enum.Material.Rubber
-		wheel.CFrame = root.CFrame
-			* CFrame.new(Units.metersToStuds(hp.x), Units.metersToStuds(hp.y - 0.12), Units.metersToStuds(-hp.z))
-		wheel.Parent = model
-	end
-
-	-- Skid tier wheel spark indicators + emitters (src/karts/kart_gfx.cpp:L69-L89, L118-L123)
-	local sparkSize = Vector3.new(Units.metersToStuds(0.13), Units.metersToStuds(0.10), Units.metersToStuds(0.16))
-	local function makeSkidUnit(name: string, sideSign: number): (Part, ParticleEmitter)
-		local bar = Instance.new("Part")
-		bar.Name = name
-		bar.Anchored = true
-		bar.CanCollide = false
-		bar.CanTouch = false
-		bar.CanQuery = false
-		bar.Size = sparkSize
-		bar.Color = TIER_COLORS[0]
-		bar.Material = Enum.Material.Neon
-		bar.Transparency = 0.85
-		bar.CFrame = root.CFrame * CFrame.new(sideSign * wStuds * 0.45, -0.05, lStuds * 0.48)
-		bar.Parent = model
-
-		local em = Instance.new("ParticleEmitter")
-		em.Name = name .. "_Emitter"
-		em.Enabled = false
-		em.Rate = 45
-		em.Lifetime = NumberRange.new(0.15, 0.30)
-		em.Speed = NumberRange.new(2, 5)
-		em.SpreadAngle = Vector2.new(25, 25)
-		em.EmissionDirection = Enum.NormalId.Back
-		em.Size = NumberSequence.new(0.14, 0.02)
-		em.Color = ColorSequence.new(TIER_COLORS[1])
-		em.LightEmission = 0.9
-		em.Parent = bar
-		return bar, em
-	end
-
-	local sparkLeft, skidEmitterL = makeSkidUnit("SparkLeft", -1)
-	local sparkRight, skidEmitterR = makeSkidUnit("SparkRight", 1)
-
-	-- PLACEHOLDER Nitro exhaust flame emitters & blue light (src/karts/kart_gfx.cpp:L55-L67, L101-L115:
-	-- KGFX_NITRO1/KGFX_NITRO2 nitro.xml + m_nitro_light (0, 0.4, 1.0)); replace once attachments/particles port.
-	local function makeExhaustUnit(name: string, sideSign: number): (Part, ParticleEmitter)
-		local pipe = Instance.new("Part")
-		pipe.Name = name
-		pipe.Anchored = true
-		pipe.CanCollide = false
-		pipe.CanTouch = false
-		pipe.CanQuery = false
-		pipe.Size = Vector3.new(0.12, 0.12, 0.22)
-		pipe.Color = Color3.fromRGB(60, 68, 82)
-		pipe.Material = Enum.Material.Metal
-		pipe.CFrame = chassis.CFrame * CFrame.new(sideSign * wStuds * 0.24, 0.05, lStuds * 0.56)
-		pipe.Parent = model
-
-		local flame = Instance.new("ParticleEmitter")
-		flame.Name = name .. "_NitroFlame"
-		flame.Enabled = false
-		flame.Rate = 75
-		flame.Lifetime = NumberRange.new(0.12, 0.22)
-		flame.Speed = NumberRange.new(6, 11)
-		flame.SpreadAngle = Vector2.new(10, 10)
-		flame.EmissionDirection = Enum.NormalId.Back
-		flame.Size = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.22),
-			NumberSequenceKeypoint.new(1, 0.04),
-		})
-		flame.Color = ColorSequence.new(Color3.fromRGB(40, 215, 255), Color3.fromRGB(0, 102, 255))
-		flame.LightEmission = 1.0
-		flame.Parent = pipe
-		return pipe, flame
-	end
-
-	local exhaustL, nitroEmitterL = makeExhaustUnit("ExhaustLeft", -1)
-	local _, nitroEmitterR = makeExhaustUnit("ExhaustRight", 1)
-
-	local nitroLight = Instance.new("PointLight")
-	nitroLight.Name = "NitroPlaceholderLight"
-	nitroLight.Enabled = false
-	nitroLight.Color = Color3.fromRGB(0, 102, 255) -- kart_gfx.cpp:L61 (0, 0.4, 1.0)
-	nitroLight.Range = 10
-	nitroLight.Brightness = 2.0
-	nitroLight.Parent = exhaustL
-
-	model.PrimaryPart = root
-	model.Parent = folder
-
-	return {
-		model = model,
-		sparkLeft = sparkLeft,
-		sparkRight = sparkRight,
-		skidEmitterL = skidEmitterL,
-		skidEmitterR = skidEmitterR,
-		nitroEmitterL = nitroEmitterL,
-		nitroEmitterR = nitroEmitterR,
-		nitroLight = nitroLight,
-	}
-end
 
 local function createDebugHud()
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
@@ -327,7 +143,7 @@ end
 
 local hud = createDebugHud()
 local profile = KartTuning.buildProfile("medium", "best")
-local visuals = buildLocalVisualKart(profile)
+local visuals = KartPresentation.create(localPlayer, profile, "tux")
 
 local localStepper = FixedStep.new()
 local localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
@@ -590,9 +406,26 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	local hopOffset = Vector3.new(0, Units.metersToStuds(interpHop), 0)
 	local bodyCFrame = (renderPose + hopOffset)
 		* (if interpYaw ~= 0 then CFrame.Angles(0, -interpYaw, 0) else CFrame.identity)
-	visuals.model:PivotTo(bodyCFrame)
 
 	local tel = KartSolver.getTelemetry(localState)
+	local wheelSuspensions = {
+		localState.wheels[1].suspensionLength,
+		localState.wheels[2].suspensionLength,
+		localState.wheels[3].suspensionLength,
+		localState.wheels[4].suspensionLength,
+	}
+	KartPresentation.update(
+		visuals,
+		bodyCFrame,
+		interpSpeedMps,
+		dt,
+		localState.steer,
+		wheelSuspensions,
+		tel.skidTier,
+		tel.skidState,
+		tel.nitroActive
+	)
+
 	local attrStart = Workspace:GetAttribute("OpenKartRaceStartTime")
 	local raceStartServerTime = if type(attrStart) == "number" then attrStart else Workspace:GetServerTimeNow()
 	HudState.publish(
@@ -609,28 +442,6 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		0,
 		math.max(0.0, interpPos.z)
 	)
-
-	-- Skid wheel sparks + emitter (separate from Nitro exhaust)
-	local tierColor = TIER_COLORS[tel.skidTier] or TIER_COLORS[0]
-	local isAccum = (tel.skidState == "SKID_ACCUMULATE_LEFT" or tel.skidState == "SKID_ACCUMULATE_RIGHT")
-	local sparkTrans = if isAccum then 0.0 else 0.85
-	visuals.sparkLeft.Color = tierColor
-	visuals.sparkRight.Color = tierColor
-	visuals.sparkLeft.Transparency = sparkTrans
-	visuals.sparkRight.Transparency = sparkTrans
-	local emitSkid = isAccum and tel.skidTier >= 1
-	visuals.skidEmitterL.Enabled = emitSkid
-	visuals.skidEmitterR.Enabled = emitSkid
-	if emitSkid then
-		local seqColor = ColorSequence.new(tierColor)
-		visuals.skidEmitterL.Color = seqColor
-		visuals.skidEmitterR.Color = seqColor
-	end
-
-	-- PLACEHOLDER Nitro exhaust flames + blue light
-	visuals.nitroEmitterL.Enabled = tel.nitroActive
-	visuals.nitroEmitterR.Enabled = tel.nitroActive
-	visuals.nitroLight.Enabled = tel.nitroActive
 
 	-- STK CameraNormal speed-proportional pull-back + skid_angle/2 offset + constant 80 deg vertical FOV
 	-- + CM_REVERSE look-back (B / PA_LOOK_BACK); derived strictly from physical renderPose

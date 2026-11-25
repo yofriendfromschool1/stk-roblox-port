@@ -68,12 +68,27 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
         "\tlabelColorRgb: { number }?,",
         "}",
         "",
+        "export type ArenaDrivelinePoint = {",
+        "\tx: number,",
+        "\tz: number,",
+        "}",
+        "",
+        "export type ArenaBounds = {",
+        "\tminX: number,",
+        "\tmaxX: number,",
+        "\tminZ: number,",
+        "\tmaxZ: number,",
+        "\trange: number,",
+        "}",
+        "",
         "export type ArenaSpec = {",
         '\ttrackId: string,',
         "\tplaneSizeStuds: number,",
         "\tplaneThicknessStuds: number,",
         "\tgridSpacingStuds: number,",
         "\tboxes: { ArenaBoxSpec },",
+        "\tdrivelineQuadCenters: { ArenaDrivelinePoint },",
+        "\tminimapBounds: ArenaBounds,",
         "}",
         "",
         "local function deepFreeze<T>(tbl: T): T",
@@ -127,7 +142,23 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
             ])
         lines.append("\t\t},")
 
+    half = 0.5 * float(spec["plane_size_m"])
+    q_edges = [-half, -0.5 * half, 0.0, 0.5 * half, half]
     lines.extend([
+        "\t},",
+        "\tdrivelineQuadCenters = {",
+    ])
+    for qi in range(len(q_edges) - 1):
+        z_mid = 0.5 * (q_edges[qi] + q_edges[qi + 1])
+        lines.append(f"\t\t{{ x = 0.0, z = {z_mid} }},")
+    lines.extend([
+        "\t},",
+        "\tminimapBounds = {",
+        f"\t\tminX = {-half},",
+        f"\t\tmaxX = {half},",
+        f"\t\tminZ = {-half},",
+        f"\t\tmaxZ = {half},",
+        f"\t\trange = {float(spec['plane_size_m'])},",
         "\t},",
         "}",
         "",

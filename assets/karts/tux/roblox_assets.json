@@ -1,0 +1,69 @@
+{
+  "kartId": "tux",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "textures": {
+    "engine.png": "rbxassetid://115752305597853",
+    "tux_body.png": "rbxassetid://106544408146777",
+    "tuxkart.png": "rbxassetid://120474959811583",
+    "wheel.png": "rbxassetid://100953104512657"
+  },
+  "parts": {
+    "Body_Engine": {
+      "meshId": "rbxassetid://119525745345361",
+      "textureId": "rbxassetid://115752305597853",
+      "material": "engine.png",
+      "robloxMaterial": "Metal",
+      "importFlipY180": true
+    },
+    "Body_Chassis": {
+      "meshId": "rbxassetid://83054196153937",
+      "textureId": "rbxassetid://120474959811583",
+      "material": "tuxkart.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true
+    },
+    "Body_Steering": {
+      "meshId": "rbxassetid://105285567042087",
+      "textureId": "rbxassetid://100953104512657",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true
+    },
+    "Driver": {
+      "meshId": "rbxassetid://124416804219019",
+      "textureId": "rbxassetid://106544408146777",
+      "material": "tux_body.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true
+    },
+    "WheelFrontLeft": {
+      "meshId": "rbxassetid://102856386606382",
+      "textureId": "rbxassetid://100953104512657",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true
+    },
+    "WheelFrontRight": {
+      "meshId": "rbxassetid://90408439272716",
+      "textureId": "rbxassetid://100953104512657",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true
+    },
+    "WheelRearLeft": {
+      "meshId": "rbxassetid://72198550204983",
+      "textureId": "rbxassetid://100953104512657",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true
+    },
+    "WheelRearRight": {
+      "meshId": "rbxassetid://82108693915752",
+      "textureId": "rbxassetid://100953104512657",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true
+    }
+  }
+}

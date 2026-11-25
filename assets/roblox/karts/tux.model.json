@@ -1,0 +1,899 @@
+{
+  "ClassName": "Model",
+  "Properties": {
+    "Attributes": {
+      "Attributes": {
+        "SourceKart": {
+          "String": "tux"
+        },
+        "KartName": {
+          "String": "Tux"
+        },
+        "KartType": {
+          "String": "medium"
+        },
+        "SourceRevision": {
+          "String": "18627"
+        },
+        "MetersPerStud": {
+          "Float64": 1.0
+        },
+        "StaticFirstPass": {
+          "Bool": true
+        },
+        "HasUploadedMeshes": {
+          "Bool": true
+        },
+        "AnimationOmitted": {
+          "String": "SPMA bone animation deferred (docs/divergences.md)"
+        },
+        "HeadlightsExcluded": {
+          "String": "headlight.spm excluded (un-audited external textures)"
+        },
+        "HatBone": {
+          "String": "Head"
+        },
+        "HatSocketPosStuds": {
+          "String": "-0.0,0.69,0.03"
+        },
+        "HatSocketRot00": {
+          "Float64": 1.0
+        }
+      }
+    }
+  },
+  "Children": [
+    {
+      "ClassName": "Part",
+      "Name": "ChassisRoot",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Size": [
+          0.8213,
+          0.6759,
+          1.4379
+        ],
+        "Color": [
+          1.0,
+          0.25,
+          0.25
+        ],
+        "Transparency": 1.0,
+        "TopSurface": "Smooth",
+        "BottomSurface": "Smooth",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              0.0,
+              0.4143,
+              -0.0176
+            ],
+            "orientation": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "RawWidthStuds": {
+              "Float64": 0.82126
+            },
+            "RawHeightStuds": {
+              "Float64": 0.67595
+            },
+            "RawLengthStuds": {
+              "Float64": 1.43788
+            }
+          }
+        }
+      },
+      "Children": [
+        {
+          "ClassName": "Attachment",
+          "Name": "NitroEmitterA",
+          "Properties": {
+            "CFrame": {
+              "CFrame": {
+                "position": [
+                  0.2,
+                  -0.0543,
+                  0.5976
+                ],
+                "orientation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "ClassName": "Attachment",
+          "Name": "NitroEmitterB",
+          "Properties": {
+            "CFrame": {
+              "CFrame": {
+                "position": [
+                  -0.2,
+                  -0.0543,
+                  0.5976
+                ],
+                "orientation": [
+                  [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    1.0
+                  ]
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "Body_Engine",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.7351,
+          0.3533,
+          1.2556
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "Metal",
+        "MeshId": "rbxassetid://119525745345361",
+        "TextureID": "rbxassetid://115752305597853",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              0.0,
+              0.37249,
+              0.07351
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://119525745345361"
+            },
+            "GlbFile": {
+              "String": "tux_body.glb"
+            },
+            "SourceMaterial": {
+              "String": "engine.png"
+            },
+            "VertexCount": {
+              "Int32": 1247
+            },
+            "TriangleCount": {
+              "Int32": 2086
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            },
+            "LocalPosX": {
+              "Float64": 0.0
+            },
+            "LocalPosY": {
+              "Float64": 0.37249
+            },
+            "LocalPosZ": {
+              "Float64": 0.07351
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "Body_Chassis",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.8213,
+          0.2295,
+          1.3157
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "SmoothPlastic",
+        "MeshId": "rbxassetid://83054196153937",
+        "TextureID": "rbxassetid://120474959811583",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              0.0,
+              0.19106,
+              -0.07871
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://83054196153937"
+            },
+            "GlbFile": {
+              "String": "tux_body.glb"
+            },
+            "SourceMaterial": {
+              "String": "tuxkart.png"
+            },
+            "VertexCount": {
+              "Int32": 660
+            },
+            "TriangleCount": {
+              "Int32": 924
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            },
+            "LocalPosX": {
+              "Float64": 0.0
+            },
+            "LocalPosY": {
+              "Float64": 0.19106
+            },
+            "LocalPosZ": {
+              "Float64": -0.07871
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "Body_Steering",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.5192,
+          0.4331,
+          1.0222
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "Rubber",
+        "MeshId": "rbxassetid://105285567042087",
+        "TextureID": "rbxassetid://100953104512657",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              0.0,
+              0.29657,
+              0.07111
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://105285567042087"
+            },
+            "GlbFile": {
+              "String": "tux_body.glb"
+            },
+            "SourceMaterial": {
+              "String": "wheel.png"
+            },
+            "VertexCount": {
+              "Int32": 191
+            },
+            "TriangleCount": {
+              "Int32": 262
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            },
+            "LocalPosX": {
+              "Float64": 0.0
+            },
+            "LocalPosY": {
+              "Float64": 0.29657
+            },
+            "LocalPosZ": {
+              "Float64": 0.07111
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "Driver",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.3635,
+          0.6459,
+          0.4423
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "SmoothPlastic",
+        "MeshId": "rbxassetid://124416804219019",
+        "TextureID": "rbxassetid://106544408146777",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              0.0,
+              0.42932,
+              -0.0777
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://124416804219019"
+            },
+            "GlbFile": {
+              "String": "tux_driver.glb"
+            },
+            "VertexCount": {
+              "Int32": 864
+            },
+            "TriangleCount": {
+              "Int32": 1354
+            },
+            "Materials": {
+              "String": "tux_body.png"
+            },
+            "LocalPosX": {
+              "Float64": 0.0
+            },
+            "LocalPosY": {
+              "Float64": 0.42932
+            },
+            "LocalPosZ": {
+              "Float64": -0.0777
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "WheelFrontLeft",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.1978,
+          0.2198,
+          0.2198
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "Rubber",
+        "MeshId": "rbxassetid://102856386606382",
+        "TextureID": "rbxassetid://100953104512657",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              -0.31959,
+              0.11,
+              -0.41
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://102856386606382"
+            },
+            "GlbFile": {
+              "String": "wheel-front-left.glb"
+            },
+            "VertexCount": {
+              "Int32": 259
+            },
+            "TriangleCount": {
+              "Int32": 384
+            },
+            "Materials": {
+              "String": "wheel.png"
+            },
+            "LocalPosX": {
+              "Float64": -0.31959
+            },
+            "LocalPosY": {
+              "Float64": 0.11
+            },
+            "LocalPosZ": {
+              "Float64": -0.41
+            },
+            "WheelSlot": {
+              "String": "front-left"
+            },
+            "WheelOriginX": {
+              "Float64": -0.3196
+            },
+            "WheelOriginY": {
+              "Float64": 0.11
+            },
+            "WheelOriginZ": {
+              "Float64": -0.41
+            },
+            "WheelRadiusStuds": {
+              "Float64": 0.10991
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "WheelFrontRight",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.1978,
+          0.2198,
+          0.2198
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "Rubber",
+        "MeshId": "rbxassetid://90408439272716",
+        "TextureID": "rbxassetid://100953104512657",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              0.3196,
+              0.11,
+              -0.41
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://90408439272716"
+            },
+            "GlbFile": {
+              "String": "wheel-front-right.glb"
+            },
+            "VertexCount": {
+              "Int32": 259
+            },
+            "TriangleCount": {
+              "Int32": 384
+            },
+            "Materials": {
+              "String": "wheel.png"
+            },
+            "LocalPosX": {
+              "Float64": 0.3196
+            },
+            "LocalPosY": {
+              "Float64": 0.11
+            },
+            "LocalPosZ": {
+              "Float64": -0.41
+            },
+            "WheelSlot": {
+              "String": "front-right"
+            },
+            "WheelOriginX": {
+              "Float64": 0.3196
+            },
+            "WheelOriginY": {
+              "Float64": 0.11
+            },
+            "WheelOriginZ": {
+              "Float64": -0.41
+            },
+            "WheelRadiusStuds": {
+              "Float64": 0.10991
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "WheelRearLeft",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.302,
+          0.28,
+          0.28
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "Rubber",
+        "MeshId": "rbxassetid://72198550204983",
+        "TextureID": "rbxassetid://100953104512657",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              -0.33,
+              0.14,
+              0.34
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://72198550204983"
+            },
+            "GlbFile": {
+              "String": "wheel-rear-left.glb"
+            },
+            "VertexCount": {
+              "Int32": 259
+            },
+            "TriangleCount": {
+              "Int32": 400
+            },
+            "Materials": {
+              "String": "wheel.png"
+            },
+            "LocalPosX": {
+              "Float64": -0.33
+            },
+            "LocalPosY": {
+              "Float64": 0.14
+            },
+            "LocalPosZ": {
+              "Float64": 0.34
+            },
+            "WheelSlot": {
+              "String": "rear-left"
+            },
+            "WheelOriginX": {
+              "Float64": -0.355
+            },
+            "WheelOriginY": {
+              "Float64": 0.14
+            },
+            "WheelOriginZ": {
+              "Float64": 0.34
+            },
+            "WheelRadiusStuds": {
+              "Float64": 0.14
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "MeshPart",
+      "Name": "WheelRearRight",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Size": [
+          0.302,
+          0.28,
+          0.28
+        ],
+        "Color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Material": "Rubber",
+        "MeshId": "rbxassetid://82108693915752",
+        "TextureID": "rbxassetid://100953104512657",
+        "RenderFidelity": "Precise",
+        "CollisionFidelity": "Box",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              0.33,
+              0.14,
+              0.34
+            ],
+            "orientation": [
+              [
+                -1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "MeshAssetId": {
+              "String": "rbxassetid://82108693915752"
+            },
+            "GlbFile": {
+              "String": "wheel-rear-right.glb"
+            },
+            "VertexCount": {
+              "Int32": 259
+            },
+            "TriangleCount": {
+              "Int32": 400
+            },
+            "Materials": {
+              "String": "wheel.png"
+            },
+            "LocalPosX": {
+              "Float64": 0.33
+            },
+            "LocalPosY": {
+              "Float64": 0.14
+            },
+            "LocalPosZ": {
+              "Float64": 0.34
+            },
+            "WheelSlot": {
+              "String": "rear-right"
+            },
+            "WheelOriginX": {
+              "Float64": 0.355
+            },
+            "WheelOriginY": {
+              "Float64": 0.14
+            },
+            "WheelOriginZ": {
+              "Float64": 0.34
+            },
+            "WheelRadiusStuds": {
+              "Float64": 0.14
+            },
+            "ImportFlipY180": {
+              "Bool": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}
