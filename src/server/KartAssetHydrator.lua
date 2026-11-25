@@ -7,10 +7,15 @@
 local InsertService = game:GetService("InsertService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ItemBoundsData = require(Shared.items.ItemBoundsData)
+local TuxBoundsData = require(Shared.kart.TuxBoundsData)
+
 local KartAssetHydrator = {}
 
 local function hydrateMeshPart(placeholder: MeshPart): MeshPart?
-	if placeholder.MeshId ~= "" then
+	-- Rojo .model.json writes MeshId without MeshSize; zero MeshSize causes Roblox to distort Size.
+	if placeholder.MeshId ~= "" and placeholder.MeshSize.Magnitude > 1e-4 then
 		return placeholder
 	end
 
@@ -56,33 +61,155 @@ local function hydrateMeshPart(placeholder: MeshPart): MeshPart?
 	return created
 end
 
-function KartAssetHydrator.hydrateAll(): number
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	local karts = if assets then assets:FindFirstChild("Karts") else nil
-	if karts == nil then
+function KartAssetHydrator.assertSubmeshBounds(model: Model, expectedByPart: { [string]: { number } }, tol: number?)
+	local tolerance = tol or 0.01
+	for partName, exp in expectedByPart do
+		local child = model:FindFirstChild(partName)
+		if not (child and child:IsA("MeshPart")) then
+			error(string.format("[OpenKart] Missing MeshPart '%s' in %s", partName, model.Name))
+		end
+		local mp = child :: MeshPart
+		if mp.MeshId == "" or mp.MeshSize.Magnitude <= 1e-4 then
+			error(
+				string.format(
+					"[OpenKart] Unhydrated MeshPart '%s' in %s (MeshId='%s', MeshSize=%.4f,%.4f,%.4f)",
+					partName,
+					model.Name,
+					mp.MeshId,
+					mp.MeshSize.X,
+					mp.MeshSize.Y,
+					mp.MeshSize.Z
+				)
+			)
+		end
+		local dx = math.abs(mp.Size.X - exp[1])
+		local dy = math.abs(mp.Size.Y - exp[2])
+		local dz = math.abs(mp.Size.Z - exp[3])
+		local mdx = math.abs(mp.MeshSize.X - exp[1])
+		local mdy = math.abs(mp.MeshSize.Y - exp[2])
+		local mdz = math.abs(mp.MeshSize.Z - exp[3])
+		if
+			dx > tolerance
+			or dy > tolerance
+			or dz > tolerance
+			or mdx > tolerance
+			or mdy > tolerance
+			or mdz > tolerance
+		then
+			error(
+				string.format(
+					"[OpenKart] Bounds mismatch on %s.%s: Size=(%.4f,%.4f,%.4f) MeshSize=(%.4f,%.4f,%.4f) expected=(%.4f,%.4f,%.4f)",
+					model.Name,
+					partName,
+					mp.Size.X,
+					mp.Size.Y,
+					mp.Size.Z,
+					mp.MeshSize.X,
+					mp.MeshSize.Y,
+					mp.MeshSize.Z,
+					exp[1],
+					exp[2],
+					exp[3]
+				)
+			)
+		end
+	end
+end
+
+local function hydrateModelFolder(folder: Instance?, boundsLookup: { [string]: { [string]: { number } } }?): number
+	if folder == nil then
 		return 0
 	end
-
-	local hydratedCount = 0
-	for _, kartModel in karts:GetChildren() do
-		if kartModel:IsA("Model") then
-			local allReady = true
-			local snapshot: { Instance } = table.clone(kartModel:GetChildren())
-			for _, child in snapshot do
-				if child:IsA("MeshPart") then
-					local mp = hydrateMeshPart(child)
-					if mp ~= nil and mp.MeshId ~= "" then
-						hydratedCount += 1
-					else
-						allReady = false
-					end
+	local toHydrate: { { model: Model, part: MeshPart } } = {}
+	local models: { Model } = {}
+	for _, assetModel in folder:GetChildren() do
+		if assetModel:IsA("Model") then
+			table.insert(models, assetModel)
+			for _, child in assetModel:GetChildren() do
+				if child:IsA("MeshPart") and (child.MeshId == "" or child.MeshSize.Magnitude <= 1e-4) then
+					table.insert(toHydrate, { model = assetModel, part = child })
 				end
 			end
-			kartModel:SetAttribute("MeshesHydrated", allReady)
 		end
 	end
 
+	-- Parallelize network hydration when dev live-sync leaves MeshSize == 0; baked .rbxmx skips completely.
+	local hydratedCount = 0
+	if #toHydrate > 0 then
+		local t0 = os.clock()
+		local pending = #toHydrate
+		for _, item in toHydrate do
+			task.spawn(function()
+				local mp = hydrateMeshPart(item.part)
+				if mp ~= nil and mp.MeshId ~= "" and mp.MeshSize.Magnitude > 1e-4 then
+					hydratedCount += 1
+				end
+				pending -= 1
+			end)
+		end
+		while pending > 0 do
+			task.wait()
+		end
+		print(
+			string.format(
+				"[OpenKart] Parallel hydrated %d/%d MeshParts in %s (%.1f ms)",
+				hydratedCount,
+				#toHydrate,
+				folder.Name,
+				(os.clock() - t0) * 1000
+			)
+		)
+	end
+
+	for _, assetModel in models do
+		local allReady = true
+		for _, child in assetModel:GetChildren() do
+			if child:IsA("MeshPart") and (child.MeshId == "" or child.MeshSize.Magnitude <= 1e-4) then
+				allReady = false
+				break
+			end
+		end
+		if allReady and boundsLookup ~= nil then
+			local expected = boundsLookup[assetModel.Name]
+			if expected ~= nil then
+				KartAssetHydrator.assertSubmeshBounds(assetModel, expected, TuxBoundsData.TOLERANCE_STUDS)
+			end
+		end
+		assetModel:SetAttribute("MeshesHydrated", allReady)
+	end
+
 	return hydratedCount
+end
+
+function KartAssetHydrator.hydrateAll(): number
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if assets == nil then
+		return 0
+	end
+	local kartsCount = hydrateModelFolder(assets:FindFirstChild("Karts"), {
+		tux = TuxBoundsData.submeshes,
+	})
+	local itemBounds: { [string]: { [string]: { number } } } = {}
+	for itemId, subs in ItemBoundsData.items do
+		local byPart: { [string]: { number } } = {}
+		for partName, info in subs do
+			byPart[partName] = info.size
+		end
+		itemBounds[itemId] = byPart
+	end
+	local itemsCount = hydrateModelFolder(assets:FindFirstChild("Items"), nil)
+	local itemsFolder = assets:FindFirstChild("Items")
+	if itemsFolder then
+		for _, itemModel in itemsFolder:GetChildren() do
+			if itemModel:IsA("Model") and itemModel:GetAttribute("HasUploadedMeshes") == true then
+				local expected = itemBounds[itemModel.Name]
+				if expected ~= nil then
+					KartAssetHydrator.assertSubmeshBounds(itemModel, expected, ItemBoundsData.TOLERANCE_STUDS)
+				end
+			end
+		end
+	end
+	return kartsCount + itemsCount
 end
 
 return table.freeze(KartAssetHydrator)

@@ -9,6 +9,7 @@ local suites = {
 	{ name = "KartVisualMath", tests = require("./KartVisualMath.spec") },
 	{ name = "RaceHudMath", tests = require("./RaceHudMath.spec") },
 	{ name = "Standings", tests = require("./Standings.spec") },
+	{ name = "Items", tests = require("./Items.spec") },
 }
 
 local passed = 0

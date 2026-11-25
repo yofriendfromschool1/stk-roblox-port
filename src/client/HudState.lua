@@ -16,6 +16,8 @@ export type InterpolatedHudState = {
 	nitroEnergy: number,
 	nitroMaxEnergy: number,
 	nitroUsing: boolean,
+	heldPowerup: number,
+	heldPowerupCount: number,
 	raceMode: RaceHudMath.RaceMode,
 	raceStartServerTime: number,
 	lap: number,
@@ -31,6 +33,8 @@ local currentState: InterpolatedHudState = {
 	nitroEnergy = 0.0,
 	nitroMaxEnergy = 20.0,
 	nitroUsing = false,
+	heldPowerup = 0,
+	heldPowerupCount = 0,
 	raceMode = "TIME_TRIAL",
 	raceStartServerTime = 0.0,
 	lap = 0,
@@ -52,7 +56,9 @@ function HudState.publish(
 	raceStartServerTime: number,
 	lap: number,
 	checkpoint: number,
-	distance: number
+	distance: number,
+	heldPowerup: number?,
+	heldPowerupCount: number?
 )
 	currentState.ready = true
 	currentState.pos.x = posX
@@ -62,6 +68,8 @@ function HudState.publish(
 	currentState.nitroEnergy = nitroEnergy
 	currentState.nitroMaxEnergy = nitroMaxEnergy
 	currentState.nitroUsing = nitroUsing
+	currentState.heldPowerup = heldPowerup or 0
+	currentState.heldPowerupCount = heldPowerupCount or 0
 	currentState.raceMode = raceMode
 	currentState.raceStartServerTime = raceStartServerTime
 	currentState.lap = lap

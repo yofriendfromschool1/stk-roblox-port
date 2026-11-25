@@ -3,14 +3,16 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Shared": { "$path": "src/shared" }
+      "Shared": { "$path": "src/shared" },
+      "Assets": {
+        "$className": "Folder",
+        "Karts": { "$path": "assets/roblox/karts" },
+        "Items": { "$path": "assets/roblox/items" }
+      }
     },
     "ServerScriptService": { "Server": { "$path": "src/server" } },
     "StarterPlayer": {
       "StarterPlayerScripts": { "Client": { "$path": "src/client" } }
-    },
-    "Workspace": {
-      "Tracks": { "$path": "assets/roblox/tracks" }
     }
   }
 }

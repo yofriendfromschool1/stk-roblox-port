@@ -22,7 +22,10 @@ This log records Month 1+ engineering decisions and any future changes to baseli
 
 ## 4. `rojo serve` vs. `rojo build` Workflow
 - **Decision:** Keep `rojo serve` as the live Studio development loop, and treat `rojo build default.project.json -o openkart-dev.rbxl` as a CI/verification/publish build artifact only (never hand-edit `.rbxl` files).
-- **Rationale:** Changes to `default.project.json` (e.g., adding `Workspace.Tracks`) require restarting `rojo serve` and reconnecting the Studio plugin to avoid live-session vs. `.rbxl` build drift (`AGENTS.md` corresponding-source rule).
+- **Rationale:** Changes to `default.project.json` (e.g., adding `ReplicatedStorage.Assets.Items`) require restarting `rojo serve` and reconnecting the Studio plugin to avoid live-session vs. `.rbxl` build drift (`AGENTS.md` corresponding-source rule).
+
+## 4.1 Baked `.rbxmx` MeshParts & Cached HUD Presentation
+- **Decision:** Export converted kart models with native `MeshPart.InitialSize` (`MeshSize`) baked into `assets/roblox/karts/tux.rbxmx` instead of `.model.json` so built places skip runtime `InsertService:CreateMeshPartAsync` network fetches (keeping parallel `task.spawn` hydration in `KartAssetHydrator` only as a dev fallback when `MeshSize == 0`), drop the unused `Workspace.Tracks` Rojo mount (`461` redundant BaseParts), throttle HUD timer text to `10 Hz`, and cache HUD property writes so `CanvasGroup` radial masks only re-rasterize when values change. See [perf-baseline.md](perf-baseline.md) for measured Studio server 20-kart query timings.
 
 ## 5. Offline Track Conversion Boundary (`tools/stk2rbx`) & Reflection Audit
 - **Decision:** Track layouts, drivelines, checkpoints, items, and meshes are parsed offline from pinned `stk-assets` by `tools/stk2rbx` (pure Python 3 stdlib, GPLv3+) into Rojo `.model.json` / converted assets. Driveline quads and checkpoints are emitted strictly as non-collidable, non-touchable query volumes (`CanCollide = false`, `CanTouch = false`, `CanQuery = true`, `Transparency = 1`).

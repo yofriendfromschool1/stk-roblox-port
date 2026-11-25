@@ -133,6 +133,16 @@ local RaceHudMath = {
 	PLAYER_LIST_Y_BASE = 25, -- race_gui_base.cpp:L796
 	PLAYER_LIST_MIN_ICON = 35, -- race_gui_base.cpp:L824
 	PLAYER_LIST_MAX_ICON_AT_1024 = 60, -- race_gui_base.cpp:L822
+	POWERUP_SIZE_DEFAULT = 64.0, -- user_config.hpp:L1302
+	POWERUP_MARGIN_TOP = 20.0, -- race_gui_base.cpp:L428
+	POWERUP_MAX_STACK = 5, -- race_gui_base.cpp:L395
+}
+
+export type PowerupLayout = {
+	iconSize: number,
+	rects: { HudRect },
+	manyText: string?,
+	manyRect: HudRect?,
 }
 
 -- Mode-conditional visibility matching race_gui.cpp & src/modes/*.hpp (STK 1.5)
@@ -442,6 +452,77 @@ end
 -- Counter-clockwise sweep angle in degrees around NITRO_CENTER (117.44 -> -12.56)
 function RaceHudMath.computeNitroSweepAngleDeg(snappedRatio: number): number
 	return interpolateSegmentAngle(NITRO_ANGLES_DEG, snappedRatio)
+end
+
+-- Held powerup icon strip & xN badge layout ported from RaceGUIBase::drawPowerupIcons
+-- (src/states_screens/race_gui_base.cpp:L380-L456, user_config.hpp:L1298-L1303).
+function RaceHudMath.computePowerupLayout(
+	viewportW: number,
+	viewportH: number,
+	count: number,
+	powerupDisplay: number?,
+	powerupSize: number?
+): PowerupLayout
+	local displayMode = powerupDisplay or 0
+	if displayMode == 2 or count < 1 or viewportW <= 0 or viewportH <= 0 then
+		return {
+			iconSize = 0,
+			rects = {},
+			manyText = nil,
+			manyRect = nil,
+		}
+	end
+
+	local n = math.floor(count)
+	local manyPowerups = 0
+	if n > RaceHudMath.POWERUP_MAX_STACK then
+		manyPowerups = n
+		n = 1
+	end
+
+	local scale = RaceHudMath.computeScale(viewportW, viewportH)
+	local baseSize = powerupSize or RaceHudMath.POWERUP_SIZE_DEFAULT
+	local nSize = math.floor(baseSize * scale)
+	local itemSpacing = math.floor(scale * baseSize * 0.5)
+
+	local x1: number
+	if displayMode == 1 or (viewportW / viewportH) > 2.0 then
+		x1 = math.floor(3 * (viewportW / 4)) - math.floor((n * itemSpacing) / 2)
+	else
+		x1 = math.floor(viewportW / 2) - math.floor((n * itemSpacing) / 2)
+	end
+	local y1 = math.floor(RaceHudMath.POWERUP_MARGIN_TOP * scale)
+
+	local rects: { HudRect } = table.create(n)
+	local x2 = 0
+	for i = 0, n - 1 do
+		x2 = math.floor((x1 + i * itemSpacing) - (itemSpacing / 2))
+		rects[i + 1] = {
+			x = x2,
+			y = y1,
+			width = nSize,
+			height = nSize,
+		}
+	end
+
+	local manyText: string? = nil
+	local manyRect: HudRect? = nil
+	if manyPowerups > 0 then
+		manyText = "x" .. tostring(manyPowerups)
+		manyRect = {
+			x = x2 + nSize,
+			y = y1,
+			width = nSize,
+			height = nSize,
+		}
+	end
+
+	return {
+		iconSize = nSize,
+		rects = rects,
+		manyText = manyText,
+		manyRect = manyRect,
+	}
 end
 
 return table.freeze(RaceHudMath)

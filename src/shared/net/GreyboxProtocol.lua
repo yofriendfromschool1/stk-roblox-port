@@ -2,6 +2,7 @@
 -- src/shared/net/GreyboxProtocol.lua
 -- SPDX-License-Identifier: GPL-3.0-or-later
 
+local ItemWorld = require("../items/ItemWorld")
 local KartSolver = require("../sim/KartSolver")
 local MaxSpeed = require("../kart/MaxSpeed")
 local Skidding = require("../kart/Skidding")
@@ -13,6 +14,7 @@ export type ClientInputPacket = {
 	steer: number,
 	drift: boolean,
 	nitro: boolean,
+	fire: boolean?,
 	reset: boolean,
 	debugGrantNitro: boolean,
 }
@@ -57,6 +59,12 @@ for idx, name in INC_CATS do
 	INC_CAT_TO_ID[name :: MaxSpeed.SpeedIncreaseCategory] = idx
 end
 
+local ITEM_TYPES: { ItemWorld.ItemType } = { "small-nitro", "big-nitro", "item", "banana", "bubblegum" }
+local ITEM_TYPE_TO_ID: { [ItemWorld.ItemType]: number } = {}
+for idx, name in ITEM_TYPES do
+	ITEM_TYPE_TO_ID[name :: ItemWorld.ItemType] = idx
+end
+
 local GreyboxProtocol = {}
 
 GreyboxProtocol.REMOTES_FOLDER = "OpenKartRemotes"
@@ -76,7 +84,7 @@ function GreyboxProtocol.packSnapshot(
 	resetSeq: number,
 	ns: KartSolver.NetState,
 	resetNotice: string
-): ({ number }, { { number } }?, string?)
+): ({ number }, { { number } }?, string?, { any }?)
 	local nums: { number } = {
 		tick,
 		lastInputSeq,
@@ -120,6 +128,13 @@ function GreyboxProtocol.packSnapshot(
 		ns.terrainFraction,
 		ns.terrainTargetFraction,
 		ns.terrainFadeTicks,
+		ns.heldPowerup or 0,
+		ns.heldPowerupCount or 0,
+		if ns.fireWasDown then 1 else 0,
+		ns.squashFraction or 1.0,
+		ns.squashTargetFraction or 1.0,
+		ns.squashFadeTicks or 0,
+		ns.squashDurationTicks or 0,
 	}
 
 	local incs: { { number } }? = nil
@@ -138,12 +153,40 @@ function GreyboxProtocol.packSnapshot(
 		incs = list
 	end
 
+	local itemsArg: { any }? = nil
+	local iw = ns.itemWorldSnapshot
+	if iw ~= nil then
+		local cooldownRows: { { number } } = {}
+		for _, cd in iw.trackCooldowns do
+			table.insert(cooldownRows, { cd.id, cd.ticksTillReturn, cd.deactiveTicks })
+		end
+		local dynRows: { { number } } = {}
+		for _, dyn in iw.dynamicItems do
+			table.insert(dynRows, {
+				dyn.id,
+				ITEM_TYPE_TO_ID[dyn.itemType] or 4,
+				dyn.pos.x,
+				dyn.pos.y,
+				dyn.pos.z,
+				dyn.deactiveTicks,
+				dyn.disappearCounter,
+				dyn.ownerId,
+			})
+		end
+		local packed: { any } = table.create(4)
+		packed[1] = iw.elapsedTicks
+		packed[2] = iw.nextDynamicId
+		packed[3] = cooldownRows
+		packed[4] = dynRows
+		itemsArg = packed
+	end
+
 	local noticeArg: string? = if resetNotice ~= "" then resetNotice else nil
-	return nums, incs, noticeArg
+	return nums, incs, noticeArg, itemsArg
 end
 
-function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: any): TelemetryPacket?
-	if type(rawNums) ~= "table" or #rawNums < 42 then
+function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: any, rawItems: any): TelemetryPacket?
+	if type(rawNums) ~= "table" or #rawNums < 49 then
 		return nil
 	end
 	local nums = rawNums :: { number }
@@ -164,6 +207,44 @@ function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: a
 				end
 			end
 		end
+	end
+
+	local itemWorldSnapshot: ItemWorld.ItemWorldSnapshot? = nil
+	if type(rawItems) == "table" and #rawItems >= 4 then
+		local ri = rawItems :: { any }
+		local cooldowns: { ItemWorld.NetTrackCooldown } = {}
+		if type(ri[3]) == "table" then
+			for _, row in ri[3] :: { { number } } do
+				if type(row) == "table" and #row >= 3 then
+					table.insert(cooldowns, {
+						id = row[1],
+						ticksTillReturn = row[2],
+						deactiveTicks = row[3],
+					})
+				end
+			end
+		end
+		local dynamics: { ItemWorld.NetDynamicItem } = {}
+		if type(ri[4]) == "table" then
+			for _, row in ri[4] :: { { number } } do
+				if type(row) == "table" and #row >= 8 then
+					table.insert(dynamics, {
+						id = row[1],
+						itemType = (ITEM_TYPES[row[2]] or "banana") :: ItemWorld.ItemType,
+						pos = { x = row[3], y = row[4], z = row[5] },
+						deactiveTicks = row[6],
+						disappearCounter = row[7],
+						ownerId = row[8],
+					})
+				end
+			end
+		end
+		itemWorldSnapshot = {
+			elapsedTicks = if type(ri[1]) == "number" then ri[1] else 0,
+			nextDynamicId = if type(ri[2]) == "number" then ri[2] else 1,
+			trackCooldowns = cooldowns,
+			dynamicItems = dynamics,
+		}
 	end
 
 	local netState: KartSolver.NetState = {
@@ -195,7 +276,15 @@ function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: a
 		terrainFraction = nums[40],
 		terrainTargetFraction = nums[41],
 		terrainFadeTicks = nums[42],
+		heldPowerup = nums[43],
+		heldPowerupCount = nums[44],
+		fireWasDown = nums[45] == 1,
+		squashFraction = nums[46],
+		squashTargetFraction = nums[47],
+		squashFadeTicks = nums[48],
+		squashDurationTicks = nums[49],
 		increases = increases,
+		itemWorldSnapshot = itemWorldSnapshot,
 	}
 
 	return {

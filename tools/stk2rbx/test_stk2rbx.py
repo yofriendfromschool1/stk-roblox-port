@@ -570,6 +570,7 @@ class TestStk2Rbx(unittest.TestCase):
         spec = load_arena_spec(DEFAULT_SPEC_PATH)
         self.assertEqual(len(spec["boxes"]), 13)
         self.assertEqual(len(spec["materials"]), 7)
+        self.assertEqual(len(spec["items"]), 10)
 
         with tempfile.TemporaryDirectory() as tmp:
             luau_out = Path(tmp) / "GreyboxArenaData.lua"
@@ -582,6 +583,12 @@ class TestStk2Rbx(unittest.TestCase):
                 self.assertIn(f'name = "{box["name"]}"', luau_src)
             # Check STK +Z=72.5 -> Roblox -Z=-72.5 on SandPatch
             self.assertIn("pos = { 0.0, -0.098, -72.5 }", luau_src)
+            # Check items parity in Luau (STK +Z -> Roblox -Z)
+            self.assertIn('itemType = "small-nitro"', luau_src)
+            self.assertIn('itemType = "big-nitro"', luau_src)
+            self.assertIn('itemType = "item"', luau_src)
+            self.assertIn('itemType = "banana"', luau_src)
+            self.assertIn("pos = { -6.0, 0.5, -24.0 }", luau_src)
 
             spm_path = stk_out / "openkart_arena_track.spm"
             audit = audit_mesh(spm_path)
@@ -589,6 +596,11 @@ class TestStk2Rbx(unittest.TestCase):
             self.assertEqual(audit.triangle_count, 13 * 12)
             for fname in ("track.xml", "materials.xml", "quads.xml", "graph.xml", "scene.xml", "sand.png", "road.jpg"):
                 self.assertTrue((stk_out / fname).exists(), f"Missing {fname}")
+            scene_xml = (stk_out / "scene.xml").read_text(encoding="utf-8")
+            self.assertIn('<small-nitro x="-4.0" y="0.4" z="12.0"/>', scene_xml)
+            self.assertIn('<big-nitro x="4.0" y="0.4" z="18.0"/>', scene_xml)
+            self.assertIn('<item x="0.0" y="0.5" z="24.0"/>', scene_xml)
+            self.assertIn('<banana x="-14.0" y="0.35" z="16.0"/>', scene_xml)
 
     def test_kart_emitter_synthetic_spma_assembly(self) -> None:
         from tools.stk2rbx.kart_emit import convert_kart
@@ -732,6 +744,77 @@ class TestStk2Rbx(unittest.TestCase):
             self.assertEqual(arm["bind_frame"], 20)
             self.assertEqual(arm["joint_used"], 16)
             self.assertEqual(arm["keyframe_count"], 60)
+
+    def test_item_mesh_bounds_match_source_spm(self) -> None:
+        from tools.stk2rbx.item_emit import AUTHORITATIVE_ITEMS, convert_items
+        from tools.stk2rbx.spm_writer import SpmSubmesh, SpmVertex, build_box_geometry, write_spmn
+
+        # 1) Synthetic multi-submesh SPMN roundtrip check
+        with tempfile.TemporaryDirectory() as tmp:
+            mdir = Path(tmp) / "models"
+            mdir.mkdir()
+            for item_def in AUTHORITATIVE_ITEMS:
+                if item_def.spm_file == "gift-box.spm":
+                    v0, i0 = build_box_geometry((0.0, 0.45, 0.0), (0.88, 0.70, 0.88))
+                    v1, i1 = build_box_geometry((0.0, 0.58, 0.0), (0.90, 0.99, 0.90))
+                    write_spmn(
+                        mdir / item_def.spm_file,
+                        [
+                            SpmSubmesh("gift-box.png", v0, i0),
+                            SpmSubmesh("gift-loop.png", v1, i1),
+                        ],
+                    )
+                else:
+                    vs, idxs = build_box_geometry((0.0, 0.5, 0.0), (0.6, 1.0, 0.6))
+                    write_spmn(mdir / item_def.spm_file, [SpmSubmesh("placeholder.png", vs, idxs)])
+
+            rep = convert_items(
+                models_dir=mdir,
+                out_glb_dir=Path(tmp) / "glbs",
+                out_models_dir=Path(tmp) / "rbx_items",
+                report_path=Path(tmp) / "items-report.json",
+                out_bounds_lua=Path(tmp) / "ItemBoundsData.lua",
+                revision="test",
+            )
+            self.assertEqual(rep["item_count"], len(AUTHORITATIVE_ITEMS))
+            gb = next(it for it in rep["items"] if it["item_id"] == "gift-box")
+            self.assertEqual(len(gb["subparts"]), 2)
+            self.assertAlmostEqual(gb["subparts"][0]["size_studs"][0], 0.88, delta=0.001)
+            self.assertAlmostEqual(gb["subparts"][1]["size_studs"][1], 0.99, delta=0.001)
+
+        # 2) Upstream STK 1.5 models bounds audit when installed
+        stk_models = Path(r"C:\Program Files\SuperTuxKart 1.5\data\models")
+        if stk_models.is_dir():
+            with tempfile.TemporaryDirectory() as tmp:
+                rep = convert_items(
+                    models_dir=stk_models,
+                    out_glb_dir=Path(tmp) / "glbs",
+                    out_models_dir=Path(tmp) / "rbx_items",
+                    report_path=Path(tmp) / "items-report.json",
+                    out_bounds_lua=Path(tmp) / "ItemBoundsData.lua",
+                    revision="18627",
+                )
+                by_id = {it["item_id"]: it for it in rep["items"]}
+                for item_def in AUTHORITATIVE_ITEMS:
+                    audit = audit_mesh(stk_models / item_def.spm_file)
+                    emitted = by_id[item_def.item_id]
+                    for ax in range(3):
+                        src_size = (audit.bbox_max_m[ax] - audit.bbox_min_m[ax]) * STUDS_PER_METER
+                        self.assertAlmostEqual(emitted["size_studs"][ax], src_size, delta=0.001)
+
+                    # Also verify every exported GLB file accessor bounds match its subpart size
+                    self.assertEqual(len(emitted["subparts"]), len(audit.submeshes))
+                    for sp, src_sub in zip(emitted["subparts"], audit.submeshes):
+                        glb_path = Path(tmp) / "glbs" / sp["glb_file"]
+                        data = glb_path.read_bytes()
+                        jlen = struct.unpack_from("<I", data, 12)[0]
+                        gltf = json.loads(data[20 : 20 + jlen].decode("utf-8"))
+                        pos_acc = next(a for a in gltf["accessors"] if a.get("type") == "VEC3" and "min" in a)
+                        for ax in range(3):
+                            glb_size = pos_acc["max"][ax] - pos_acc["min"][ax]
+                            src_sub_size = (src_sub.bbox_max_m[ax] - src_sub.bbox_min_m[ax]) * STUDS_PER_METER
+                            self.assertAlmostEqual(glb_size, sp["size_studs"][ax], delta=0.001)
+                            self.assertAlmostEqual(glb_size, src_sub_size, delta=0.001)
 
 
 if __name__ == "__main__":

@@ -13,8 +13,12 @@ local Workspace = game:GetService("Workspace")
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FixedStep = require(Shared.sim.FixedStep)
+local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local HudState = require("./HudState")
+local ItemPresentation = require("./items/ItemPresentation")
+local ItemTuning = require(Shared.ItemTuning)
+local ItemWorld = require(Shared.items.ItemWorld)
 local KartPresentation = require("./kart/KartPresentation")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
@@ -61,7 +65,7 @@ local function createDebugHud()
 	local panel = Instance.new("Frame")
 	panel.Name = "TelemetryPanel"
 	panel.Position = UDim2.fromOffset(16, 56)
-	panel.Size = UDim2.fromOffset(640, 262)
+	panel.Size = UDim2.fromOffset(680, 286)
 	panel.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
 	panel.BackgroundTransparency = 0.2
 	panel.BorderSizePixel = 0
@@ -105,16 +109,17 @@ local function createDebugHud()
 	local slipLbl = makeRow("SlipAngle", 3, 15, Color3.fromRGB(220, 230, 240))
 	local skidLbl = makeRow("SkidTier", 4, 15, Color3.fromRGB(235, 235, 240))
 	local nitroLbl = makeRow("Nitro", 5, 15, Color3.fromRGB(130, 200, 255))
-	local matLbl = makeRow("Material", 6, 15, Color3.fromRGB(240, 225, 155))
-	local airLbl = makeRow("Airborne", 7, 15, Color3.fromRGB(115, 240, 145))
-	local camDiagLbl = makeRow("CamDiag", 8, 14, Color3.fromRGB(195, 220, 255))
+	local itemLbl = makeRow("Item", 6, 15, Color3.fromRGB(255, 225, 115))
+	local matLbl = makeRow("Material", 7, 15, Color3.fromRGB(240, 225, 155))
+	local airLbl = makeRow("Airborne", 8, 15, Color3.fromRGB(115, 240, 145))
+	local camDiagLbl = makeRow("CamDiag", 9, 14, Color3.fromRGB(195, 220, 255))
 
-	local controlsLbl = makeRow("Controls", 9, 12, Color3.fromRGB(165, 172, 185))
+	local controlsLbl = makeRow("Controls", 10, 12, Color3.fromRGB(165, 172, 185))
 	controlsLbl.Text = if IS_STUDIO
-		then "Arrows/WASD: Drive | V/Shift: Drift | N: Nitro | B: Look-Back | G: +3 Nitro | Backspace/R: Reset | F3: Debug HUD | F8: Local-Only"
-		else "Arrows/WASD: Drive | V/Shift: Drift | N: Nitro | B: Look-Back | Backspace/R: Reset | F3: Debug HUD"
+		then "Arrows/WASD: Drive | V/Shift: Drift | N: Nitro | Space: Fire | B: Look-Back | G: +3 Nitro | R: Reset | F3: Debug | F8: Local"
+		else "Arrows/WASD: Drive | V/Shift: Drift | N: Nitro | Space: Fire | B: Look-Back | Backspace/R: Reset | F3: Debug HUD"
 
-	local creditLbl = makeRow("Attribution", 10, 11, Color3.fromRGB(125, 132, 145))
+	local creditLbl = makeRow("Attribution", 11, 11, Color3.fromRGB(125, 132, 145))
 	creditLbl.Text = "Unofficial SuperTuxKart 1.5 port (supertuxkart.net)"
 
 	return {
@@ -124,6 +129,7 @@ local function createDebugHud()
 		slip = slipLbl,
 		skid = skidLbl,
 		nitro = nitroLbl,
+		item = itemLbl,
 		mat = matLbl,
 		air = airLbl,
 		camDiag = camDiagLbl,
@@ -144,6 +150,10 @@ end
 local hud = createDebugHud()
 local profile = KartTuning.buildProfile("medium", "best")
 local visuals = KartPresentation.create(localPlayer, profile, "tux")
+
+local localKartId = if localPlayer.UserId ~= 0 then localPlayer.UserId else 1
+local localItemWorld = ItemWorld.fromArenaSpec(GreyboxArenaData, "NORMAL_RACE")
+local itemVisuals = ItemPresentation.create()
 
 local localStepper = FixedStep.new()
 local localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
@@ -180,6 +190,7 @@ local lastSent: ClientInputPacket = {
 	steer = 0,
 	drift = false,
 	nitro = false,
+	fire = false,
 	reset = false,
 	debugGrantNitro = false,
 }
@@ -225,6 +236,8 @@ local function sampleInput(): (KartSolver.KartInput, boolean, boolean, boolean)
 		or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 
 	local nitro = UserInputService:IsKeyDown(Enum.KeyCode.N)
+	-- PA_FIRE = IRR_KEY_SPACE (src/input/keyboard_config.cpp:L63)
+	local fire = UserInputService:IsKeyDown(Enum.KeyCode.Space)
 	-- Hold-to-look-back (PA_LOOK_BACK = IRR_KEY_B, keyboard_config.cpp:L64, player_controller.cpp:L222-L223)
 	local lookBack = UserInputService:IsKeyDown(Enum.KeyCode.B)
 
@@ -240,17 +253,18 @@ local function sampleInput(): (KartSolver.KartInput, boolean, boolean, boolean)
 		steer = steer,
 		drift = drift,
 		nitro = nitro,
+		fire = fire,
 	},
 		reset,
 		grantNitro,
 		lookBack
 end
 
-telemetryRemote.OnClientEvent:Connect(function(rawNums: any, rawIncs: any, rawNotice: any)
+telemetryRemote.OnClientEvent:Connect(function(rawNums: any, rawIncs: any, rawNotice: any, rawItems: any)
 	if localOnlyMode then
 		return
 	end
-	local snapshot = GreyboxProtocol.unpackSnapshot(rawNums, rawIncs, rawNotice)
+	local snapshot = GreyboxProtocol.unpackSnapshot(rawNums, rawIncs, rawNotice, rawItems)
 	if snapshot == nil then
 		return
 	end
@@ -262,7 +276,7 @@ telemetryRemote.OnClientEvent:Connect(function(rawNums: any, rawIncs: any, rawNo
 
 	if snapshot.resetSeq > lastResetSeq then
 		lastResetSeq = snapshot.resetSeq
-		KartSolver.applyNetState(localState, snapshot.netState)
+		KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
 		table.clear(inputHistory)
 		prevPose = capturePose(localState)
 		currPose = capturePose(localState)
@@ -290,10 +304,13 @@ telemetryRemote.OnClientEvent:Connect(function(rawNums: any, rawIncs: any, rawNo
 	end
 	inputHistory = retained
 
-	KartSolver.applyNetState(localState, snapshot.netState)
+	KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
 	for _, entry in inputHistory do
 		prevPose = capturePose(localState)
-		KartSolver.step(localState, entry.input, worldQuery, FixedStep.FIXED_DT)
+		KartSolver.stepWithItems(localState, entry.input, worldQuery, FixedStep.FIXED_DT, localItemWorld, {
+			isServer = false,
+			kartId = localKartId,
+		})
 	end
 	currPose = capturePose(localState)
 
@@ -332,6 +349,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	local worldQuery = resolveWorldQuery()
 	local steppedThisFrame = false
 	if worldQuery ~= nil then
+		debug.profilebegin("OpenKart_ClientSim")
 		localStepper:advance(dt, function(fixedDt: number)
 			steppedThisFrame = true
 			inputSeq += 1
@@ -354,22 +372,30 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 						steer = solverInput.steer,
 						drift = solverInput.drift,
 						nitro = solverInput.nitro,
+						fire = solverInput.fire,
 					},
 				})
 				if #inputHistory > MAX_INPUT_HISTORY then
 					table.remove(inputHistory, 1)
 				end
-				KartSolver.step(localState, solverInput, worldQuery, fixedDt)
+				KartSolver.stepWithItems(localState, solverInput, worldQuery, fixedDt, localItemWorld, {
+					isServer = false,
+					kartId = localKartId,
+				})
 				currPose = capturePose(localState)
 			end
 		end)
+		debug.profileend()
 	end
+
+	ItemPresentation.sync(itemVisuals, localItemWorld, now)
 
 	local changed = solverInput.accel ~= lastSent.accel
 		or solverInput.brake ~= lastSent.brake
 		or solverInput.steer ~= lastSent.steer
 		or solverInput.drift ~= lastSent.drift
 		or solverInput.nitro ~= lastSent.nitro
+		or (solverInput.fire == true) ~= (lastSent.fire == true)
 		or wantsReset
 		or wantsGrantNitro
 
@@ -381,6 +407,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			steer = solverInput.steer,
 			drift = solverInput.drift,
 			nitro = solverInput.nitro == true,
+			fire = solverInput.fire == true,
 			reset = wantsReset,
 			debugGrantNitro = wantsGrantNitro,
 		}
@@ -414,6 +441,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		localState.wheels[3].suspensionLength,
 		localState.wheels[4].suspensionLength,
 	}
+	debug.profilebegin("OpenKart_KartPres")
 	KartPresentation.update(
 		visuals,
 		bodyCFrame,
@@ -425,6 +453,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		tel.skidState,
 		tel.nitroActive
 	)
+	debug.profileend()
 
 	local attrStart = Workspace:GetAttribute("OpenKartRaceStartTime")
 	local raceStartServerTime = if type(attrStart) == "number" then attrStart else Workspace:GetServerTimeNow()
@@ -436,11 +465,13 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		interpNitroEnergy,
 		profile.nitro.max,
 		solverInput.nitro == true or tel.nitroActive,
-		"TIME_TRIAL",
+		"NORMAL_RACE",
 		raceStartServerTime,
 		0,
 		0,
-		math.max(0.0, interpPos.z)
+		math.max(0.0, interpPos.z),
+		localState.heldPowerup,
+		localState.heldPowerupCount
 	)
 
 	-- STK CameraNormal speed-proportional pull-back + skid_angle/2 offset + constant 80 deg vertical FOV
@@ -449,6 +480,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	local camera = Workspace.CurrentCamera
 	local cameraDirFlat = Vector3.new(renderPose.LookVector.X, 0, renderPose.LookVector.Z)
 	if camera then
+		debug.profilebegin("OpenKart_Camera")
 		camera.CameraType = Enum.CameraType.Scriptable
 		camera.FieldOfView = camCfg.fovDeg
 
@@ -511,6 +543,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		end
 		cameraDirFlat = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
 		wasLookingBack = lookBack
+		debug.profileend()
 	end
 
 	-- Debug HUD
@@ -550,6 +583,19 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		hud.nitro.TextColor3 = Color3.fromRGB(165, 215, 255)
 	else
 		hud.nitro.TextColor3 = Color3.fromRGB(150, 158, 172)
+	end
+
+	local powerupName = ItemTuning.POWERUP_NAMES[localState.heldPowerup] or "NONE"
+	local squashEntry = localState.maxSpeedState.decreases["SQUASH"]
+	local squashTag = if squashEntry ~= nil then " [SQUASH]" else ""
+	if localState.heldPowerupCount > 0 then
+		hud.item.Text = string.format("ITEM:  %s x%d%s", powerupName, localState.heldPowerupCount, squashTag)
+		hud.item.TextColor3 = Color3.fromRGB(255, 225, 115)
+	else
+		hud.item.Text = string.format("ITEM:  NONE%s", squashTag)
+		hud.item.TextColor3 = if squashEntry ~= nil
+			then Color3.fromRGB(255, 120, 100)
+			else Color3.fromRGB(150, 158, 172)
 	end
 
 	local notice = if now < resetNoticeExpirySec then resetNoticeText else ""

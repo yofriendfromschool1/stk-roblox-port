@@ -32,12 +32,21 @@ export type ArenaBounds = {
 	range: number,
 }
 
+export type ArenaItemType = "small-nitro" | "big-nitro" | "item" | "banana"
+
+export type ArenaItemSpec = {
+	id: number,
+	itemType: ArenaItemType,
+	pos: { number },
+}
+
 export type ArenaSpec = {
 	trackId: string,
 	planeSizeStuds: number,
 	planeThicknessStuds: number,
 	gridSpacingStuds: number,
 	boxes: { ArenaBoxSpec },
+	items: { ArenaItemSpec },
 	drivelineQuadCenters: { ArenaDrivelinePoint },
 	minimapBounds: ArenaBounds,
 }
@@ -240,6 +249,18 @@ local GreyboxArenaData: ArenaSpec = {
 			labelY = 3.5,
 			labelColorRgb = { 255, 120, 120 },
 		},
+	},
+	items = {
+		{ id = 1, itemType = "small-nitro", pos = { -4.0, 0.4, -12.0 } },
+		{ id = 2, itemType = "small-nitro", pos = { 4.0, 0.4, -12.0 } },
+		{ id = 3, itemType = "big-nitro", pos = { -4.0, 0.4, -18.0 } },
+		{ id = 4, itemType = "big-nitro", pos = { 4.0, 0.4, -18.0 } },
+		{ id = 5, itemType = "item", pos = { -6.0, 0.5, -24.0 } },
+		{ id = 6, itemType = "item", pos = { 0.0, 0.5, -24.0 } },
+		{ id = 7, itemType = "item", pos = { 6.0, 0.5, -24.0 } },
+		{ id = 8, itemType = "banana", pos = { -14.0, 0.35, -12.0 } },
+		{ id = 9, itemType = "banana", pos = { -14.0, 0.35, -16.0 } },
+		{ id = 10, itemType = "banana", pos = { -14.0, 0.35, -20.0 } },
 	},
 	drivelineQuadCenters = {
 		{ x = 0.0, z = -192.0 },

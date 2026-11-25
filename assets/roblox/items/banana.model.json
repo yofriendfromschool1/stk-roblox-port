@@ -1,0 +1,103 @@
+{
+  "ClassName": "Model",
+  "Properties": {
+    "Attributes": {
+      "Attributes": {
+        "ItemId": {
+          "String": "banana"
+        },
+        "SourceModel": {
+          "String": "banana.spm"
+        },
+        "XmlKey": {
+          "String": "banana"
+        },
+        "SourceRevision": {
+          "String": "18627"
+        },
+        "MetersPerStud": {
+          "Float64": 1.0
+        },
+        "HasUploadedMeshes": {
+          "Bool": false
+        }
+      }
+    }
+  },
+  "Children": [
+    {
+      "ClassName": "Part",
+      "Name": "Main",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Size": [
+          2.2425,
+          1.2431,
+          2.2421
+        ],
+        "Color": [
+          0.95,
+          0.85,
+          0.25
+        ],
+        "Transparency": 0.0,
+        "TopSurface": "Smooth",
+        "BottomSurface": "Smooth",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              -0.02013,
+              0.77343,
+              0.0
+            ],
+            "orientation": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "GlbFile": {
+              "String": "banana/banana.glb"
+            },
+            "SourceMaterial": {
+              "String": "banana.png"
+            },
+            "VertexCount": {
+              "Int32": 303
+            },
+            "TriangleCount": {
+              "Int32": 334
+            },
+            "LocalPosX": {
+              "Float64": -0.02013
+            },
+            "LocalPosY": {
+              "Float64": 0.77343
+            },
+            "LocalPosZ": {
+              "Float64": 0.0
+            }
+          }
+        }
+      }
+    }
+  ]
+}

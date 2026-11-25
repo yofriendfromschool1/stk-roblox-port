@@ -14,9 +14,12 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FixedStep = require(Shared.sim.FixedStep)
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
+local ItemTuning = require(Shared.ItemTuning)
+local ItemWorld = require(Shared.items.ItemWorld)
 local KartAssetHydrator = require("./KartAssetHydrator")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
+local PowerupManager = require(Shared.items.PowerupManager)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
 
@@ -237,7 +240,7 @@ end
 
 local function sanitizeInput(raw: any): (KartSolver.KartInput, number, boolean, boolean)
 	if type(raw) ~= "table" then
-		return { accel = 0, brake = false, steer = 0, drift = false, nitro = false }, 0, false, false
+		return { accel = 0, brake = false, steer = 0, drift = false, nitro = false, fire = false }, 0, false, false
 	end
 	local seq = if type(raw.seq) == "number" and raw.seq == raw.seq then math.floor(raw.seq) else 0
 	local accel = if type(raw.accel) == "number" and raw.accel == raw.accel then math.clamp(raw.accel, 0, 1) else 0
@@ -245,6 +248,7 @@ local function sanitizeInput(raw: any): (KartSolver.KartInput, number, boolean, 
 	local brake = raw.brake == true
 	local drift = raw.drift == true
 	local nitro = raw.nitro == true
+	local fire = raw.fire == true
 	local reset = raw.reset == true
 	local grantNitro = raw.debugGrantNitro == true
 	return {
@@ -253,6 +257,7 @@ local function sanitizeInput(raw: any): (KartSolver.KartInput, number, boolean, 
 		steer = steer,
 		drift = drift,
 		nitro = nitro,
+		fire = fire,
 	},
 		seq,
 		reset,
@@ -263,34 +268,23 @@ local function fireSnapshotPacket(
 	telemetryRemote: UnreliableRemoteEvent,
 	entry: PlayerKartEntry,
 	currentTick: number,
-	now: number
+	now: number,
+	itemWorld: ItemWorld.ItemWorldState
 )
 	local notice = if now < entry.resetNoticeExpirySec then entry.resetNoticeText else ""
-	local nums, incs, noticeArg = GreyboxProtocol.packSnapshot(
+	local nums, incs, noticeArg, itemsArg = GreyboxProtocol.packSnapshot(
 		currentTick,
 		entry.lastInputSeq,
 		entry.resetSeq,
-		KartSolver.captureNetState(entry.state),
+		KartSolver.captureNetState(entry.state, itemWorld),
 		notice
 	)
-	telemetryRemote:FireClient(entry.player, nums, incs, noticeArg)
+	telemetryRemote:FireClient(entry.player, nums, incs, noticeArg, itemsArg)
 end
 
 function GreyboxKartServer.start()
 	Players.CharacterAutoLoads = false
 	KartAssetHydrator.hydrateAll()
-
-	-- Hide static converter debug volumes under Workspace.Tracks during greybox playtests
-	local tracksFolder = Workspace:FindFirstChild("Tracks")
-	if tracksFolder then
-		for _, desc in tracksFolder:GetDescendants() do
-			if desc:IsA("BasePart") then
-				desc.Transparency = 1
-				desc.CanCollide = false
-				desc.CanQuery = false
-			end
-		end
-	end
 
 	local surfacesFolder, arenaPrimaryPart = createGreyboxArena()
 	Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
@@ -309,6 +303,9 @@ function GreyboxKartServer.start()
 	telemetryRemote.Parent = remotesFolder
 
 	local profile = KartTuning.buildProfile("medium", "best")
+	local itemWorld = ItemWorld.fromArenaSpec(GreyboxArenaData, "NORMAL_RACE")
+	local powerupMgr = PowerupManager.new("NORMAL_RACE", 1, ItemTuning.IMPLEMENTED_POWERUPS)
+	local rollCounter = 0
 	local entries: { [Player]: PlayerKartEntry } = {}
 	local totalDroppedDebt = 0.0
 	local snapshotAccum = 0.0
@@ -331,7 +328,7 @@ function GreyboxKartServer.start()
 		entries[player] = {
 			player = player,
 			state = state,
-			input = { accel = 0, brake = false, steer = 0, drift = false, nitro = false },
+			input = { accel = 0, brake = false, steer = 0, drift = false, nitro = false, fire = false },
 			lastInputSeq = 0,
 			resetSeq = 1,
 			resetRequested = false,
@@ -373,7 +370,9 @@ function GreyboxKartServer.start()
 	end)
 
 	RunService.Heartbeat:Connect(function(dt: number)
+		debug.profilebegin("OpenKart_ServerSim")
 		local _, _ = stepper:advance(dt, function(fixedDt: number)
+			ItemWorld.tick(itemWorld)
 			for _, entry in entries do
 				if entry.resetRequested or entry.state.pos.y < VOID_RESET_Y_METERS or entry.state.resetTriggered then
 					if entry.state.resetTriggered then
@@ -385,10 +384,27 @@ function GreyboxKartServer.start()
 					entry.resetRequested = false
 					entry.forceSnapshot = true
 				else
-					KartSolver.step(entry.state, entry.input, worldQuery, fixedDt)
+					local kartId = if entry.player.UserId ~= 0 then entry.player.UserId else 1
+					local events = KartSolver.stepWithItems(entry.state, entry.input, worldQuery, fixedDt, itemWorld, {
+						isServer = true,
+						advanceItemWorld = false,
+						kartId = kartId,
+						rollPowerup = function(_s, ev)
+							rollCounter += 1
+							local seed = math.floor(os.clock() * 1000)
+								+ rollCounter * 7919
+								+ ev.id * 101
+								+ itemWorld.elapsedTicks * 31
+							return powerupMgr:getRandomPowerup(1, seed, itemWorld.elapsedTicks * fixedDt)
+						end,
+					})
+					if #events > 0 then
+						entry.forceSnapshot = true
+					end
 				end
 			end
 		end)
+		debug.profileend()
 
 		local now = os.clock()
 		local currentTick = stepper:getTick()
@@ -425,7 +441,7 @@ function GreyboxKartServer.start()
 
 			if periodicDue or entry.forceSnapshot then
 				entry.forceSnapshot = false
-				fireSnapshotPacket(telemetryRemote, entry, currentTick, now)
+				fireSnapshotPacket(telemetryRemote, entry, currentTick, now, itemWorld)
 			end
 		end
 	end)

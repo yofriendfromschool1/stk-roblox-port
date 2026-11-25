@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local KartTuning = require(Shared.KartTuning)
 local KartVisualMath = require(Shared.kart.KartVisualMath)
+local TuxBoundsData = require(Shared.kart.TuxBoundsData)
 local Units = require(Shared.Units)
 
 export type StaticSubpart = {
@@ -105,11 +106,44 @@ local function resolveHydratedKartTemplate(kartId: string): Model?
 	end
 
 	for _, child in template:GetChildren() do
-		if child:IsA("MeshPart") and child.MeshId == "" then
+		if child:IsA("MeshPart") and (child.MeshId == "" or child.MeshSize.Magnitude <= 1e-4) then
 			return nil
 		end
 	end
 	return template
+end
+
+local function assertTuxLiveBounds(model: Model)
+	local tol = TuxBoundsData.TOLERANCE_STUDS
+	for partName, exp in TuxBoundsData.submeshes do
+		local child = model:FindFirstChild(partName)
+		if not (child and child:IsA("MeshPart")) then
+			error(string.format("[OpenKart] Tux missing MeshPart '%s'", partName))
+		end
+		local mp = child :: MeshPart
+		if
+			mp.MeshSize.Magnitude <= 1e-4
+			or math.abs(mp.Size.X - exp[1]) > tol
+			or math.abs(mp.Size.Y - exp[2]) > tol
+			or math.abs(mp.Size.Z - exp[3]) > tol
+		then
+			error(
+				string.format(
+					"[OpenKart] Tux live MeshPart.Size mismatch on %s: Size=(%.4f,%.4f,%.4f) MeshSize=(%.4f,%.4f,%.4f) expected=(%.4f,%.4f,%.4f)",
+					partName,
+					mp.Size.X,
+					mp.Size.Y,
+					mp.Size.Z,
+					mp.MeshSize.X,
+					mp.MeshSize.Y,
+					mp.MeshSize.Z,
+					exp[1],
+					exp[2],
+					exp[3]
+				)
+			)
+		end
+	end
 end
 
 local function makeVfxHolder(
@@ -301,6 +335,9 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 	if template ~= nil then
 		model = template:Clone()
 		model.Name = "Kart_" .. tostring(localPlayer.UserId)
+		if (kartId or "tux") == "tux" then
+			assertTuxLiveBounds(model)
+		end
 		isTexturedMesh = true
 
 		local chassisRoot = model:FindFirstChild("ChassisRoot")

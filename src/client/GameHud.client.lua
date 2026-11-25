@@ -15,6 +15,7 @@ local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local HudState = require("./HudState")
+local ItemTuning = require(Shared.ItemTuning)
 local RaceHudMath = require(Shared.hud.RaceHudMath)
 local Standings = require(Shared.race.Standings)
 
@@ -28,6 +29,21 @@ local GAUGE_FULL_BRIGHT_ASSET = "rbxassetid://103689241713508"
 -- Verified GPL 2.0 kart icon (author: Anthony "yeKcim" Carré, karts/tux/licenses.txt:L7-L9, rev 18627;
 -- Tux character by Larry Ewing using The GIMP; audited in assets/CREDITS.md)
 local TUX_ICON_ASSET = "rbxassetid://106784086588016"
+
+-- Powerup HUD icons mapped per data/powerup.xml & DEP-5 re-audit (data/gui/icons/licenses.txt:L13-L24 + data/models/licenses.txt).
+-- Empty strings await Creator upload approval for assets/gui/icons/; fallback renders a clean bordered slot badge.
+local POWERUP_ICON_ASSETS: { [number]: string } = {
+	[ItemTuning.POWERUP_BUBBLEGUM] = "",
+	[ItemTuning.POWERUP_CAKE] = "",
+	[ItemTuning.POWERUP_BOWLING] = "",
+	[ItemTuning.POWERUP_ZIPPER] = "",
+	[ItemTuning.POWERUP_PLUNGER] = "",
+	[ItemTuning.POWERUP_SWITCH] = "",
+	[ItemTuning.POWERUP_SWATTER] = "",
+	[ItemTuning.POWERUP_RUBBERBALL] = "",
+	[ItemTuning.POWERUP_PARACHUTE] = "",
+	[ItemTuning.POWERUP_ANVIL] = "",
+}
 
 local RANK_ANIM_DURATION_SEC = 0.4 -- race_gui.cpp:L953
 local RANK_MIN_SHRINK = 0.3 -- race_gui.cpp:L954
@@ -253,11 +269,88 @@ localPlayerIcon.ScaleType = Enum.ScaleType.Fit
 localPlayerIcon.ZIndex = 3
 localPlayerIcon.Parent = playerIconRoot
 
-createBlockedSlot(playerIconRoot, "IconsFrameSlot", "Blocked: icons-frame.png skipped (unverified license)")
-createBlockedSlot(playerIconRoot, "HeldPowerupBadgeSlot", "Blocked: Powerup / PowerupManager unbuilt (P1)")
+createBlockedSlot(playerIconRoot, "IconsFrameSlot", "Ready for icons-frame.png upload (DEP-5 CC-BY-SA 3.0+)")
 createBlockedSlot(playerIconRoot, "PlungerBadgeSlot", "Blocked: Plunger / Attachment unbuilt (P1)")
 createBlockedSlot(playerIconRoot, "AttachmentBadgeSlot", "Blocked: Attachment unbuilt (P1)")
 createBlockedSlot(playerIconRoot, "FinishedFlagSlot", "Blocked: CheckManager race finish unbuilt (P0)")
+
+-- Bindable Element #9: Top-Center Held Powerup Icons & Count (race_gui_base.cpp:L380-L456)
+local powerupRoot = Instance.new("Frame")
+powerupRoot.Name = "PowerupIconsRoot"
+powerupRoot.BackgroundTransparency = 1
+powerupRoot.BorderSizePixel = 0
+powerupRoot.Size = UDim2.fromScale(1, 1)
+powerupRoot.Visible = false
+powerupRoot.ZIndex = 4
+powerupRoot.Parent = gui
+
+type PowerupSlotWidget = {
+	frame: Frame,
+	image: ImageLabel,
+	fallbackLabel: TextLabel,
+}
+local powerupSlots: { PowerupSlotWidget } = table.create(RaceHudMath.POWERUP_MAX_STACK)
+for i = 1, RaceHudMath.POWERUP_MAX_STACK do
+	local slotFrame = Instance.new("Frame")
+	slotFrame.Name = "PowerupIcon_" .. tostring(i)
+	slotFrame.BackgroundColor3 = Color3.fromRGB(22, 28, 42)
+	slotFrame.BackgroundTransparency = 0.25
+	slotFrame.BorderSizePixel = 0
+	slotFrame.Visible = false
+	slotFrame.ZIndex = 4 + i
+	slotFrame.Parent = powerupRoot
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = slotFrame
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(255, 215, 70)
+	stroke.Thickness = 2
+	stroke.Parent = slotFrame
+
+	local img = Instance.new("ImageLabel")
+	img.Name = "Icon"
+	img.BackgroundTransparency = 1
+	img.BorderSizePixel = 0
+	img.Size = UDim2.fromScale(1, 1)
+	img.ScaleType = Enum.ScaleType.Fit
+	img.ZIndex = 5 + i
+	img.Parent = slotFrame
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "FallbackName"
+	lbl.BackgroundTransparency = 1
+	lbl.Size = UDim2.fromScale(0.9, 0.9)
+	lbl.Position = UDim2.fromScale(0.05, 0.05)
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextColor3 = Color3.fromRGB(255, 235, 130)
+	lbl.TextStrokeTransparency = 0.2
+	lbl.TextScaled = true
+	lbl.Text = ""
+	lbl.ZIndex = 6 + i
+	lbl.Parent = slotFrame
+
+	powerupSlots[i] = {
+		frame = slotFrame,
+		image = img,
+		fallbackLabel = lbl,
+	}
+end
+
+local powerupCountLabel = Instance.new("TextLabel")
+powerupCountLabel.Name = "PowerupManyCount"
+powerupCountLabel.BackgroundTransparency = 1
+powerupCountLabel.Font = Enum.Font.GothamBlack
+powerupCountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+powerupCountLabel.TextStrokeColor3 = Color3.fromRGB(10, 12, 16)
+powerupCountLabel.TextStrokeTransparency = 0.0
+powerupCountLabel.TextXAlignment = Enum.TextXAlignment.Left
+powerupCountLabel.TextYAlignment = Enum.TextYAlignment.Center
+powerupCountLabel.TextScaled = true
+powerupCountLabel.Visible = false
+powerupCountLabel.ZIndex = 12
+powerupCountLabel.Parent = powerupRoot
 
 -- Bindable Element #6: Bottom-Left Minimap (race_gui.cpp:L171-L266, L564-L784, graph.cpp:L590-L595)
 local minimapRoot = Instance.new("Frame")
@@ -371,12 +464,11 @@ footer.Parent = gui
 local blockedSlots = {
 	{ "LiveDifferenceSlot", "Blocked: LinearWorld / GhostReplay unbuilt" },
 	{ "LapCounterSlot", "Blocked: CheckManager lap crossing unbuilt" },
-	{ "PowerupIconsSlot", "Blocked: Powerup / PowerupManager unbuilt" },
 	{ "ReadySetGoSlot", "Blocked: RacePhase countdown unbuilt" },
 	{ "GoalBannerSlot", "Blocked: SoccerWorld unbuilt" },
 	{ "MessagesSlot", "Blocked: World / Item event feed unbuilt" },
 	{ "MusicDescriptionSlot", "Blocked: MusicManager presentation unbuilt" },
-	{ "PlungerFaceSlot", "Blocked: Plunger / Attachment + unverified plungerface.png" },
+	{ "PlungerFaceSlot", "Blocked: Plunger / Attachment + external plungerface.png" },
 }
 for _, spec in blockedSlots do
 	createBlockedSlot(gui, spec[1], spec[2])
@@ -402,6 +494,26 @@ local rankAnimState: "NONE" | "SMALLER" | "BIGGER" = "NONE"
 local rankAnimDuration = 0.0
 local lastRank = 1
 local shownRank = 1
+
+local timerUpdateAccum = 0.1
+local lastTimerText = ""
+local lastSpeedRatio = -1.0
+local lastNitroRatio = -1.0
+local lastNitroUsing: boolean? = nil
+local lastRankText = ""
+local lastRankSizePx = -1
+local lastMmX = math.huge
+local lastMmY = math.huge
+local lastPowerupId = -1
+local lastPowerupCount = -1
+local lastPowerupW = -1
+local lastPowerupH = -1
+local lastVisTimer: boolean? = nil
+local lastVisSpeedEnergy: boolean? = nil
+local lastVisRankDigit: boolean? = nil
+local lastVisPlayerIcons: boolean? = nil
+local lastVisMiniMap: boolean? = nil
+local lastVisPowerups: boolean? = nil
 
 local function layoutStaticElements(vw: number, vh: number, minimapVisible: boolean, totalKarts: number, rank: number)
 	cachedSpeedRect = RaceHudMath.computeSpeedometerRect(vw, vh)
@@ -449,6 +561,7 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 end
 
 RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value + 2, function(dt: number)
+	debug.profilebegin("OpenKart_GameHud")
 	local renderHud = HudState.get()
 	local standingsInput: { Standings.StandingsEntry } = {
 		{
@@ -490,65 +603,103 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		end
 	end
 
-	-- Apply mode-conditional visibility (race_gui.cpp:L314-L407)
-	speedRoot.Visible = vis.showSpeedAndEnergy
-	energyRoot.Visible = vis.showSpeedAndEnergy
-	timerLabel.Visible = vis.showTimer
-	rankLabel.Visible = vis.showSpeedAndEnergy and vis.showRankDigit
-	playerIconRoot.Visible = vis.showPlayerIcons
-	minimapRoot.Visible = vis.showMiniMap
+	-- Apply mode-conditional visibility only on changes (race_gui.cpp:L314-L407)
+	if lastVisSpeedEnergy ~= vis.showSpeedAndEnergy then
+		lastVisSpeedEnergy = vis.showSpeedAndEnergy
+		speedRoot.Visible = vis.showSpeedAndEnergy
+		energyRoot.Visible = vis.showSpeedAndEnergy
+	end
+	if lastVisTimer ~= vis.showTimer then
+		lastVisTimer = vis.showTimer
+		timerLabel.Visible = vis.showTimer
+	end
+	local showRank = vis.showSpeedAndEnergy and vis.showRankDigit
+	if lastVisRankDigit ~= showRank then
+		lastVisRankDigit = showRank
+		rankLabel.Visible = showRank
+	end
+	if lastVisPlayerIcons ~= vis.showPlayerIcons then
+		lastVisPlayerIcons = vis.showPlayerIcons
+		playerIconRoot.Visible = vis.showPlayerIcons
+	end
+	if lastVisMiniMap ~= vis.showMiniMap then
+		lastVisMiniMap = vis.showMiniMap
+		minimapRoot.Visible = vis.showMiniMap
+	end
 
 	if not renderHud.ready then
-		speedHalf1.container.Visible = false
-		speedHalf2.container.Visible = false
-		energyFill.container.Visible = false
+		if lastSpeedRatio ~= 0.0 then
+			lastSpeedRatio = 0.0
+			speedHalf1.container.Visible = false
+			speedHalf2.container.Visible = false
+		end
+		if lastNitroRatio ~= 0.0 then
+			lastNitroRatio = 0.0
+			energyFill.container.Visible = false
+		end
+		debug.profileend()
 		return
 	end
 
-	-- 1) Elapsed race timer from wall-clock Workspace:GetServerTimeNow() (race_gui.cpp:L415-L487)
+	-- 1) Elapsed race timer throttled to 10 Hz to avoid per-frame text layout churn
 	if vis.showTimer then
-		local elapsedSec = math.max(0.0, Workspace:GetServerTimeNow() - renderHud.raceStartServerTime)
-		timerLabel.Text = RaceHudMath.formatRaceTime(elapsedSec)
+		timerUpdateAccum += dt
+		if timerUpdateAccum >= 0.1 then
+			timerUpdateAccum %= 0.1
+			local elapsedSec = math.max(0.0, Workspace:GetServerTimeNow() - renderHud.raceStartServerTime)
+			local nextText = RaceHudMath.formatRaceTime(elapsedSec)
+			if nextText ~= lastTimerText then
+				lastTimerText = nextText
+				timerLabel.Text = nextText
+			end
+		end
 	end
 
-	-- 2) Speedometer from interpolated speedMps (race_gui.cpp:L1048-L1130)
+	-- 2) Speedometer CanvasGroup masks updated only when snapped ratio changes
 	if vis.showSpeedAndEnergy then
 		local speedRatio = RaceHudMath.snapSpeedRatio(renderHud.speedMps)
-		if speedRatio <= 0.0 then
-			speedHalf1.container.Visible = false
-			speedHalf2.container.Visible = false
-		else
-			speedHalf1.container.Visible = true
-			local half1Ratio = math.min(speedRatio, 0.5)
-			local half1EndDeg = RaceHudMath.computeSpeedSweepAngleDeg(half1Ratio)
-			speedHalf1.gradStart.Rotation = RaceHudMath.SPEED_START_DEG - 90.0
-			speedHalf1.gradEnd.Rotation = half1EndDeg + 90.0
-
-			if speedRatio > 0.5 then
-				speedHalf2.container.Visible = true
-				local fullEndDeg = RaceHudMath.computeSpeedSweepAngleDeg(speedRatio)
-				speedHalf2.gradStart.Rotation = RaceHudMath.SPEED_MID_DEG - 90.0
-				speedHalf2.gradEnd.Rotation = fullEndDeg + 90.0
-			else
+		if math.abs(speedRatio - lastSpeedRatio) > 1e-4 then
+			lastSpeedRatio = speedRatio
+			if speedRatio <= 0.0 then
+				speedHalf1.container.Visible = false
 				speedHalf2.container.Visible = false
+			else
+				speedHalf1.container.Visible = true
+				local half1Ratio = math.min(speedRatio, 0.5)
+				local half1EndDeg = RaceHudMath.computeSpeedSweepAngleDeg(half1Ratio)
+				speedHalf1.gradStart.Rotation = RaceHudMath.SPEED_START_DEG - 90.0
+				speedHalf1.gradEnd.Rotation = half1EndDeg + 90.0
+
+				if speedRatio > 0.5 then
+					speedHalf2.container.Visible = true
+					local fullEndDeg = RaceHudMath.computeSpeedSweepAngleDeg(speedRatio)
+					speedHalf2.gradStart.Rotation = RaceHudMath.SPEED_MID_DEG - 90.0
+					speedHalf2.gradEnd.Rotation = fullEndDeg + 90.0
+				else
+					speedHalf2.container.Visible = false
+				end
 			end
 		end
 
-		-- 3) Nitro Energy Meter from interpolated nitroEnergy (race_gui.cpp:L805-L886)
+		-- 3) Nitro Energy Meter CanvasGroup mask updated only when ratio or nitroUsing toggles
 		local nitroRatio = RaceHudMath.snapNitroRatio(renderHud.nitroEnergy, renderHud.nitroMaxEnergy)
-		if nitroRatio <= 0.0 then
-			energyFill.container.Visible = false
-		else
-			energyFill.container.Visible = true
-			energyFill.image.Image = if renderHud.nitroUsing then GAUGE_FULL_BRIGHT_ASSET else GAUGE_FULL_ASSET
-			local currDeg = RaceHudMath.computeNitroSweepAngleDeg(nitroRatio)
-			energyFill.gradStart.Rotation = currDeg - 90.0
-			energyFill.gradEnd.Rotation = RaceHudMath.NITRO_START_DEG + 90.0
+		if math.abs(nitroRatio - lastNitroRatio) > 1e-4 or renderHud.nitroUsing ~= lastNitroUsing then
+			lastNitroRatio = nitroRatio
+			lastNitroUsing = renderHud.nitroUsing
+			if nitroRatio <= 0.0 then
+				energyFill.container.Visible = false
+			else
+				energyFill.container.Visible = true
+				energyFill.image.Image = if renderHud.nitroUsing then GAUGE_FULL_BRIGHT_ASSET else GAUGE_FULL_ASSET
+				local currDeg = RaceHudMath.computeNitroSweepAngleDeg(nitroRatio)
+				energyFill.gradStart.Rotation = currDeg - 90.0
+				energyFill.gradEnd.Rotation = RaceHudMath.NITRO_START_DEG + 90.0
+			end
 		end
 	end
 
-	-- 4) Gauge-center rank digit + STK shrink/expand animation (race_gui.cpp:L914-L1001)
-	if vis.showSpeedAndEnergy and vis.showRankDigit then
+	-- 4) Gauge-center rank digit + STK shrink/expand animation (updated only on change)
+	if showRank then
 		if rankAnimState == "NONE" then
 			if lastRank ~= rank then
 				rankAnimDuration = 0.0
@@ -580,14 +731,19 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			end
 		end
 
-		rankLabel.Position = UDim2.fromOffset(cachedRankAnchor.x, cachedRankAnchor.y)
 		local sizePx = math.max(10, math.floor(cachedRankAnchor.fontSize * scale))
-		rankLabel.Size = UDim2.fromOffset(sizePx * 2, sizePx)
-		rankLabel.TextSize = sizePx
-		rankLabel.Text = tostring(shownRank)
+		local rankText = tostring(shownRank)
+		if sizePx ~= lastRankSizePx or rankText ~= lastRankText then
+			lastRankSizePx = sizePx
+			lastRankText = rankText
+			rankLabel.Position = UDim2.fromOffset(cachedRankAnchor.x, cachedRankAnchor.y)
+			rankLabel.Size = UDim2.fromOffset(sizePx * 2, sizePx)
+			rankLabel.TextSize = sizePx
+			rankLabel.Text = rankText
+		end
 	end
 
-	-- 5) Minimap interpolated kart dot via identical projectToMinimap transform (race_gui.cpp:L678-L698)
+	-- 5) Minimap interpolated kart dot (updated only on >= 0.25 px movement)
 	if vis.showMiniMap then
 		local kx, ky = RaceHudMath.projectToMinimap(
 			renderHud.pos.x,
@@ -597,6 +753,68 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			cachedMinimapLayout.height,
 			false
 		)
-		mmKartMarker.Position = UDim2.fromOffset(kx, ky)
+		if math.abs(kx - lastMmX) >= 0.25 or math.abs(ky - lastMmY) >= 0.25 then
+			lastMmX = kx
+			lastMmY = ky
+			mmKartMarker.Position = UDim2.fromOffset(kx, ky)
+		end
 	end
+
+	-- 6) Held Powerup Icons & Count (updated only when item/count/viewport changes)
+	local showHeldPowerups = vis.showPowerups and renderHud.heldPowerup > 0 and renderHud.heldPowerupCount > 0
+	if lastVisPowerups ~= showHeldPowerups then
+		lastVisPowerups = showHeldPowerups
+		powerupRoot.Visible = showHeldPowerups
+	end
+	if
+		showHeldPowerups
+		and lastViewportW > 0
+		and lastViewportH > 0
+		and (
+			renderHud.heldPowerup ~= lastPowerupId
+			or renderHud.heldPowerupCount ~= lastPowerupCount
+			or lastViewportW ~= lastPowerupW
+			or lastViewportH ~= lastPowerupH
+		)
+	then
+		lastPowerupId = renderHud.heldPowerup
+		lastPowerupCount = renderHud.heldPowerupCount
+		lastPowerupW = lastViewportW
+		lastPowerupH = lastViewportH
+		local layout = RaceHudMath.computePowerupLayout(lastViewportW, lastViewportH, renderHud.heldPowerupCount, 0)
+		local iconAsset = POWERUP_ICON_ASSETS[renderHud.heldPowerup] or ""
+		local powerupName = ItemTuning.POWERUP_NAMES[renderHud.heldPowerup] or "ITEM"
+		for i = 1, RaceHudMath.POWERUP_MAX_STACK do
+			local slot = powerupSlots[i]
+			local r = layout.rects[i]
+			if r ~= nil then
+				slot.frame.Visible = true
+				slot.frame.Position = UDim2.fromOffset(r.x, r.y)
+				slot.frame.Size = UDim2.fromOffset(r.width, r.height)
+				if iconAsset ~= "" then
+					slot.image.Image = iconAsset
+					slot.image.Visible = true
+					slot.fallbackLabel.Visible = false
+					slot.frame.BackgroundTransparency = 1.0
+				else
+					slot.image.Visible = false
+					slot.fallbackLabel.Text = powerupName
+					slot.fallbackLabel.Visible = true
+					slot.frame.BackgroundTransparency = 0.25
+				end
+			else
+				slot.frame.Visible = false
+			end
+		end
+		if layout.manyText ~= nil and layout.manyRect ~= nil then
+			local mr = layout.manyRect
+			powerupCountLabel.Visible = true
+			powerupCountLabel.Position = UDim2.fromOffset(mr.x, mr.y)
+			powerupCountLabel.Size = UDim2.fromOffset(mr.width, mr.height)
+			powerupCountLabel.Text = layout.manyText
+		else
+			powerupCountLabel.Visible = false
+		end
+	end
+	debug.profileend()
 end)

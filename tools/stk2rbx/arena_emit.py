@@ -81,12 +81,21 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
         "\trange: number,",
         "}",
         "",
+        "export type ArenaItemType = \"small-nitro\" | \"big-nitro\" | \"item\" | \"banana\"",
+        "",
+        "export type ArenaItemSpec = {",
+        "\tid: number,",
+        "\titemType: ArenaItemType,",
+        "\tpos: { number },",
+        "}",
+        "",
         "export type ArenaSpec = {",
-        '\ttrackId: string,',
+        "\ttrackId: string,",
         "\tplaneSizeStuds: number,",
         "\tplaneThicknessStuds: number,",
         "\tgridSpacingStuds: number,",
         "\tboxes: { ArenaBoxSpec },",
+        "\titems: { ArenaItemSpec },",
         "\tdrivelineQuadCenters: { ArenaDrivelinePoint },",
         "\tminimapBounds: ArenaBounds,",
         "}",
@@ -144,6 +153,14 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
 
     half = 0.5 * float(spec["plane_size_m"])
     q_edges = [-half, -0.5 * half, 0.0, 0.5 * half, half]
+    lines.extend([
+        "\t},",
+        "\titems = {",
+    ])
+    for item_idx, item in enumerate(spec.get("items", []), start=1):
+        ix, iy, iz = stk_to_rbx_pos(item["pos"][0], item["pos"][1], item["pos"][2])
+        itype = _escape_lua_str(str(item["type"]))
+        lines.append(f'\t\t{{ id = {item_idx}, itemType = "{itype}", pos = {{ {ix}, {iy}, {iz} }} }},')
     lines.extend([
         "\t},",
         "\tdrivelineQuadCenters = {",
@@ -299,13 +316,19 @@ def emit_stk_track(
     # scene.xml
     sx, sy, sz = spec["spawn"]["pos"]
     sh = spec["spawn"]["heading_deg"]
-    scene_xml = "\n".join([
+    scene_lines = [
         '<?xml version="1.0"?>',
         "<scene>",
         f'  <track model="{model_name}" x="0" y="0" z="0"/>',
         f'  <start position="0" xyz="{sx} {sy} {sz}" h="{sh}"/>',
         '  <sun xyz="100.0 250.0 150.0" sun-diffuse="255 245 225" ambient="180 185 195"/>',
         '  <camera far="2500.0"/>',
+    ]
+    for item in spec.get("items", []):
+        itype = str(item["type"])
+        ix, iy, iz = item["pos"]
+        scene_lines.append(f'  <{itype} x="{ix}" y="{iy}" z="{iz}"/>')
+    scene_lines.extend([
         "  <checks>",
         '    <check-lap kind="lap" same-group="0" other-ids="1"/>',
         '    <check-line kind="activate" other-ids="0" p1="-256.0 0.0 128.0" p2="256.0 0.0 128.0" same-group="1"/>',
@@ -313,6 +336,7 @@ def emit_stk_track(
         "</scene>",
         "",
     ])
+    scene_xml = "\n".join(scene_lines)
     (out_dir / "scene.xml").write_text(scene_xml, encoding="utf-8")
 
     # Copy or synthesize required textures locally inside out_dir

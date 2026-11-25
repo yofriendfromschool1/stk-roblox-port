@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
 
+from .item_emit import convert_items
 from .kart_emit import convert_kart
 from .mesh_inspect import (
     ROBLOX_HARD_TRI_CAP,
@@ -385,6 +386,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Optional JSON mapping part names to uploaded Roblox MeshId/TextureID assets",
     )
 
+    p_ci = sub.add_parser("convert-items", help="Batch convert STK item/powerup .spm meshes to .glb & .model.json")
+    p_ci.add_argument("models_dir", type=Path, help="Local STK data/models directory")
+    p_ci.add_argument("--out-glb-dir", required=True, type=Path, help="Output directory for item .glb files")
+    p_ci.add_argument("--out-models-dir", required=True, type=Path, help="Output directory for Rojo .model.json files")
+    p_ci.add_argument("--report", required=True, type=Path, help="Output items-report.json path")
+    p_ci.add_argument("--out-bounds-lua", type=Path, default=None, help="Optional ItemBoundsData.lua output path")
+    p_ci.add_argument("--assets-manifest", type=Path, default=None, help="Optional assets/items/roblox_assets.json")
+    p_ci.add_argument("--revision", default="18627", help="Upstream STK revision string")
+
     args = parser.parse_args(argv)
     if args.cmd == "fetch":
         rev, files, libs = fetch_track(
@@ -436,4 +446,21 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         return 0
 
+    if args.cmd == "convert-items":
+        report = convert_items(
+            models_dir=args.models_dir,
+            out_glb_dir=args.out_glb_dir,
+            out_models_dir=args.out_models_dir,
+            report_path=args.report,
+            out_bounds_lua=args.out_bounds_lua,
+            assets_manifest_path=args.assets_manifest,
+            revision=args.revision,
+        )
+        print(f"Converted {report['item_count']} items (rev={report['assets_revision']}) -> {args.report}")
+        return 0
+
     return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

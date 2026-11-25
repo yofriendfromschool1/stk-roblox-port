@@ -1,0 +1,177 @@
+{
+  "ClassName": "Model",
+  "Properties": {
+    "Attributes": {
+      "Attributes": {
+        "ItemId": {
+          "String": "nitrotank-small"
+        },
+        "SourceModel": {
+          "String": "nitrotank-small.spm"
+        },
+        "XmlKey": {
+          "String": "nitro-small"
+        },
+        "SourceRevision": {
+          "String": "18627"
+        },
+        "MetersPerStud": {
+          "Float64": 1.0
+        },
+        "HasUploadedMeshes": {
+          "Bool": false
+        }
+      }
+    }
+  },
+  "Children": [
+    {
+      "ClassName": "Part",
+      "Name": "Bottle",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Size": [
+          0.4003,
+          0.719,
+          0.719
+        ],
+        "Color": [
+          0.95,
+          0.85,
+          0.25
+        ],
+        "Transparency": 0.0,
+        "TopSurface": "Smooth",
+        "BottomSurface": "Smooth",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              -0.0,
+              0.44541,
+              -0.03884
+            ],
+            "orientation": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "GlbFile": {
+              "String": "nitrotank-small/nitrotank-small_0_stk_mod_nitroBottle.glb"
+            },
+            "SourceMaterial": {
+              "String": "stk_mod_nitroBottle.png"
+            },
+            "VertexCount": {
+              "Int32": 272
+            },
+            "TriangleCount": {
+              "Int32": 366
+            },
+            "LocalPosX": {
+              "Float64": -0.0
+            },
+            "LocalPosY": {
+              "Float64": 0.44541
+            },
+            "LocalPosZ": {
+              "Float64": -0.03884
+            }
+          }
+        }
+      }
+    },
+    {
+      "ClassName": "Part",
+      "Name": "Logo",
+      "Properties": {
+        "Anchored": true,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Size": [
+          0.2831,
+          0.5775,
+          0.5775
+        ],
+        "Color": [
+          0.95,
+          0.85,
+          0.25
+        ],
+        "Transparency": 0.0,
+        "TopSurface": "Smooth",
+        "BottomSurface": "Smooth",
+        "CFrame": {
+          "CFrame": {
+            "position": [
+              -0.0,
+              0.43153,
+              -0.02496
+            ],
+            "orientation": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        },
+        "Attributes": {
+          "Attributes": {
+            "GlbFile": {
+              "String": "nitrotank-small/nitrotank-small_1_stk_mod_nitroLogo.glb"
+            },
+            "SourceMaterial": {
+              "String": "stk_mod_nitroLogo.png"
+            },
+            "VertexCount": {
+              "Int32": 30
+            },
+            "TriangleCount": {
+              "Int32": 32
+            },
+            "LocalPosX": {
+              "Float64": -0.0
+            },
+            "LocalPosY": {
+              "Float64": 0.43153
+            },
+            "LocalPosZ": {
+              "Float64": -0.02496
+            }
+          }
+        }
+      }
+    }
+  ]
+}

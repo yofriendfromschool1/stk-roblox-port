@@ -6,6 +6,8 @@
 -- Pure-math Luau raycast kart physics solver (zero Roblox API dependencies).
 
 local FixedStep = require("./FixedStep")
+local ItemTuning = require("../ItemTuning")
+local ItemWorld = require("../items/ItemWorld")
 local KartTuning = require("../KartTuning")
 local Math3D = require("./Math3D")
 local MaxSpeed = require("../kart/MaxSpeed")
@@ -53,6 +55,7 @@ export type KartInput = {
 	steer: number, -- [-1, +1]: negative = left, positive = right (STK convention)
 	drift: boolean,
 	nitro: boolean?,
+	fire: boolean?,
 	skidControl: SkidControl?,
 	instantSteer: boolean?,
 }
@@ -90,6 +93,10 @@ export type KartState = {
 	skid: Skidding.SkidState,
 	maxSpeedState: MaxSpeed.MaxSpeedState,
 	nitro: Nitro.NitroState,
+	-- Powerup inventory & PA_FIRE edge trigger (powerup.hpp:L22, kart.cpp:L1643-L1654)
+	heldPowerup: number,
+	heldPowerupCount: number,
+	fireWasDown: boolean,
 	-- Timed impulses & post-skid alignment rotation (btKart.cpp:L504-L533)
 	timedImpulseTicks: number,
 	timedImpulsePerSec: Vec3,
@@ -150,7 +157,15 @@ export type NetState = {
 	terrainFraction: number,
 	terrainTargetFraction: number,
 	terrainFadeTicks: number,
+	squashFraction: number?,
+	squashTargetFraction: number?,
+	squashFadeTicks: number?,
+	squashDurationTicks: number?,
+	heldPowerup: number?,
+	heldPowerupCount: number?,
+	fireWasDown: boolean?,
 	increases: { NetIncreaseSnapshot },
+	itemWorldSnapshot: ItemWorld.ItemWorldSnapshot?,
 }
 
 export type KartTelemetry = {
@@ -223,6 +238,9 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 		skid = Skidding.new(),
 		maxSpeedState = MaxSpeed.new(prof.maxSpeed),
 		nitro = Nitro.new(prof.nitro.max),
+		heldPowerup = ItemTuning.POWERUP_NONE,
+		heldPowerupCount = 0,
+		fireWasDown = false,
 		timedImpulseTicks = 0,
 		timedImpulsePerSec = { x = 0, y = 0, z = 0 },
 		timedRotationTicks = 0,
@@ -242,7 +260,7 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 	}
 end
 
-function KartSolver.captureNetState(state: KartState): NetState
+function KartSolver.captureNetState(state: KartState, itemWorld: ItemWorld.ItemWorldState?): NetState
 	local increases: { NetIncreaseSnapshot } = {}
 	for _, cat in MaxSpeed.INCREASE_CATEGORIES do
 		local entry = state.maxSpeedState.increases[cat]
@@ -258,6 +276,7 @@ function KartSolver.captureNetState(state: KartState): NetState
 		end
 	end
 	local terrain = state.maxSpeedState.decreases["TERRAIN"]
+	local squash = state.maxSpeedState.decreases["SQUASH"]
 	return {
 		pos = { state.pos.x, state.pos.y, state.pos.z },
 		rot = { state.rot.w, state.rot.x, state.rot.y, state.rot.z },
@@ -287,11 +306,19 @@ function KartSolver.captureNetState(state: KartState): NetState
 		terrainFraction = if terrain then terrain.currentFraction else 1.0,
 		terrainTargetFraction = if terrain then terrain.targetFraction else 1.0,
 		terrainFadeTicks = if terrain then terrain.fadeInTicks else 0,
+		squashFraction = if squash then squash.currentFraction else 1.0,
+		squashTargetFraction = if squash then squash.targetFraction else 1.0,
+		squashFadeTicks = if squash then squash.fadeInTicks else 0,
+		squashDurationTicks = if squash then squash.durationTicks else 0,
+		heldPowerup = state.heldPowerup,
+		heldPowerupCount = state.heldPowerupCount,
+		fireWasDown = state.fireWasDown,
 		increases = increases,
+		itemWorldSnapshot = if itemWorld ~= nil then ItemWorld.captureSnapshot(itemWorld) else nil,
 	}
 end
 
-function KartSolver.applyNetState(state: KartState, snap: NetState)
+function KartSolver.applyNetState(state: KartState, snap: NetState, itemWorld: ItemWorld.ItemWorldState?)
 	state.pos = { x = snap.pos[1], y = snap.pos[2], z = snap.pos[3] }
 	state.rot = { w = snap.rot[1], x = snap.rot[2], y = snap.rot[3], z = snap.rot[4] }
 	state.linVel = { x = snap.linVel[1], y = snap.linVel[2], z = snap.linVel[3] }
@@ -316,6 +343,10 @@ function KartSolver.applyNetState(state: KartState, snap: NetState)
 	state.nitro.minNitroTicks = snap.minNitroTicks
 	state.nitro.energyToMinRatio = snap.energyToMinRatio
 	state.nitro.active = snap.nitroActive
+
+	state.heldPowerup = snap.heldPowerup or ItemTuning.POWERUP_NONE
+	state.heldPowerupCount = snap.heldPowerupCount or 0
+	state.fireWasDown = snap.fireWasDown == true
 
 	state.timedImpulseTicks = snap.timedImpulseTicks
 	state.timedImpulsePerSec = {
@@ -344,10 +375,55 @@ function KartSolver.applyNetState(state: KartState, snap: NetState)
 			terrain.currentFraction = snap.terrainFraction
 		end
 	end
+	local squashTarget = snap.squashTargetFraction or 1.0
+	local squashFrac = snap.squashFraction or 1.0
+	if squashTarget < 1.0 or squashFrac < 1.0 then
+		MaxSpeed.setSlowdown(
+			state.maxSpeedState,
+			"SQUASH",
+			squashTarget,
+			snap.squashFadeTicks or 0,
+			snap.squashDurationTicks or 0
+		)
+		local squash = state.maxSpeedState.decreases["SQUASH"]
+		if squash then
+			squash.currentFraction = squashFrac
+		end
+	end
+
+	if itemWorld ~= nil and snap.itemWorldSnapshot ~= nil then
+		ItemWorld.applySnapshot(itemWorld, snap.itemWorldSnapshot)
+	end
 
 	local _, _, fwd = Math3D.quatBasis(state.rot)
 	local signed = Math3D.dot(state.linVel, fwd)
 	state.speed = if math.abs(signed) < KartTuning.physics.SPEED_DEADBAND then 0.0 else signed
+end
+
+function KartSolver.setPowerup(state: KartState, powerupId: number, count: number)
+	if powerupId <= ItemTuning.POWERUP_NONE or count <= 0 then
+		state.heldPowerup = ItemTuning.POWERUP_NONE
+		state.heldPowerupCount = 0
+		return
+	end
+	state.heldPowerup = powerupId
+	state.heldPowerupCount = math.clamp(math.floor(count), 1, ItemTuning.timing.MAX_POWERUPS)
+end
+
+-- Slice 1 banana contact effect: SQUASH MaxSpeed slowdown (powerup.xml:L88 / kart_characteristics.xml:L260-L261)
+-- plus upward/yaw knockback impulse.
+function KartSolver.applyBananaHit(state: KartState)
+	local b = ItemTuning.banana
+	MaxSpeed.setSlowdown(
+		state.maxSpeedState,
+		"SQUASH",
+		b.SQUASH_SLOWDOWN,
+		FixedStep.timeToTicks(b.SQUASH_FADE_IN_SEC),
+		FixedStep.timeToTicks(b.SQUASH_DURATION_SEC)
+	)
+	state.linVel.y = math.max(state.linVel.y, b.KNOCKBACK_UP_VEL)
+	state.timedRotationTicks = b.KNOCKBACK_YAW_TICKS
+	state.timedRotationRate = b.KNOCKBACK_YAW_RATE
 end
 
 function KartSolver.addNitro(state: KartState, amount: number): number
@@ -1383,6 +1459,70 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 	local _, _, newFwd = Math3D.quatBasis(state.rot)
 	local signedAfter = Math3D.dot(state.linVel, newFwd)
 	state.speed = if math.abs(signedAfter) < KartTuning.physics.SPEED_DEADBAND then 0.0 else signedAfter
+end
+
+export type ItemStepOptions = {
+	isServer: boolean?,
+	kartId: number?,
+	rollPowerup: ((state: KartState, ev: ItemWorld.ItemPickupEvent) -> (number, number))?,
+	advanceItemWorld: boolean?,
+}
+
+function KartSolver.stepWithItems(
+	state: KartState,
+	input: KartInput,
+	worldQuery: WorldQuery,
+	dt: number,
+	itemWorld: ItemWorld.ItemWorldState?,
+	opts: ItemStepOptions?
+): { ItemWorld.ItemPickupEvent }
+	local options: ItemStepOptions = opts or {}
+	if itemWorld ~= nil and options.advanceItemWorld ~= false then
+		ItemWorld.tick(itemWorld)
+	end
+
+	KartSolver.step(state, input, worldQuery, dt)
+
+	local fireDown = (input.fire == true)
+	local fireClicked = fireDown and not state.fireWasDown
+	state.fireWasDown = fireDown
+
+	if fireClicked and itemWorld ~= nil and state.heldPowerupCount > 0 then
+		state.heldPowerupCount -= 1
+		if state.heldPowerupCount <= 0 then
+			state.heldPowerup = ItemTuning.POWERUP_NONE
+			state.heldPowerupCount = 0
+		end
+		local _, _, fwd = Math3D.quatBasis(state.rot)
+		local backDist = 0.5 * state.profile.length + ItemTuning.geometry.BANANA_DROP_CLEARANCE
+		local dropPos = Math3D.sub(state.pos, Math3D.scale(fwd, backDist))
+		ItemWorld.dropBanana(itemWorld, dropPos, options.kartId or 1, worldQuery)
+	end
+
+	if itemWorld == nil then
+		return {}
+	end
+
+	local events = ItemWorld.checkHits(
+		itemWorld,
+		state.pos,
+		options.kartId or 1,
+		state.profile.nitro.smallContainer,
+		state.profile.nitro.bigContainer
+	)
+	for _, ev in events do
+		if ev.isNitro then
+			Nitro.collect(state.nitro, ev.nitroAmount)
+		elseif ev.isBonusBox then
+			if options.isServer and options.rollPowerup ~= nil then
+				local powerupId, count = options.rollPowerup(state, ev)
+				KartSolver.setPowerup(state, powerupId, count)
+			end
+		elseif ev.isHazard then
+			KartSolver.applyBananaHit(state)
+		end
+	end
+	return events
 end
 
 KartSolver.evalWallRestitution = evalWallRestitution

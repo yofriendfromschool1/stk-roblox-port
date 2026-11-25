@@ -17,6 +17,13 @@ local function assertNear(actual: number, expected: number, eps: number?, label:
 	end
 end
 
+local function assertEqual(actual: any, expected: any, label: string?)
+	if actual ~= expected then
+		local prefix = if label then label .. ": " else ""
+		error(string.format("%sexpected %s, got %s", prefix, tostring(expected), tostring(actual)))
+	end
+end
+
 local tests: { TestCase } = {
 	{
 		name = "computeScale matches sqrt(W/800) * sqrt(H/450) from race_gui.cpp:L378-L379",
@@ -163,6 +170,41 @@ local tests: { TestCase } = {
 			local ix, iy = RaceHudMath.projectToMinimap(30, 20, asymBounds, 100, 100, true)
 			assertNear(ix, 0, 1e-6, "inverted maxX -> 0")
 			assertNear(iy, 100, 1e-6, "inverted maxZ -> mapHeight")
+		end,
+	},
+	{
+		name = "computePowerupLayout matches RaceGUIBase::drawPowerupIcons (race_gui_base.cpp:L380-L456)",
+		fn = function()
+			-- Empty or hidden returns zero icons
+			local empty = RaceHudMath.computePowerupLayout(800, 450, 0, 0)
+			assertEqual(#empty.rects, 0, "count 0 has no icons")
+			local hidden = RaceHudMath.computePowerupLayout(800, 450, 2, 2)
+			assertEqual(#hidden.rects, 0, "display=2 hides powerup HUD")
+
+			-- At reference 800x450: scale=1, nSize=64, itemSpacing=32, y1=20
+			-- count=1 -> x1 = 400 - 16 = 384, x2 = 384 - 16 = 368 (centered on 400)
+			local single = RaceHudMath.computePowerupLayout(800, 450, 1, 0)
+			assertEqual(#single.rects, 1, "count 1 emits 1 icon")
+			assertEqual(single.iconSize, 64, "ref iconSize=64")
+			assertEqual(single.rects[1].x, 368, "single centered x2")
+			assertEqual(single.rects[1].y, 20, "top margin 20")
+			assertEqual(single.manyText, nil, "no xN label for count=1")
+
+			-- count=3 -> 3 overlapping icons spaced by 32 px
+			local triple = RaceHudMath.computePowerupLayout(800, 450, 3, 0)
+			assertEqual(#triple.rects, 3, "count 3 emits 3 stacked icons")
+			assertEqual(triple.rects[2].x - triple.rects[1].x, 32, "spacing is 32 px")
+			assertEqual(triple.rects[3].x - triple.rects[2].x, 32, "spacing is 32 px")
+
+			-- count=6 (> MAX_STACK=5) -> collapses to 1 icon + "x6" label
+			local many = RaceHudMath.computePowerupLayout(800, 450, 6, 0)
+			assertEqual(#many.rects, 1, "count > 5 renders 1 icon")
+			assertEqual(many.manyText, "x6", "count > 5 renders x6 label")
+			assertEqual(many.manyRect ~= nil, true, "count > 5 computes manyRect")
+
+			-- Ultrawide W/H > 2.0 shifts anchor to 3*W/4 (race_gui_base.cpp:L411-L415)
+			local ultrawide = RaceHudMath.computePowerupLayout(1000, 450, 1, 0)
+			assertEqual(ultrawide.rects[1].x > 650, true, "ultrawide shifts to 3/4 viewport width")
 		end,
 	},
 }

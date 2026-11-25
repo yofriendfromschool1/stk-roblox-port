@@ -10,10 +10,12 @@ Upstream citations (STK 1.5):
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import struct
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape as _xml_escape
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -764,6 +766,133 @@ def _body_subpart_name(texture_1: str, index: int) -> str:
     return BODY_TEXTURE_PART_NAMES.get(texture_1.lower(), f"Body_{index}")
 
 
+RBX_MATERIAL_TOKENS: dict[str, int] = {
+    "SmoothPlastic": 256,
+    "Metal": 1088,
+    "Rubber": 1216,
+    "Plastic": 256,
+}
+
+
+def _encode_rbx_attrs_binary(attrs: dict[str, Any]) -> str:
+    buf = bytearray(struct.pack("<I", len(attrs)))
+    for k, v in attrs.items():
+        kb = str(k).encode("utf-8")
+        buf += struct.pack("<I", len(kb)) + kb
+        if isinstance(v, bool):
+            buf += struct.pack("<BB", 3, 1 if v else 0)
+        elif isinstance(v, (int, float)):
+            buf += struct.pack("<Bd", 6, float(v))
+        else:
+            vb = str(v).encode("utf-8")
+            buf += struct.pack("<BI", 2, len(vb)) + vb
+    return base64.b64encode(bytes(buf)).decode("ascii")
+
+
+def _xml_cf(name: str, pos: list[float], orient: list[list[float]]) -> str:
+    r00, r01, r02 = orient[0]
+    r10, r11, r12 = orient[1]
+    r20, r21, r22 = orient[2]
+    return (
+        f'<CoordinateFrame name="{name}">'
+        f"<X>{pos[0]}</X><Y>{pos[1]}</Y><Z>{pos[2]}</Z>"
+        f"<R00>{r00}</R00><R01>{r01}</R01><R02>{r02}</R02>"
+        f"<R10>{r10}</R10><R11>{r11}</R11><R12>{r12}</R12>"
+        f"<R20>{r20}</R20><R21>{r21}</R21><R22>{r22}</R22>"
+        "</CoordinateFrame>"
+    )
+
+
+def _xml_vec3(name: str, v: list[float]) -> str:
+    return f'<Vector3 name="{name}"><X>{v[0]}</X><Y>{v[1]}</Y><Z>{v[2]}</Z></Vector3>'
+
+
+def emit_kart_rbxmx(kart_id: str, model_doc: dict[str, Any]) -> str:
+    """Serialize a converted kart Model (with InitialSize baked onto MeshParts) to Rojo-compatible `.rbxmx`."""
+    ref_id = 0
+
+    def next_ref() -> str:
+        nonlocal ref_id
+        r = f"RBX{ref_id}"
+        ref_id += 1
+        return r
+
+    def extract_attrs(props: dict[str, Any]) -> dict[str, Any]:
+        raw = props.get("Attributes", {}).get("Attributes", {})
+        out: dict[str, Any] = {}
+        for k, entry in raw.items():
+            if isinstance(entry, dict) and entry:
+                out[k] = next(iter(entry.values()))
+        return out
+
+    lines: list[str] = ['<roblox version="4">', f'  <Item class="Model" referent="{next_ref()}">']
+    m_props = model_doc.get("Properties", {})
+    m_attrs = extract_attrs(m_props)
+    lines.append("    <Properties>")
+    lines.append(f'      <string name="Name">{_xml_escape(kart_id)}</string>')
+    if m_attrs:
+        lines.append(f'      <BinaryString name="AttributesSerialize">{_encode_rbx_attrs_binary(m_attrs)}</BinaryString>')
+    lines.append("    </Properties>")
+
+    for child in model_doc.get("Children", []):
+        cname = child["Name"]
+        cclass = child["ClassName"]
+        cprops = child.get("Properties", {})
+        cattrs = extract_attrs(cprops)
+        lines.append(f'    <Item class="{cclass}" referent="{next_ref()}">')
+        lines.append("      <Properties>")
+        lines.append(f'        <string name="Name">{_xml_escape(cname)}</string>')
+        if cclass == "MeshPart":
+            mesh_id = _xml_escape(str(cprops["MeshId"]))
+            tex_id = _xml_escape(str(cprops["TextureID"]))
+            sz = cprops["Size"]
+            cf = cprops["CFrame"]["CFrame"]
+            mat_tok = RBX_MATERIAL_TOKENS.get(str(cprops.get("Material", "SmoothPlastic")), 256)
+            lines.append('        <bool name="Anchored">true</bool>')
+            lines.append('        <bool name="CanCollide">false</bool>')
+            lines.append('        <bool name="CanTouch">false</bool>')
+            lines.append('        <bool name="CanQuery">false</bool>')
+            lines.append('        <bool name="Massless">true</bool>')
+            lines.append(f'        <Content name="MeshId"><url>{mesh_id}</url></Content>')
+            lines.append(f'        <Content name="TextureID"><url>{tex_id}</url></Content>')
+            lines.append(f'        <token name="Material">{mat_tok}</token>')
+            lines.append('        <token name="RenderFidelity">1</token>')
+            lines.append('        <token name="CollisionFidelity">2</token>')
+            lines.append(f'        {_xml_vec3("InitialSize", sz)}')
+            lines.append(f'        {_xml_vec3("size", sz)}')
+            lines.append(f'        {_xml_cf("CFrame", cf["position"], cf["orientation"])}')
+        else:
+            sz = cprops["Size"]
+            cf = cprops["CFrame"]["CFrame"]
+            trans = float(cprops.get("Transparency", 0.0))
+            lines.append('        <bool name="Anchored">true</bool>')
+            lines.append('        <bool name="CanCollide">false</bool>')
+            lines.append('        <bool name="CanTouch">false</bool>')
+            lines.append('        <bool name="CanQuery">false</bool>')
+            lines.append('        <bool name="Massless">true</bool>')
+            lines.append(f'        <float name="Transparency">{trans}</float>')
+            lines.append(f'        {_xml_vec3("size", sz)}')
+            lines.append(f'        {_xml_cf("CFrame", cf["position"], cf["orientation"])}')
+        if cattrs:
+            lines.append(f'        <BinaryString name="AttributesSerialize">{_encode_rbx_attrs_binary(cattrs)}</BinaryString>')
+        lines.append("      </Properties>")
+        for subchild in child.get("Children", []):
+            scname = subchild["Name"]
+            scf = subchild["Properties"]["CFrame"]["CFrame"]
+            lines.append(f'      <Item class="{subchild["ClassName"]}" referent="{next_ref()}">')
+            lines.append("        <Properties>")
+            lines.append(f'          <string name="Name">{_xml_escape(scname)}</string>')
+            lines.append(f'          {_xml_cf("CFrame", scf["position"], scf["orientation"])}')
+            lines.append("        </Properties>")
+            lines.append("      </Item>")
+        lines.append("    </Item>")
+
+    lines.append("  </Item>")
+    lines.append("</roblox>")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def emit_kart_model_json(
     kart_id: str,
     spec: KartSpec,
@@ -1038,7 +1167,10 @@ def convert_kart(
         assets_manifest=assets_manifest,
     )
     out_model.parent.mkdir(parents=True, exist_ok=True)
-    out_model.write_text(json.dumps(model_doc, indent=2) + "\n", encoding="utf-8")
+    if out_model.suffix.lower() == ".rbxmx":
+        out_model.write_text(emit_kart_rbxmx(kart_id, model_doc), encoding="utf-8")
+    else:
+        out_model.write_text(json.dumps(model_doc, indent=2) + "\n", encoding="utf-8")
 
     c_size = _bbox_size(*combined_chassis_bounds)
     trunc_3dp = [int(v * 1000) / 1000.0 for v in c_size]

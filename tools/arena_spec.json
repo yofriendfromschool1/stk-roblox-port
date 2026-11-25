@@ -214,5 +214,17 @@
       "label_y": 3.5,
       "label_color_rgb": [255, 120, 120]
     }
+  ],
+  "items": [
+    { "type": "small-nitro", "pos": [-4.0, 0.4, 12.0] },
+    { "type": "small-nitro", "pos": [4.0, 0.4, 12.0] },
+    { "type": "big-nitro", "pos": [-4.0, 0.4, 18.0] },
+    { "type": "big-nitro", "pos": [4.0, 0.4, 18.0] },
+    { "type": "item", "pos": [-6.0, 0.5, 24.0] },
+    { "type": "item", "pos": [0.0, 0.5, 24.0] },
+    { "type": "item", "pos": [6.0, 0.5, 24.0] },
+    { "type": "banana", "pos": [-14.0, 0.35, 12.0] },
+    { "type": "banana", "pos": [-14.0, 0.35, 16.0] },
+    { "type": "banana", "pos": [-14.0, 0.35, 20.0] }
   ]
 }
