@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.stk2rbx.cli import convert_track
+from tools.stk2rbx.cli import _svn_assets_url, convert_track
 from tools.stk2rbx.coords import (
     STUDS_PER_METER,
     flip_triangle_winding,
@@ -22,7 +22,13 @@ from tools.stk2rbx.coords import (
     stk_to_rbx_size,
 )
 from tools.stk2rbx.mesh_inspect import audit_mesh
-from tools.stk2rbx.xml_parser import parse_graph_and_quads, parse_scene_xml, parse_track_xml
+from tools.stk2rbx.road_probe import RoadPatch, extract_contiguous_road_patch, write_glb
+from tools.stk2rbx.xml_parser import (
+    parse_graph_and_quads,
+    parse_materials_xml,
+    parse_scene_xml,
+    parse_track_xml,
+)
 
 
 def _mat3_det(m: list[list[float]]) -> float:
@@ -141,12 +147,12 @@ def _write_synthetic_b3d(path: Path, num_verts: int, num_tris: int) -> None:
 
 class TestStk2Rbx(unittest.TestCase):
     def test_coords_and_orientation(self) -> None:
-        pos = stk_to_rbx_pos(0.28, 0.56, 2.8)
+        pos = stk_to_rbx_pos(1.0, 2.0, 10.0)
         self.assertEqual(pos, [1.0, 2.0, -10.0])
 
-        clamped, raw, exceeds = stk_to_rbx_size(700.0, 1.0, 2.0)
+        clamped, raw, exceeds = stk_to_rbx_size(2500.0, 1.0, 2.0)
         self.assertTrue(exceeds)
-        self.assertAlmostEqual(raw[0], 700.0 * STUDS_PER_METER, places=2)
+        self.assertAlmostEqual(raw[0], 2500.0 * STUDS_PER_METER, places=2)
         self.assertEqual(clamped[0], 2048.0)
 
         mat = stk_hpr_to_rbx_matrix(45.0, 15.0, -10.0)
@@ -373,6 +379,39 @@ class TestStk2Rbx(unittest.TestCase):
         self.assertEqual(road_non_deg_neg, 0)
         self.assertEqual(all_three_verts_opposed, 0)
 
+    def test_glb_writer_header_and_json_chunk(self) -> None:
+        patch = RoadPatch(
+            vertices=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, -1.0)],
+            normals=[(0.0, 1.0, 0.0), (0.0, 1.0, 0.0), (0.0, 1.0, 0.0)],
+            triangles=[(0, 1, 2)],
+            size_studs=(1.0, 0.0, 1.0),
+            seed_stk_center_m=(0.0, 0.0, 0.0),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            glb_path = Path(tmp) / "probe.glb"
+            write_glb(patch, glb_path)
+            raw = glb_path.read_bytes()
+            magic, version, total_len = struct.unpack_from("<III", raw, 0)
+            self.assertEqual(magic, 0x46546C67)
+            self.assertEqual(version, 2)
+            self.assertEqual(total_len, len(raw))
+            jlen, jtype = struct.unpack_from("<II", raw, 12)
+            self.assertEqual(jtype, 0x4E4F534A)
+            doc = json.loads(raw[20 : 20 + jlen].decode("utf-8"))
+            self.assertEqual(doc["meshes"][0]["primitives"][0]["indices"], 2)
+
+    @unittest.skipUnless(
+        Path(r"C:\dev\stk-assets\tracks\sandtrack\sandtrack_track.spm").exists(),
+        "sandtrack_track.spm upstream asset not fetched",
+    )
+    def test_sandtrack_road_probe_patch(self) -> None:
+        sdir = Path(r"C:\dev\stk-assets\tracks\sandtrack")
+        patch = extract_contiguous_road_patch(
+            sdir / "sandtrack_track.spm", quads_path=sdir / "quads.xml", max_triangles=64
+        )
+        self.assertEqual(len(patch.triangles), 64)
+        self.assertTrue(all(s < 2048.0 for s in patch.size_studs))
+
     def test_xml_and_mesh_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tdir = Path(tmp) / "testtrack"
@@ -406,7 +445,7 @@ class TestStk2Rbx(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            _write_synthetic_spm(tdir / "track.spm", num_verts=300, num_tris=25000, skinned=False, bounds_m=(600.0, 10.0, 20.0))
+            _write_synthetic_spm(tdir / "track.spm", num_verts=300, num_tris=25000, skinned=False, bounds_m=(2500.0, 10.0, 20.0))
             _write_synthetic_b3d(tdir / "palm.b3d", num_verts=6, num_tris=4)
 
             tinfo = parse_track_xml(tdir / "track.xml")
@@ -427,6 +466,11 @@ class TestStk2Rbx(unittest.TestCase):
             self.assertEqual(spm_audit.triangle_count, 25000)
             self.assertTrue(spm_audit.exceeds_20k_whole)
             self.assertTrue(spm_audit.exceeds_2048_studs)
+            self.assertGreater(spm_audit.submeshes[0].max_triangle_extent_m, 0.0)
+            self.assertEqual(
+                _svn_assets_url("tracks/sandtrack", "18627"),
+                "https://svn.code.sf.net/p/supertuxkart/code/!svn/bc/18627/stk-assets/tracks/sandtrack",
+            )
 
             b3d_audit = audit_mesh(tdir / "palm.b3d")
             self.assertEqual(b3d_audit.mesh_format, "B3D")
@@ -439,6 +483,31 @@ class TestStk2Rbx(unittest.TestCase):
             self.assertTrue(out_report.exists())
             self.assertEqual(report["mesh_formats_found"], ["B3D", "SPMN"])
             self.assertEqual(len(report["cap_violations"]), 1)
+
+            # Verify materials.xml parser against sandtrack's 7 materials
+            mats_xml = Path(tmp) / "materials.xml"
+            mats_xml.write_text(
+                "<materials>"
+                '<material name="oasis-water.png" shader="displace" ignore="Y"/>'
+                '<material name="pyramidwall.jpg" high-adhesion="Y"/>'
+                '<material name="road.jpg" normal-map="road_nm.png"/>'
+                '<material name="sand.png" slowdown-time="1.50" max-speed="0.50"/>'
+                '<material name="seabed.jpg" reset="Y"/>'
+                '<material name="transparence2.png" collision-detect="Y" collision-reaction="reset"/>'
+                '<material name="water_light.png" surface="Y" falling-effect="Y"/>'
+                "</materials>",
+                encoding="utf-8",
+            )
+            mats = {m.name: m for m in parse_materials_xml(mats_xml)}
+            self.assertEqual(len(mats), 7)
+            self.assertTrue(mats["oasis-water.png"].ignore)
+            self.assertTrue(mats["pyramidwall.jpg"].high_adhesion)
+            self.assertAlmostEqual(mats["sand.png"].max_speed_fraction, 0.5)
+            self.assertAlmostEqual(mats["sand.png"].slowdown_time, 1.5)
+            self.assertTrue(mats["seabed.jpg"].reset)
+            self.assertEqual(mats["transparence2.png"].collision_reaction, "reset")
+            self.assertTrue(mats["water_light.png"].falling_effect)
+            self.assertTrue(mats["water_light.png"].reset)
 
             model_doc = json.loads(out_model.read_text(encoding="utf-8"))
             folders = {c["Name"]: c for c in model_doc["Children"]}

@@ -22,22 +22,35 @@ from .mesh_inspect import (
     audit_mesh,
 )
 from .rbx_emit import emit_track_model_json
-from .xml_parser import parse_graph_and_quads, parse_scene_xml, parse_track_xml
+from .xml_parser import MaterialData, parse_graph_and_quads, parse_materials_xml, parse_scene_xml, parse_track_xml
 
-STK_ASSETS_TRACKS_BASE = "https://svn.code.sf.net/p/supertuxkart/code/stk-assets/tracks"
+STK_SVN_REPO_BASE = "https://svn.code.sf.net/p/supertuxkart/code"
+STK_ASSETS_TRACKS_BASE = f"{STK_SVN_REPO_BASE}/stk-assets/tracks"
 FETCH_EXTENSIONS = {".xml", ".spm", ".b3d", ".txt"}
 MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".ogg", ".wav", ".music"}
 
 
-def fetch_track(track_id: str, dest_dir: Path, include_media: bool = False) -> tuple[str, list[str]]:
-    """Download one STK track directory from SourceForge SVN over HTTPS."""
-    base_url = f"{STK_ASSETS_TRACKS_BASE}/{track_id}/"
+def _svn_assets_url(subpath: str, revision: str = "") -> str:
+    clean = subpath.lstrip("/")
+    if revision:
+        return f"{STK_SVN_REPO_BASE}/!svn/bc/{revision}/stk-assets/{clean}"
+    return f"{STK_SVN_REPO_BASE}/stk-assets/{clean}"
+
+
+def _fetch_svn_dir(
+    subpath: str,
+    dest_dir: Path,
+    revision: str = "",
+    include_media: bool = False,
+) -> tuple[str, list[str]]:
+    """Download one SVN directory from stk-assets over HTTPS (optionally pinned via !svn/bc/<rev>)."""
+    base_url = _svn_assets_url(subpath, revision).rstrip("/") + "/"
     req = urllib.request.Request(base_url, headers={"User-Agent": "OpenKart-stk2rbx/0.1"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         index_html = resp.read().decode("utf-8", errors="replace")
 
     rev_match = re.search(r"Revision\s+(\d+)", index_html)
-    revision = rev_match.group(1) if rev_match else "unknown"
+    resolved_rev = revision or (rev_match.group(1) if rev_match else "unknown")
 
     hrefs = re.findall(r'href="([^"]+)"', index_html)
     allowed = FETCH_EXTENSIONS | (MEDIA_EXTENSIONS if include_media else set())
@@ -59,8 +72,56 @@ def fetch_track(track_id: str, dest_dir: Path, include_media: bool = False) -> t
             out_path.write_bytes(f_resp.read())
         downloaded.append(out_path.name)
 
-    (dest_dir / "svn_revision.txt").write_text(f"{revision}\n", encoding="utf-8")
-    return revision, sorted(downloaded)
+    (dest_dir / "svn_revision.txt").write_text(f"{resolved_rev}\n", encoding="utf-8")
+    return resolved_rev, sorted(downloaded)
+
+
+def fetch_library(
+    lib_name: str,
+    dest_dir: Path,
+    revision: str = "",
+    include_media: bool = False,
+) -> tuple[str, list[str]]:
+    """Download one STK stk-assets/library/<lib_name> directory at pinned revision."""
+    return _fetch_svn_dir(f"library/{lib_name}", dest_dir, revision=revision, include_media=include_media)
+
+
+def fetch_track(
+    track_id: str,
+    dest_dir: Path,
+    revision: str = "",
+    include_media: bool = False,
+    with_libraries: bool = False,
+    assets_root: Optional[Path] = None,
+) -> tuple[str, list[str], dict[str, list[str]]]:
+    """Download one STK track directory (and optionally its referenced library models)."""
+    resolved_rev, downloaded = _fetch_svn_dir(
+        f"tracks/{track_id}",
+        dest_dir,
+        revision=revision,
+        include_media=include_media,
+    )
+    fetched_libs: dict[str, list[str]] = {}
+    if with_libraries and (dest_dir / "scene.xml").exists():
+        root_dir = assets_root if assets_root is not None else dest_dir.parent.parent
+        # Also pull root stk-assets/licenses.txt for library license auditing
+        lic_url = _svn_assets_url("licenses.txt", resolved_rev if resolved_rev.isdigit() else "")
+        lic_req = urllib.request.Request(lic_url, headers={"User-Agent": "OpenKart-stk2rbx/0.1"})
+        with urllib.request.urlopen(lic_req, timeout=30) as l_resp:
+            root_dir.mkdir(parents=True, exist_ok=True)
+            (root_dir / "licenses.txt").write_bytes(l_resp.read())
+
+        scene = parse_scene_xml(dest_dir / "scene.xml")
+        lib_names = sorted({obj.name for obj in scene.objects if obj.tag == "library" and obj.name})
+        for lib in lib_names:
+            _, lfiles = fetch_library(
+                lib,
+                root_dir / "library" / lib,
+                revision=resolved_rev if resolved_rev.isdigit() else "",
+                include_media=include_media,
+            )
+            fetched_libs[lib] = lfiles
+    return resolved_rev, downloaded, fetched_libs
 
 
 def convert_track(
@@ -82,6 +143,8 @@ def convert_track(
 
     graph = parse_graph_and_quads(quads_path, graph_path if graph_path.exists() else None)
     scene = parse_scene_xml(scene_path)
+    materials_path = track_dir / "materials.xml"
+    materials: list[MaterialData] = parse_materials_xml(materials_path) if materials_path.exists() else []
 
     # Audit every mesh file present in track_dir
     mesh_files = sorted(
@@ -144,6 +207,7 @@ def convert_track(
                 {
                     **asdict(s),
                     "size_studs": list(s.size_studs),
+                    "max_triangle_extent_studs": s.max_triangle_extent_studs,
                     "exceeds_20k": s.exceeds_20k,
                     "exceeds_10k": s.exceeds_10k,
                     "exceeds_2048_studs": s.exceeds_2048_studs,
@@ -216,6 +280,7 @@ def convert_track(
         "total_triangles_all_local_meshes": sum(a.triangle_count for a in mesh_audits.values()),
         "total_vertices_all_local_meshes": sum(a.vertex_count for a in mesh_audits.values()),
         "cap_violations": cap_violations,
+        "materials": [asdict(m) for m in materials],
         "meshes": mesh_summaries,
     }
 
@@ -270,7 +335,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_fetch = sub.add_parser("fetch", help="Download one track directory from STK SourceForge SVN")
     p_fetch.add_argument("track_id", help="Upstream track directory name (e.g. sandtrack)")
     p_fetch.add_argument("--dest", required=True, type=Path, help="Output directory outside repo")
+    p_fetch.add_argument("--revision", default="", help="Pin SVN revision via !svn/bc/<rev>/ (e.g. 18627)")
     p_fetch.add_argument("--include-media", action="store_true", help="Also download textures/audio")
+    p_fetch.add_argument(
+        "--with-libraries",
+        action="store_true",
+        help="Also fetch external stk-assets/library/* models referenced in scene.xml",
+    )
+    p_fetch.add_argument(
+        "--assets-root",
+        type=Path,
+        default=None,
+        help="Root stk-assets directory outside repo for library/ and root licenses.txt",
+    )
 
     p_conv = sub.add_parser("convert", help="Parse track XMLs + inspect meshes + emit .model.json")
     p_conv.add_argument("track_dir", type=Path, help="Local upstream track directory")
@@ -280,10 +357,19 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     args = parser.parse_args(argv)
     if args.cmd == "fetch":
-        rev, files = fetch_track(args.track_id, args.dest, include_media=args.include_media)
+        rev, files, libs = fetch_track(
+            args.track_id,
+            args.dest,
+            revision=args.revision,
+            include_media=args.include_media,
+            with_libraries=args.with_libraries,
+            assets_root=args.assets_root,
+        )
         print(f"Fetched {args.track_id} (rev {rev}): {len(files)} files -> {args.dest}")
         for f in files:
             print(f"  {f}")
+        for lib_name, lfiles in libs.items():
+            print(f"Fetched library/{lib_name} (rev {rev}): {len(lfiles)} files")
         return 0
 
     if args.cmd == "convert":

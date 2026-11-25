@@ -2,7 +2,7 @@
 """Coordinate frame and metric-to-stud conversions between STK 1.5 and Roblox.
 
 STK uses +X right, +Y up, +Z forward in SI meters.
-Roblox uses +X right, +Y up, -Z forward in studs (1 stud = 0.28 m).
+Roblox uses +X right, +Y up, -Z forward in studs (1 stud = 1.0 m).
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from typing import Iterable, Sequence
 
-METERS_PER_STUD: float = 0.28
+METERS_PER_STUD: float = 1.0
 STUDS_PER_METER: float = 1.0 / METERS_PER_STUD
 MIN_PART_SIZE_STUDS: float = 0.2
 MAX_PART_SIZE_STUDS: float = 2048.0

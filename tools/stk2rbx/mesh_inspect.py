@@ -32,6 +32,11 @@ class SubmeshStats:
     triangle_count: int
     bbox_min_m: tuple[float, float, float]
     bbox_max_m: tuple[float, float, float]
+    max_triangle_extent_m: float = 0.0
+
+    @property
+    def max_triangle_extent_studs(self) -> float:
+        return round(self.max_triangle_extent_m * STUDS_PER_METER, 4)
 
     @property
     def exceeds_20k(self) -> bool:
@@ -192,9 +197,11 @@ def parse_spm(path: Path) -> MeshAudit:
 
                 s_min = [float("inf"), float("inf"), float("inf")]
                 s_max = [float("-inf"), float("-inf"), float("-inf")]
+                verts: list[tuple[float, float, float]] = []
 
                 for _ in range(v_count):
                     px, py, pz = struct.unpack("<fff", _read_exact(f, 12))
+                    verts.append((px, py, pz))
                     _update_bbox(s_min, s_max, px, py, pz)
                     _update_bbox(g_min, g_max, px, py, pz)
                     if read_normal:
@@ -212,8 +219,21 @@ def parse_spm(path: Path) -> MeshAudit:
                     if is_skinned:
                         _read_exact(f, 16)
 
-                idx_size = 2 if v_count > 255 else 1
-                _read_exact(f, i_count * idx_size)
+                idx_fmt = "<I" if v_count > 65535 else ("<H" if v_count > 255 else "<B")
+                idx_size = struct.calcsize(idx_fmt)
+                idx_bytes = _read_exact(f, i_count * idx_size)
+                max_tri_ext = 0.0
+                if i_count >= 3 and verts:
+                    idxs = [struct.unpack_from(idx_fmt, idx_bytes, k * idx_size)[0] for k in range(i_count)]
+                    for t in range(0, len(idxs) - 2, 3):
+                        a, b, c = verts[idxs[t]], verts[idxs[t + 1]], verts[idxs[t + 2]]
+                        ext = max(
+                            max(a[0], b[0], c[0]) - min(a[0], b[0], c[0]),
+                            max(a[1], b[1], c[1]) - min(a[1], b[1], c[1]),
+                            max(a[2], b[2], c[2]) - min(a[2], b[2], c[2]),
+                        )
+                        if ext > max_tri_ext:
+                            max_tri_ext = ext
 
                 tri_count = i_count // 3
                 total_verts += v_count
@@ -228,6 +248,7 @@ def parse_spm(path: Path) -> MeshAudit:
                         triangle_count=tri_count,
                         bbox_min_m=(s_min[0], s_min[1], s_min[2]),
                         bbox_max_m=(s_max[0], s_max[1], s_max[2]),
+                        max_triangle_extent_m=round(max_tri_ext, 4),
                     )
                 )
 

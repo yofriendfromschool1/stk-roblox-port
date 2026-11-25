@@ -2,7 +2,7 @@
 -- src/shared/Units.lua
 -- SPDX-License-Identifier: GPL-3.0-or-later
 
-local METERS_PER_STUD = 0.28
+local METERS_PER_STUD = 1.0
 local STUDS_PER_METER = 1 / METERS_PER_STUD
 local KMH_PER_MPS = 3.6
 

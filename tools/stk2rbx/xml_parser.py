@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""XML parsers for SuperTuxKart 1.5 track files (track, quads, graph, scene).
+"""XML parsers for SuperTuxKart 1.5 track files (track, quads, graph, scene, materials).
 
 Mirrors parsing logic in:
   - src/tracks/track.cpp:L527-L664, L1273-L1380, L2419-L2550 (STK 1.5)
   - src/tracks/drive_graph.cpp:L66-L260 (STK 1.5)
   - src/tracks/check_manager.cpp:L38-L95 (STK 1.5)
+  - src/graphics/material.cpp:L100-L187, L502-L541 (STK 1.5)
 """
 
 from __future__ import annotations
@@ -193,6 +194,71 @@ class SceneData:
     sky_type: str = ""
     sun_xyz: Vec3 = (0.0, 10.0, 10.0)
     camera_far: float = 1000.0
+
+
+@dataclass
+class MaterialData:
+    name: str
+    max_speed_fraction: float = 1.0
+    slowdown_time: float = 1.0
+    high_adhesion: bool = False
+    ignore: bool = False
+    reset: bool = False
+    falling_effect: bool = False
+    surface: bool = False
+    below_surface: bool = False
+    collision_detect: bool = False
+    collision_reaction: str = "normal"  # "normal" | "reset" | "push" | "push-soccer"
+    friction: float = 1.0
+
+
+def parse_materials_xml(path: Path) -> list[MaterialData]:
+    """Parse STK materials.xml gameplay attributes (src/graphics/material.cpp:L100-L187)."""
+    root = ET.parse(path).getroot()
+    if root.tag != "materials":
+        raise ValueError(f"Expected <materials> root in {path}, got <{root.tag}>")
+
+    materials: list[MaterialData] = []
+    for child in root:
+        if child.tag != "material":
+            continue
+        name = child.get("name", "").strip()
+        if not name:
+            continue
+
+        high_adhesion = _parse_bool(child.get("high-adhesion"), False)
+        reset = _parse_bool(child.get("reset"), False)
+        falling_effect = _parse_bool(child.get("falling-effect"), False)
+        # STK material.cpp:L159-L160: falling-effect forces reset = true
+        if falling_effect:
+            reset = True
+
+        reaction = "normal"
+        if _parse_bool(child.get("crash-reset"), False):
+            reaction = "reset"
+            reset = True
+
+        creaction = (child.get("collision-reaction") or "").strip().lower()
+        if creaction in ("reset", "push", "push-soccer"):
+            reaction = creaction
+
+        materials.append(
+            MaterialData(
+                name=name,
+                max_speed_fraction=_parse_float(child.get("max-speed"), 1.0),
+                slowdown_time=_parse_float(child.get("slowdown-time"), 1.0),
+                high_adhesion=high_adhesion,
+                ignore=_parse_bool(child.get("ignore"), False),
+                reset=reset,
+                falling_effect=falling_effect,
+                surface=_parse_bool(child.get("surface"), False),
+                below_surface=_parse_bool(child.get("below-surface"), False),
+                collision_detect=_parse_bool(child.get("collision-detect"), False),
+                collision_reaction=reaction,
+                friction=_parse_float(child.get("friction"), 1.0),
+            )
+        )
+    return materials
 
 
 def parse_track_xml(path: Path) -> TrackInfo:
