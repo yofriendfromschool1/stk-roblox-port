@@ -135,17 +135,19 @@ return {
 			local profile = KartTuning.buildProfile("medium", "best")
 			local player = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
 			local dummy = TestDummyKart.create(profile)
+			local dummyAI = TestDummyKart.createAIState(dummy)
 
 			local entries1 = TestDummyKart.buildStandingsEntries({
-				{ id = TestDummyKart.DUMMY_STRING_ID, state = dummy, initialPosition = 1 },
+				{ id = TestDummyKart.DUMMY_STRING_ID, state = dummy, initialPosition = 1, aiState = dummyAI },
 				{ id = "player", state = player, initialPosition = 2 },
 			})
 			assertEqual((Standings.getRankForId(entries1, TestDummyKart.DUMMY_STRING_ID)), 1, "dummy starts Rank 1")
 			assertEqual((Standings.getRankForId(entries1, "player")), 2, "player starts Rank 2")
 
-			player.pos.z = 50.0
+			-- Overtake along the North straight (x = 0 -> +60 at z = 6.0)
+			player.pos = { x = 36.0, y = 0.291, z = 6.0 }
 			local entries2 = TestDummyKart.buildStandingsEntries({
-				{ id = TestDummyKart.DUMMY_STRING_ID, state = dummy, initialPosition = 1 },
+				{ id = TestDummyKart.DUMMY_STRING_ID, state = dummy, initialPosition = 1, aiState = dummyAI },
 				{ id = "player", state = player, initialPosition = 2 },
 			})
 			assertEqual((Standings.getRankForId(entries2, "player")), 1, "player becomes Rank 1 after overtake")
@@ -507,9 +509,12 @@ return {
 			local itemWorld = ItemWorld.createEmpty("NORMAL_RACE")
 			local flyWorld = Flyable.createWorld()
 
-			local attacker = KartSolver.createState(profile, { x = 0, y = 0.291, z = -90.0 }, 0)
-			local midKart = KartSolver.createState(profile, { x = 0, y = 0.291, z = -40.0 }, 0)
-			local rank1 = TestDummyKart.create(profile, 80.0)
+			-- North straight of closed loop: z = 6.0, heading +X (yaw = pi/2)
+			local yawEast = math.pi * 0.5
+			local attacker = KartSolver.createState(profile, { x = -52.0, y = 0.291, z = 6.0 }, yawEast)
+			local midKart = KartSolver.createState(profile, { x = -12.0, y = 0.291, z = 6.0 }, yawEast)
+			local rank1 = KartSolver.createState(profile, { x = 60.0, y = 0.291, z = 6.0 }, yawEast)
+			local rank1AI = TestDummyKart.createAIState(rank1)
 			KartSolver.setPowerup(attacker, ItemTuning.POWERUP_RUBBERBALL, 1)
 
 			local preProxies = {
@@ -548,14 +553,14 @@ return {
 				}
 				KartSolver.stepWithItems(
 					rank1,
-					{ accel = 0.25, brake = false, steer = 0, drift = false },
+					TestDummyKart.computeCruiseInput(rank1, rank1AI, FixedStep.FIXED_DT, 10.0),
 					world,
 					FixedStep.FIXED_DT,
 					itemWorld,
 					{ isServer = true, kartId = TestDummyKart.DUMMY_KART_ID, advanceItemWorld = false }
 				)
 				Flyable.step(flyWorld, stepProxies, world, FixedStep.FIXED_DT, GreyboxArenaData.drivelineQuadCenters, t)
-				if flyWorld.entries[1] and flyWorld.entries[1].drivelineIdx > initialIdx then
+				if flyWorld.entries[1] and flyWorld.entries[1].drivelineIdx ~= initialIdx then
 					advancedDriveline = true
 				end
 				if rank1.itemEffect.effectType == ItemEffectState.EFFECT_EXPLOSION then

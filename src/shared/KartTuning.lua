@@ -278,6 +278,26 @@ KartTuning.collision = {
 	-- Replaces Bullet's m_restingContactRestitutionThreshold = 2 ticks (btContactSolverInfo.h:L82)
 	-- because OpenKart's stateless swept/overlap manifold does not track persistent contact lifetimes.
 	restContactBounceVel = 2.0, -- m/s normal-speed threshold below which wall contact has 0 restitution
+	-- Kart-kart collision impulse constants (src/physics/physics.cpp:L438-L558, data/stk_config.xml:L479)
+	kartImpulse = 3000.0, -- N, collision="3000" (data/stk_config.xml:L479)
+	kartImpulseTime = 0.1, -- s (12 ticks at 120 Hz), impulse-time="0.1" (data/stk_config.xml:L479)
+	kartRatioMin = 0.8, -- src/physics/physics.cpp:L485-L486
+	kartRatioMax = 1.25, -- src/physics/physics.cpp:L483-L484
+	kartRamBonusMax = 2.0, -- src/physics/physics.cpp:L512-L522
+	kartRamVelFloor = 2.0, -- m/s, src/physics/physics.cpp:L510, L519
+}
+
+-- AI controller constants (src/karts/controller/ai_base_controller.cpp, skidding_ai.cpp, data/stk_config.xml:L350-L424)
+KartTuning.ai = {
+	timeFullSteer = 0.1, -- s (data/stk_config.xml:L350, L407)
+	skiddingThreshold = 2.0, -- hard/best (data/stk_config.xml:L405, L424)
+	sharpCurveAngleRad = 1.5, -- rad (src/karts/controller/skidding_ai.cpp:L2725)
+	oversteerFactor = 2.0, -- src/karts/controller/ai_base_controller.cpp:L149
+	plungerSteerCap = 0.5, -- src/karts/controller/ai_base_controller.cpp:L198-L202
+	lookaheadTimeSec = 0.65, -- s speed-scaled lookahead multiplier L(v) = clamp(|v|*0.65, 6, 28)
+	lookaheadMinM = 6.0, -- m
+	lookaheadMaxM = 28.0, -- m
+	defaultCruiseSpeedMps = 16.0, -- m/s smooth closed-loop pace
 }
 
 -- Follow camera, look-back & vertical FOV constants

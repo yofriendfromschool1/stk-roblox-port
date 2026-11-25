@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import struct
 import zlib
@@ -97,6 +98,8 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
         "\tboxes: { ArenaBoxSpec },",
         "\titems: { ArenaItemSpec },",
         "\tdrivelineQuadCenters: { ArenaDrivelinePoint },",
+        "\tdrivelineWidthM: number,",
+        "\tdrivelineClosedLoop: boolean,",
         "\tminimapBounds: ArenaBounds,",
         "}",
         "",
@@ -165,11 +168,23 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
         "\t},",
         "\tdrivelineQuadCenters = {",
     ])
-    for qi in range(len(q_edges) - 1):
-        z_mid = 0.5 * (q_edges[qi] + q_edges[qi + 1])
-        lines.append(f"\t\t{{ x = 0.0, z = {z_mid} }},")
+    driveline_cfg = spec.get("driveline") or {}
+    driveline_pts = driveline_cfg.get("points") or []
+    driveline_width_m = float(driveline_cfg.get("width_m", 16.0))
+    driveline_closed = bool(driveline_cfg.get("closed_loop", True))
+    if driveline_pts:
+        for pt in driveline_pts:
+            # driveline.points are authored in STK XZ coordinates (matching Flyable / KartSolver)
+            lines.append(f"\t\t{{ x = {float(pt[0])}, z = {float(pt[1])} }},")
+    else:
+        for qi in range(len(q_edges) - 1):
+            z_mid = 0.5 * (q_edges[qi] + q_edges[qi + 1])
+            lines.append(f"\t\t{{ x = 0.0, z = {z_mid} }},")
+    closed_str = "true" if driveline_closed else "false"
     lines.extend([
         "\t},",
+        f"\tdrivelineWidthM = {driveline_width_m},",
+        f"\tdrivelineClosedLoop = {closed_str},",
         "\tminimapBounds = {",
         f"\t\tminX = {-half},",
         f"\t\tmaxX = {half},",
@@ -284,34 +299,88 @@ def emit_stk_track(
     mat_lines.extend(["</materials>", ""])
     (out_dir / "materials.xml").write_text("\n".join(mat_lines), encoding="utf-8")
 
-    # quads.xml (full 512x512m coverage in 4 slices so dist_to_sector == 0 everywhere in arena)
-    half = 0.5 * float(spec["plane_size_m"])
-    q_edges = [-half, -0.5 * half, 0.0, 0.5 * half, half]
-    quad_lines = [
-        '<?xml version="1.0"?>',
-        "<quads>",
-        '  <height-testing min="-10.000000" max="30.000000"/>',
-        f'  <quad p0="{-half:.3f} 0.000 {q_edges[0]:.3f}" p1="{half:.3f} 0.000 {q_edges[0]:.3f}" p2="{half:.3f} 0.000 {q_edges[1]:.3f}" p3="{-half:.3f} 0.000 {q_edges[1]:.3f}"/>',
-    ]
-    for qi in range(1, len(q_edges) - 1):
-        z1 = q_edges[qi + 1]
-        prev = qi - 1
-        quad_lines.append(
-            f'  <quad p0="{prev}:3" p1="{prev}:2" p2="{half:.3f} 0.000 {z1:.3f}" p3="{-half:.3f} 0.000 {z1:.3f}"/>'
-        )
-    quad_lines.extend(["</quads>", ""])
-    (out_dir / "quads.xml").write_text("\n".join(quad_lines), encoding="utf-8")
+    # quads.xml + graph.xml (48-node closed stadium driveline when present, else 4-slice fallback)
+    driveline_cfg = spec.get("driveline") or {}
+    driveline_pts = driveline_cfg.get("points") or []
+    driveline_half_w = 0.5 * float(driveline_cfg.get("width_m", 16.0))
+    if len(driveline_pts) >= 4:
+        n_pts = len(driveline_pts)
+        edge_pairs: list[tuple[tuple[float, float], tuple[float, float]]] = []
+        for qi in range(n_pts):
+            p_prev = driveline_pts[(qi - 1) % n_pts]
+            p_curr = driveline_pts[qi]
+            p_next = driveline_pts[(qi + 1) % n_pts]
+            tx = float(p_next[0]) - float(p_prev[0])
+            tz = float(p_next[1]) - float(p_prev[1])
+            t_len = math.hypot(tx, tz) or 1.0
+            tx /= t_len
+            tz /= t_len
+            # STK +X right, +Z forward -> right normal of tangent (tx, tz) is (tz, -tx)
+            lx = float(p_curr[0]) - tz * driveline_half_w
+            lz = float(p_curr[1]) + tx * driveline_half_w
+            rx = float(p_curr[0]) + tz * driveline_half_w
+            rz = float(p_curr[1]) - tx * driveline_half_w
+            edge_pairs.append(((lx, lz), (rx, rz)))
 
-    # graph.xml
-    graph_xml = "\n".join([
-        '<?xml version="1.0"?>',
-        "<graph>",
-        f'  <node-list from-quad="0" to-quad="{len(q_edges) - 2}"/>',
-        f'  <edge-loop from="0" to="{len(q_edges) - 2}"/>',
-        "</graph>",
-        "",
-    ])
-    (out_dir / "graph.xml").write_text(graph_xml, encoding="utf-8")
+        quad_lines = [
+            '<?xml version="1.0"?>',
+            "<quads>",
+            '  <height-testing min="-10.000000" max="30.000000"/>',
+        ]
+        # Quad 0 connects edge 0 -> edge 1; Quad i reuses (i-1):3/(i-1):2; last quad closes onto 0:0/0:1
+        l0, r0 = edge_pairs[0]
+        l1, r1 = edge_pairs[1]
+        quad_lines.append(
+            f'  <quad p0="{l0[0]:.3f} 0.000 {l0[1]:.3f}" p1="{r0[0]:.3f} 0.000 {r0[1]:.3f}" '
+            f'p2="{r1[0]:.3f} 0.000 {r1[1]:.3f}" p3="{l1[0]:.3f} 0.000 {l1[1]:.3f}"/>'
+        )
+        for qi in range(1, n_pts - 1):
+            ln, rn = edge_pairs[(qi + 1) % n_pts]
+            prev = qi - 1
+            quad_lines.append(
+                f'  <quad p0="{prev}:3" p1="{prev}:2" p2="{rn[0]:.3f} 0.000 {rn[1]:.3f}" p3="{ln[0]:.3f} 0.000 {ln[1]:.3f}"/>'
+            )
+        last = n_pts - 2
+        quad_lines.append(f'  <quad p0="{last}:3" p1="{last}:2" p2="0:1" p3="0:0"/>')
+        quad_lines.extend(["</quads>", ""])
+        (out_dir / "quads.xml").write_text("\n".join(quad_lines), encoding="utf-8")
+
+        graph_xml = "\n".join([
+            '<?xml version="1.0"?>',
+            "<graph>",
+            f'  <node-list from-quad="0" to-quad="{n_pts - 1}"/>',
+            f'  <edge-loop from="0" to="{n_pts - 1}"/>',
+            "</graph>",
+            "",
+        ])
+        (out_dir / "graph.xml").write_text(graph_xml, encoding="utf-8")
+    else:
+        half = 0.5 * float(spec["plane_size_m"])
+        q_edges = [-half, -0.5 * half, 0.0, 0.5 * half, half]
+        quad_lines = [
+            '<?xml version="1.0"?>',
+            "<quads>",
+            '  <height-testing min="-10.000000" max="30.000000"/>',
+            f'  <quad p0="{-half:.3f} 0.000 {q_edges[0]:.3f}" p1="{half:.3f} 0.000 {q_edges[0]:.3f}" p2="{half:.3f} 0.000 {q_edges[1]:.3f}" p3="{-half:.3f} 0.000 {q_edges[1]:.3f}"/>',
+        ]
+        for qi in range(1, len(q_edges) - 1):
+            z1 = q_edges[qi + 1]
+            prev = qi - 1
+            quad_lines.append(
+                f'  <quad p0="{prev}:3" p1="{prev}:2" p2="{half:.3f} 0.000 {z1:.3f}" p3="{-half:.3f} 0.000 {z1:.3f}"/>'
+            )
+        quad_lines.extend(["</quads>", ""])
+        (out_dir / "quads.xml").write_text("\n".join(quad_lines), encoding="utf-8")
+
+        graph_xml = "\n".join([
+            '<?xml version="1.0"?>',
+            "<graph>",
+            f'  <node-list from-quad="0" to-quad="{len(q_edges) - 2}"/>',
+            f'  <edge-loop from="0" to="{len(q_edges) - 2}"/>',
+            "</graph>",
+            "",
+        ])
+        (out_dir / "graph.xml").write_text(graph_xml, encoding="utf-8")
 
     # scene.xml
     sx, sy, sz = spec["spawn"]["pos"]
@@ -329,10 +398,10 @@ def emit_stk_track(
         ix, iy, iz = item["pos"]
         scene_lines.append(f'  <{itype} x="{ix}" y="{iy}" z="{iz}"/>')
     scene_lines.extend([
-        "  <checks>",
+        '  <checks>',
         '    <check-lap kind="lap" same-group="0" other-ids="1"/>',
-        '    <check-line kind="activate" other-ids="0" p1="-256.0 0.0 128.0" p2="256.0 0.0 128.0" same-group="1"/>',
-        "  </checks>",
+        '    <check-line kind="activate" other-ids="0" p1="-4.0 0.0 -116.0" p2="4.0 0.0 -92.0" same-group="1"/>',
+        '  </checks>',
         "</scene>",
         "",
     ])

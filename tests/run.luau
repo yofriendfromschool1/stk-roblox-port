@@ -11,6 +11,7 @@ local suites = {
 	{ name = "Standings", tests = require("./Standings.spec") },
 	{ name = "Items", tests = require("./Items.spec") },
 	{ name = "Flyable", tests = require("./Flyable.spec") },
+	{ name = "MultiKart", tests = require("./MultiKart.spec") },
 	{ name = "Reconciliation", tests = require("./Reconciliation.spec") },
 }
 

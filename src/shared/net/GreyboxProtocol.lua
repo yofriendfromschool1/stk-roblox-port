@@ -13,12 +13,16 @@ export type RemoteKartState = {
 	id: string,
 	pos: { number },
 	rot: { number },
+	linVel: { number }?,
 	speed: number,
 	steer: number,
 	attachmentType: number,
 	plungerFaceTicks: number,
+	timedImpulseTicks: number?,
 	isSquashed: boolean,
 	rank: number,
+	lap: number?,
+	trackNodeIdx: number?,
 }
 
 export type ClientInputPacket = {
@@ -93,7 +97,7 @@ local INCREASE_ENTRY_BYTES = 17
 local COOLDOWN_ENTRY_BYTES = 6
 local DYNAMIC_ITEM_ENTRY_BYTES = 28
 local FLYABLE_ENTRY_BYTES = 135
-local REMOTE_KART_FIXED_BYTES = 41
+local REMOTE_KART_FIXED_BYTES = 58
 
 local GreyboxProtocol = {}
 
@@ -409,12 +413,19 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writef32(buf, rOff + 16, rk.rot[2])
 			buffer.writef32(buf, rOff + 20, rk.rot[3])
 			buffer.writef32(buf, rOff + 24, rk.rot[4])
-			buffer.writef32(buf, rOff + 28, rk.speed)
-			buffer.writef32(buf, rOff + 32, rk.steer)
-			buffer.writeu8(buf, rOff + 36, clampU8(rk.attachmentType))
-			buffer.writei16(buf, rOff + 37, clampI16(rk.plungerFaceTicks))
-			buffer.writeu8(buf, rOff + 39, if rk.isSquashed then 1 else 0)
-			buffer.writeu8(buf, rOff + 40, clampU8(rk.rank))
+			local rv = rk.linVel
+			buffer.writef32(buf, rOff + 28, if rv then (rv[1] or 0) else 0)
+			buffer.writef32(buf, rOff + 32, if rv then (rv[2] or 0) else 0)
+			buffer.writef32(buf, rOff + 36, if rv then (rv[3] or 0) else 0)
+			buffer.writef32(buf, rOff + 40, rk.speed)
+			buffer.writef32(buf, rOff + 44, rk.steer)
+			buffer.writeu8(buf, rOff + 48, clampU8(rk.attachmentType))
+			buffer.writei16(buf, rOff + 49, clampI16(rk.plungerFaceTicks))
+			buffer.writei16(buf, rOff + 51, clampI16(rk.timedImpulseTicks or 0))
+			buffer.writeu8(buf, rOff + 53, if rk.isSquashed then 1 else 0)
+			buffer.writeu8(buf, rOff + 54, clampU8(rk.rank))
+			buffer.writeu8(buf, rOff + 55, clampU8(rk.lap or 0))
+			buffer.writeu16(buf, rOff + 56, clampU16(rk.trackNodeIdx or 1))
 			off = rOff + REMOTE_KART_FIXED_BYTES
 		end
 	end
@@ -750,12 +761,20 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 					buffer.readf32(buf, rOff + 20),
 					buffer.readf32(buf, rOff + 24),
 				},
-				speed = buffer.readf32(buf, rOff + 28),
-				steer = buffer.readf32(buf, rOff + 32),
-				attachmentType = buffer.readu8(buf, rOff + 36),
-				plungerFaceTicks = buffer.readi16(buf, rOff + 37),
-				isSquashed = buffer.readu8(buf, rOff + 39) == 1,
-				rank = buffer.readu8(buf, rOff + 40),
+				linVel = {
+					buffer.readf32(buf, rOff + 28),
+					buffer.readf32(buf, rOff + 32),
+					buffer.readf32(buf, rOff + 36),
+				},
+				speed = buffer.readf32(buf, rOff + 40),
+				steer = buffer.readf32(buf, rOff + 44),
+				attachmentType = buffer.readu8(buf, rOff + 48),
+				plungerFaceTicks = buffer.readi16(buf, rOff + 49),
+				timedImpulseTicks = buffer.readi16(buf, rOff + 51),
+				isSquashed = buffer.readu8(buf, rOff + 53) == 1,
+				rank = buffer.readu8(buf, rOff + 54),
+				lap = buffer.readu8(buf, rOff + 55),
+				trackNodeIdx = buffer.readu16(buf, rOff + 56),
 			})
 			off = rOff + REMOTE_KART_FIXED_BYTES
 		end

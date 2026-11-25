@@ -459,6 +459,7 @@ local function findNearestDrivelineIdx(pos: Vec3, centers: { DrivelinePoint }?):
 	if centers == nil or #centers == 0 then
 		return 1
 	end
+	local n = #centers
 	local bestIdx = 1
 	local bestDistSq = math.huge
 	for i, c in centers do
@@ -470,11 +471,8 @@ local function findNearestDrivelineIdx(pos: Vec3, centers: { DrivelinePoint }?):
 			bestIdx = i
 		end
 	end
-	-- Prefer heading toward the next waypoint ahead when starting right next to a center
-	if bestIdx < #centers and centers[bestIdx].z <= pos.z then
-		bestIdx += 1
-	end
-	return bestIdx
+	-- Advance to the next waypoint along the closed loop when right beside a center
+	return (bestIdx % n) + 1
 end
 
 -- Ported from RubberBall::RubberBall & computeTarget (src/items/rubber_ball.cpp:L96-L226).
@@ -681,19 +679,21 @@ local function stepRubberBall(
 		aimPoint = target.pos
 	else
 		local centers = drivelineCenters :: { DrivelinePoint }
-		local wp = centers[entry.drivelineIdx]
+		local nCenters = #centers
+		local currIdx = ((entry.drivelineIdx - 1) % nCenters) + 1
+		local nextIdx = (currIdx % nCenters) + 1
+		local wp = centers[currIdx]
+		local wpNext = centers[nextIdx]
 		local dxWp = wp.x - entry.pos.x
 		local dzWp = wp.z - entry.pos.z
-		if
-			(dxWp * dxWp + dzWp * dzWp) < (24.0 * 24.0) or (wp.z < entry.pos.z - 8.0 and entry.drivelineIdx < #centers)
-		then
-			if entry.drivelineIdx < #centers then
-				entry.drivelineIdx += 1
-			elseif target ~= nil then
-				aimPoint = target.pos
-			end
+		local segX = wpNext.x - wp.x
+		local segZ = wpNext.z - wp.z
+		local passedPlane = ((entry.pos.x - wp.x) * segX + (entry.pos.z - wp.z) * segZ) > 0.0
+		if (dxWp * dxWp + dzWp * dzWp) < (18.0 * 18.0) or passedPlane then
+			currIdx = nextIdx
+			entry.drivelineIdx = currIdx
 		end
-		wp = centers[entry.drivelineIdx]
+		wp = centers[currIdx]
 		aimPoint = { x = wp.x, y = entry.pos.y, z = wp.z }
 	end
 

@@ -573,6 +573,8 @@ class TestStk2Rbx(unittest.TestCase):
         self.assertEqual(len(spec["boxes"]), 13)
         self.assertEqual(len(spec["materials"]), 7)
         self.assertEqual(len(spec["items"]), 10)
+        self.assertEqual(len(spec["driveline"]["points"]), 48)
+        self.assertTrue(spec["driveline"]["closed_loop"])
 
         with tempfile.TemporaryDirectory() as tmp:
             luau_out = Path(tmp) / "GreyboxArenaData.lua"
@@ -583,6 +585,9 @@ class TestStk2Rbx(unittest.TestCase):
             luau_src = luau_out.read_text(encoding="utf-8")
             for box in spec["boxes"]:
                 self.assertIn(f'name = "{box["name"]}"', luau_src)
+            self.assertIn("drivelineClosedLoop = true", luau_src)
+            self.assertIn("{ x = 0.0, z = 6.0 }", luau_src)
+            self.assertIn("{ x = 115.0, z = -49.0 }", luau_src)
             # Check STK +Z=72.5 -> Roblox -Z=-72.5 on SandPatch
             self.assertIn("pos = { 0.0, -0.098, -72.5 }", luau_src)
             # Check items parity in Luau (STK +Z -> Roblox -Z)
@@ -598,6 +603,10 @@ class TestStk2Rbx(unittest.TestCase):
             self.assertEqual(audit.triangle_count, 13 * 12)
             for fname in ("track.xml", "materials.xml", "quads.xml", "graph.xml", "scene.xml", "sand.png", "road.jpg"):
                 self.assertTrue((stk_out / fname).exists(), f"Missing {fname}")
+            quads_xml = (stk_out / "quads.xml").read_text(encoding="utf-8")
+            graph_xml = (stk_out / "graph.xml").read_text(encoding="utf-8")
+            self.assertEqual(quads_xml.count("<quad "), 48)
+            self.assertIn('<edge-loop from="0" to="47"/>', graph_xml)
             scene_xml = (stk_out / "scene.xml").read_text(encoding="utf-8")
             self.assertIn('<small-nitro x="-4.0" y="0.4" z="12.0"/>', scene_xml)
             self.assertIn('<big-nitro x="4.0" y="0.4" z="18.0"/>', scene_xml)

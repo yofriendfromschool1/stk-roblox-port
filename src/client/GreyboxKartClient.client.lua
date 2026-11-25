@@ -12,6 +12,7 @@ local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AIController = require(Shared.ai.AIController)
 local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local FlyablePresentation = require("./items/FlyablePresentation")
@@ -161,10 +162,12 @@ local localFlyableWorld = Flyable.createWorld()
 local itemVisuals = ItemPresentation.create()
 local flyableVisuals = FlyablePresentation.create()
 local latestRemoteKarts: { GreyboxProtocol.RemoteKartState } = {}
+local remoteKartStates: { [string]: KartSolver.KartState } = {}
 local remoteKartVisuals: { [string]: KartPresentation.VisualKart } = {}
 
 local localStepper = FixedStep.new()
 local localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
+local localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
 local prevPose = capturePose(localState)
 local currPose = capturePose(localState)
 
@@ -293,22 +296,73 @@ telemetryRemote.OnClientEvent:Connect(function(rawPayload: any, rawNotice: any)
 	pendingSnapshot = snapshot
 end)
 
+local function syncRemoteKartStates(remotes: { GreyboxProtocol.RemoteKartState })
+	local seen: { [string]: boolean } = {}
+	for _, rk in remotes do
+		seen[rk.id] = true
+		local rs = remoteKartStates[rk.id]
+		if rs == nil then
+			rs = KartSolver.createState(profile, { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }, 0)
+			remoteKartStates[rk.id] = rs
+		end
+		rs.pos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
+		rs.lastSafePos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
+		rs.rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] }
+		rs.lastSafeRot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] }
+		local rv = rk.linVel
+		if rv ~= nil then
+			rs.linVel = { x = rv[1] or 0, y = rv[2] or 0, z = rv[3] or 0 }
+		else
+			local _, _, rFwd = Math3D.quatBasis(rs.rot)
+			rs.linVel = Math3D.scale(rFwd, rk.speed)
+		end
+		rs.speed = rk.speed
+		rs.steer = rk.steer
+		rs.attachmentType = rk.attachmentType
+		rs.itemEffect.plungerFaceTicks = rk.plungerFaceTicks
+		rs.timedImpulseTicks = rk.timedImpulseTicks or 0
+	end
+	for id, _ in remoteKartStates do
+		if not seen[id] then
+			remoteKartStates[id] = nil
+		end
+	end
+end
+
+local function buildClientCollisionParticipants(): { KartSolver.CollisionParticipant }
+	local list: { KartSolver.CollisionParticipant } = {
+		{ id = localKartId, state = localState },
+	}
+	for idx, rk in latestRemoteKarts do
+		local rs = remoteKartStates[rk.id]
+		if rs ~= nil then
+			local numericId = tonumber(rk.id) or -idx
+			table.insert(list, { id = numericId, state = rs })
+		end
+	end
+	return list
+end
+
 local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, number, { Flyable.KartProxy })
+	local nPts = math.max(1, #GreyboxArenaData.drivelineQuadCenters)
 	local entries: { Standings.StandingsEntry } = {
 		{
 			id = "local",
-			lap = 0,
-			checkpoint = 0,
-			distance = localState.pos.z,
+			lap = localProgress.lap,
+			checkpoint = localProgress.checkpoint,
+			distance = localProgress.lapDistance,
 			initialPosition = 2,
 		},
 	}
 	for idx, rk in latestRemoteKarts do
+		local rPos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
+		local rNode, rDist = AIController.computeTrackProgress(rPos, GreyboxArenaData.drivelineQuadCenters)
+		local nIdx = rk.trackNodeIdx or rNode
 		table.insert(entries, {
 			id = rk.id,
-			lap = 0,
-			checkpoint = 0,
-			distance = rk.pos[3],
+			lap = rk.lap or 0,
+			checkpoint = math.floor(((nIdx - 1) * 4) / nPts),
+			distance = rDist,
 			initialPosition = idx,
 		})
 	end
@@ -318,24 +372,29 @@ local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, 
 	}
 	for idx, rk in latestRemoteKarts do
 		local numericId = tonumber(rk.id) or -idx
-		table.insert(proxies, {
-			id = numericId,
-			pos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] },
-			rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] },
-			linVel = { x = 0, y = 0, z = rk.speed },
-			speed = rk.speed,
-			length = profile.length,
-			rank = rk.rank,
-			baseMaxSpeed = profile.maxSpeed,
-			isInvulnerable = false,
-			isInAnimation = false,
-			isShielded = (rk.attachmentType == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD),
-			hasBomb = (rk.attachmentType == ItemTuning.ATTACHMENT_BOMB),
-			onExplode = function() end,
-			onSquash = function() end,
-			onPlungerFace = function() end,
-			onRubberBandPull = function() end,
-		})
+		local rs = remoteKartStates[rk.id]
+		if rs ~= nil then
+			table.insert(proxies, KartSolver.makeFlyableProxy(numericId, rs, rk.rank, "best"))
+		else
+			table.insert(proxies, {
+				id = numericId,
+				pos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] },
+				rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] },
+				linVel = { x = 0, y = 0, z = rk.speed },
+				speed = rk.speed,
+				length = profile.length,
+				rank = rk.rank,
+				baseMaxSpeed = profile.maxSpeed,
+				isInvulnerable = false,
+				isInAnimation = false,
+				isShielded = (rk.attachmentType == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD),
+				hasBomb = (rk.attachmentType == ItemTuning.ATTACHMENT_BOMB),
+				onExplode = function() end,
+				onSquash = function() end,
+				onPlungerFace = function() end,
+				onRubberBandPull = function() end,
+			})
+		end
 	end
 	return entries, myRank, proxies
 end
@@ -363,6 +422,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	end
 	if wantsReset then
 		localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
+		localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
 		table.clear(inputHistory)
 		pendingSnapshot = nil
 		ReconciliationSmoother.reset(reconciler)
@@ -377,6 +437,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		if snapshot.tick > lastAppliedServerTick then
 			lastAppliedServerTick = snapshot.tick
 			latestRemoteKarts = snapshot.remoteKarts or {}
+			syncRemoteKartStates(latestRemoteKarts)
 			local preAlpha = localStepper:getAlpha()
 			local preInterpPos = Math3D.vecLerp(prevPose.pos, currPose.pos, preAlpha)
 			local preInterpRot = Math3D.quatSlerp(prevPose.rot, currPose.rot, preAlpha)
@@ -386,6 +447,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			if snapshot.resetSeq > lastResetSeq then
 				lastResetSeq = snapshot.resetSeq
 				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld, localFlyableWorld)
+				localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
 				table.clear(inputHistory)
 				prevPose = capturePose(localState)
 				currPose = capturePose(localState)
@@ -431,6 +493,12 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 								rank = myRank,
 								difficulty = "best",
 							}
+						)
+						KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
+						AIController.updateProgress(
+							localProgress,
+							localState.pos,
+							GreyboxArenaData.drivelineQuadCenters
 						)
 						Flyable.step(
 							localFlyableWorld,
@@ -480,6 +548,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					resetNoticeExpirySec = os.clock() + 1.5
 				end
 				localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
+				localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
 				table.clear(inputHistory)
 				pendingSnapshot = nil
 				ReconciliationSmoother.reset(reconciler)
@@ -511,6 +580,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					rank = myRank,
 					difficulty = "best",
 				})
+				KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
+				AIController.updateProgress(localProgress, localState.pos, GreyboxArenaData.drivelineQuadCenters)
 				Flyable.step(
 					localFlyableWorld,
 					proxies,

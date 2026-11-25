@@ -311,8 +311,10 @@ function KartSolver.captureNetState(
 		end
 	end
 	local terrain = state.maxSpeedState.decreases["TERRAIN"]
-	local squash = state.maxSpeedState.decreases["SQUASH"]
-	local bubble = state.maxSpeedState.decreases["BUBBLE"]
+	local rawSquash = state.maxSpeedState.decreases["SQUASH"]
+	local squash = if rawSquash ~= nil and rawSquash.active then rawSquash else nil
+	local rawBubble = state.maxSpeedState.decreases["BUBBLE"]
+	local bubble = if rawBubble ~= nil and rawBubble.active then rawBubble else nil
 	return {
 		pos = { state.pos.x, state.pos.y, state.pos.z },
 		rot = { state.rot.w, state.rot.x, state.rot.y, state.rot.z },
@@ -448,6 +450,8 @@ function KartSolver.applyNetState(
 		if squash then
 			squash.currentFraction = squashFrac
 		end
+	else
+		state.maxSpeedState.decreases["SQUASH"] = nil
 	end
 	local bubbleTarget = snap.bubbleTargetFraction or 1.0
 	local bubbleFrac = snap.bubbleFraction or 1.0
@@ -463,6 +467,8 @@ function KartSolver.applyNetState(
 		if bubble then
 			bubble.currentFraction = bubbleFrac
 		end
+	else
+		state.maxSpeedState.decreases["BUBBLE"] = nil
 	end
 
 	if itemWorld ~= nil and snap.itemWorldSnapshot ~= nil then
@@ -2107,7 +2113,213 @@ function KartSolver.checkSwatterHits(attacker: KartState, targets: { KartState }
 	return hits
 end
 
+export type CollisionParticipant = {
+	id: number,
+	state: KartState,
+}
+
+local function normalizeXZAxis(v: Vec3, fallbackX: number, fallbackZ: number): (number, number)
+	local lenSq = v.x * v.x + v.z * v.z
+	if lenSq < 1e-10 then
+		return fallbackX, fallbackZ
+	end
+	local inv = 1.0 / math.sqrt(lenSq)
+	return v.x * inv, v.z * inv
+end
+
+-- Pure-math pairwise 2D OBB SAT + mass-weighted momentum exchange + STK timed central impulse
+-- (src/physics/physics.cpp:L438-L558, data/stk_config.xml:L478-L480, src/karts/kart.cpp:L2317-L2326).
+function KartSolver.resolveKartKartCollisions(participants: { CollisionParticipant }): number
+	local n = #participants
+	if n < 2 then
+		return 0
+	end
+	-- Deterministic pair order by sorted kart id for replay & client/server bit parity.
+	local sorted = table.clone(participants)
+	table.sort(sorted, function(a: CollisionParticipant, b: CollisionParticipant): boolean
+		return a.id < b.id
+	end)
+
+	local colCfg = KartTuning.collision
+	local impulseTicks = FixedStep.timeToTicks(colCfg.kartImpulseTime)
+	local collisions = 0
+
+	for i = 1, n - 1 do
+		local aState = sorted[i].state
+		if ItemEffectState.isDriverInputSuppressed(aState.itemEffect) then
+			continue
+		end
+		local hA = computeChassisHalfExtents(aState.profile)
+		local aRight, _, aFwd = Math3D.quatBasis(aState.rot)
+		local aRx, aRz = normalizeXZAxis(aRight, 1.0, 0.0)
+		local aFx, aFz = normalizeXZAxis(aFwd, 0.0, 1.0)
+		local radA = math.sqrt(hA.x * hA.x + hA.z * hA.z)
+
+		for j = i + 1, n do
+			local bState = sorted[j].state
+			if ItemEffectState.isDriverInputSuppressed(bState.itemEffect) then
+				continue
+			end
+			local hB = computeChassisHalfExtents(bState.profile)
+			local dy = math.abs(bState.pos.y - aState.pos.y)
+			if dy >= (hA.y + hB.y) then
+				continue
+			end
+			local dx = bState.pos.x - aState.pos.x
+			local dz = bState.pos.z - aState.pos.z
+			local radB = math.sqrt(hB.x * hB.x + hB.z * hB.z)
+			if (dx * dx + dz * dz) > (radA + radB) * (radA + radB) then
+				continue
+			end
+
+			local bRight, _, bFwd = Math3D.quatBasis(bState.rot)
+			local bRx, bRz = normalizeXZAxis(bRight, 1.0, 0.0)
+			local bFx, bFz = normalizeXZAxis(bFwd, 0.0, 1.0)
+
+			local minPen = math.huge
+			local bestNx = 1.0
+			local bestNz = 0.0
+			local separated = false
+
+			for axisIdx = 1, 4 do
+				local ux: number
+				local uz: number
+				if axisIdx == 1 then
+					ux, uz = aRx, aRz
+				elseif axisIdx == 2 then
+					ux, uz = aFx, aFz
+				elseif axisIdx == 3 then
+					ux, uz = bRx, bRz
+				else
+					ux, uz = bFx, bFz
+				end
+
+				local projA = hA.x * math.abs(aRx * ux + aRz * uz) + hA.z * math.abs(aFx * ux + aFz * uz)
+				local projB = hB.x * math.abs(bRx * ux + bRz * uz) + hB.z * math.abs(bFx * ux + bFz * uz)
+				local cProj = dx * ux + dz * uz
+				local pen = (projA + projB) - math.abs(cProj)
+				if pen <= 0.0 then
+					separated = true
+					break
+				end
+				if pen < minPen then
+					minPen = pen
+					if cProj < 0.0 then
+						bestNx, bestNz = -ux, -uz
+					else
+						bestNx, bestNz = ux, uz
+					end
+				end
+			end
+
+			if separated or minPen <= 0.0 or minPen == math.huge then
+				continue
+			end
+
+			collisions += 1
+
+			local mA = getEffectiveMass(aState)
+			local mB = getEffectiveMass(bState)
+			local invMA = 1.0 / mA
+			local invMB = 1.0 / mB
+			local invSum = invMA + invMB
+			local shareA = invMA / invSum
+			local shareB = invMB / invSum
+
+			-- Mass-weighted positional separation along minimum penetration axis (n: A -> B)
+			aState.pos.x -= bestNx * minPen * shareA
+			aState.pos.z -= bestNz * minPen * shareA
+			bState.pos.x += bestNx * minPen * shareB
+			bState.pos.z += bestNz * minPen * shareB
+			aState.lastSafePos = { x = aState.pos.x, y = aState.pos.y, z = aState.pos.z }
+			bState.lastSafePos = { x = bState.pos.x, y = bState.pos.y, z = bState.pos.z }
+
+			-- Mass-weighted normal momentum exchange with speed-dependent STK restitution
+			local rvx = bState.linVel.x - aState.linVel.x
+			local rvz = bState.linVel.z - aState.linVel.z
+			local vRelN = rvx * bestNx + rvz * bestNz
+			if vRelN < 0.0 then
+				local rest = evalWallRestitution(-vRelN)
+				local jNorm = -(1.0 + rest) * vRelN / invSum
+				aState.linVel.x -= bestNx * (jNorm * invMA)
+				aState.linVel.z -= bestNz * (jNorm * invMA)
+				bState.linVel.x += bestNx * (jNorm * invMB)
+				bState.linVel.z += bestNz * (jNorm * invMB)
+			end
+
+			-- STK Physics::KartKartCollision timed separation impulse (physics.cpp:L472-L556)
+			local fB = (mA / mB)
+				* (
+					if math.abs(bState.speed) > 1e-3
+						then math.max(1.0, math.abs(aState.speed)) / math.max(1.0, math.abs(bState.speed))
+						else 1.5
+				)
+			fB = math.clamp(fB, colCfg.kartRatioMin, colCfg.kartRatioMax)
+			local fA = 1.0 / fB
+
+			local velB_n = bState.linVel.x * bestNx + bState.linVel.z * bestNz
+			local velA_n = aState.linVel.x * bestNx + aState.linVel.z * bestNz
+			local velDiff = velB_n - velA_n
+			if velDiff < 0.0 then
+				local speedTerm = math.max(colCfg.kartRamVelFloor, math.abs(velA_n))
+				fA = math.min(colCfg.kartRamBonusMax, fA * (1.0 - velDiff / speedTerm))
+			else
+				local speedTerm = math.max(colCfg.kartRamVelFloor, math.abs(velB_n))
+				fB = math.min(colCfg.kartRamBonusMax, fB * (1.0 + velDiff / speedTerm))
+			end
+			fA *= fA
+			fB *= fB
+
+			if aState.timedImpulseTicks <= 0 then
+				aState.timedImpulsePerSec =
+					{ x = -bestNx * colCfg.kartImpulse * fA, y = 0.0, z = -bestNz * colCfg.kartImpulse * fA }
+				aState.timedImpulseTicks = impulseTicks
+				aState.angVel = { x = 0.0, y = 0.0, z = 0.0 }
+			end
+			if bState.timedImpulseTicks <= 0 then
+				bState.timedImpulsePerSec =
+					{ x = bestNx * colCfg.kartImpulse * fB, y = 0.0, z = bestNz * colCfg.kartImpulse * fB }
+				bState.timedImpulseTicks = impulseTicks
+				bState.angVel = { x = 0.0, y = 0.0, z = 0.0 }
+			end
+
+			-- Transfer bomb on kart-kart collision (src/karts/kart.cpp:L2317-L2326)
+			if
+				aState.attachmentType == ItemTuning.ATTACHMENT_BOMB
+				and aState.attachmentTicksLeft > 0
+				and bState.attachmentType == ItemTuning.ATTACHMENT_NONE
+				and not ItemEffectState.isInvulnerable(bState.itemEffect)
+			then
+				bState.attachmentType = ItemTuning.ATTACHMENT_BOMB
+				bState.attachmentTicksLeft = aState.attachmentTicksLeft
+				aState.attachmentType = ItemTuning.ATTACHMENT_NONE
+				aState.attachmentTicksLeft = 0
+			elseif
+				bState.attachmentType == ItemTuning.ATTACHMENT_BOMB
+				and bState.attachmentTicksLeft > 0
+				and aState.attachmentType == ItemTuning.ATTACHMENT_NONE
+				and not ItemEffectState.isInvulnerable(aState.itemEffect)
+			then
+				aState.attachmentType = ItemTuning.ATTACHMENT_BOMB
+				aState.attachmentTicksLeft = bState.attachmentTicksLeft
+				bState.attachmentType = ItemTuning.ATTACHMENT_NONE
+				bState.attachmentTicksLeft = 0
+			end
+
+			local _, _, newAFwd = Math3D.quatBasis(aState.rot)
+			local _, _, newBFwd = Math3D.quatBasis(bState.rot)
+			local sA = Math3D.dot(aState.linVel, newAFwd)
+			local sB = Math3D.dot(bState.linVel, newBFwd)
+			aState.speed = if math.abs(sA) < KartTuning.physics.SPEED_DEADBAND then 0.0 else sA
+			bState.speed = if math.abs(sB) < KartTuning.physics.SPEED_DEADBAND then 0.0 else sB
+		end
+	end
+
+	return collisions
+end
+
 KartSolver.evalWallRestitution = evalWallRestitution
+KartSolver.getMaxSteerAngle = getMaxSteerAngle
 
 function KartSolver.getTelemetry(state: KartState): KartTelemetry
 	local eff = state.itemEffect
@@ -2139,7 +2351,8 @@ function KartSolver.getTelemetry(state: KartState): KartTelemetry
 		effectTicksRemaining = eff.ticksRemaining,
 		inputSuppressed = ItemEffectState.isDriverInputSuppressed(eff),
 		invulnerableTicks = eff.invulnerableTicks,
-		isSquashed = state.maxSpeedState.decreases["SQUASH"] ~= nil,
+		isSquashed = MaxSpeed.isSpeedDecreaseActive(state.maxSpeedState, "SQUASH")
+			or (eff.effectType == ItemEffectState.EFFECT_SQUASH and eff.ticksRemaining > 0),
 		plungerFaceTicks = eff.plungerFaceTicks,
 		parachuteDragMult = ItemEffectState.getAirDragMultiplier(eff),
 		maxCompressionRatio = state.maxCompressionRatio,

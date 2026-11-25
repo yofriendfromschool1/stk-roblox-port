@@ -11,6 +11,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AIController = require(Shared.ai.AIController)
 local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
@@ -29,6 +30,7 @@ local TestDummyKart = require(Shared.race.TestDummyKart)
 type PlayerKartEntry = {
 	player: Player,
 	state: KartSolver.KartState,
+	progress: AIController.AIState,
 	input: KartSolver.KartInput,
 	lastInputSeq: number,
 	resetSeq: number,
@@ -317,6 +319,7 @@ function GreyboxKartServer.start()
 	local itemWorld = ItemWorld.fromArenaSpec(GreyboxArenaData, "NORMAL_RACE")
 	local flyableWorld = Flyable.createWorld()
 	local dummyState = TestDummyKart.create(profile)
+	local dummyAI = TestDummyKart.createAIState(dummyState)
 	local powerupMgr = PowerupManager.new("NORMAL_RACE", 2, ItemTuning.IMPLEMENTED_POWERUPS)
 	local rollCounter = 0
 	local entries: { [Player]: PlayerKartEntry } = {}
@@ -341,6 +344,7 @@ function GreyboxKartServer.start()
 		entries[player] = {
 			player = player,
 			state = state,
+			progress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, state.pos),
 			input = {
 				accel = 0,
 				brake = false,
@@ -392,13 +396,23 @@ function GreyboxKartServer.start()
 
 	local function computeStandingsAndProxies(): ({ [string]: number }, { Flyable.KartProxy })
 		local racers: { TestDummyKart.RacerProgress } = {
-			{ id = TestDummyKart.DUMMY_STRING_ID, state = dummyState, initialPosition = 1 },
+			{
+				id = TestDummyKart.DUMMY_STRING_ID,
+				state = dummyState,
+				initialPosition = 1,
+				aiState = dummyAI,
+			},
 		}
 		local idx = 1
 		for _, entry in entries do
 			idx += 1
 			local sid = tostring(if entry.player.UserId ~= 0 then entry.player.UserId else idx)
-			table.insert(racers, { id = sid, state = entry.state, initialPosition = idx })
+			table.insert(racers, {
+				id = sid,
+				state = entry.state,
+				initialPosition = idx,
+				aiState = entry.progress,
+			})
 		end
 		local ranked = Standings.compute(TestDummyKart.buildStandingsEntries(racers))
 		local rankById: { [string]: number } = {}
@@ -427,12 +441,11 @@ function GreyboxKartServer.start()
 		debug.profilebegin("OpenKart_ServerSim")
 		local _, _ = stepper:advance(dt, function(fixedDt: number)
 			ItemWorld.tick(itemWorld)
-			TestDummyKart.loopIfPastEnd(dummyState)
 			local rankById, preProxies = computeStandingsAndProxies()
 
 			KartSolver.stepWithItems(
 				dummyState,
-				TestDummyKart.computeCruiseInput(dummyState),
+				TestDummyKart.computeCruiseInput(dummyState, dummyAI, fixedDt),
 				worldQuery,
 				fixedDt,
 				itemWorld,
@@ -448,18 +461,26 @@ function GreyboxKartServer.start()
 				}
 			)
 
+			local collisionParticipants: { KartSolver.CollisionParticipant } = {
+				{ id = TestDummyKart.DUMMY_KART_ID, state = dummyState },
+			}
+			local activeStates: { KartSolver.KartState } = { dummyState }
+			local playerFallbackIdx = 1
+
 			for _, entry in entries do
+				playerFallbackIdx += 1
 				if entry.resetRequested or entry.state.pos.y < VOID_RESET_Y_METERS or entry.state.resetTriggered then
 					if entry.state.resetTriggered then
 						entry.resetNoticeText = "RESET (" .. entry.state.activeMaterialName .. ")"
 						entry.resetNoticeExpirySec = os.clock() + 1.5
 					end
 					entry.state = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
+					entry.progress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, entry.state.pos)
 					entry.resetSeq += 1
 					entry.resetRequested = false
 					entry.forceSnapshot = true
 				else
-					local kartId = if entry.player.UserId ~= 0 then entry.player.UserId else 1
+					local kartId = if entry.player.UserId ~= 0 then entry.player.UserId else playerFallbackIdx
 					local myRank = rankById[tostring(kartId)] or 2
 					local events = KartSolver.stepWithItems(entry.state, entry.input, worldQuery, fixedDt, itemWorld, {
 						isServer = true,
@@ -479,16 +500,21 @@ function GreyboxKartServer.start()
 							return powerupMgr:getRandomPowerup(myRank, seed, itemWorld.elapsedTicks * fixedDt)
 						end,
 					})
+					AIController.updateProgress(entry.progress, entry.state.pos, GreyboxArenaData.drivelineQuadCenters)
+					table.insert(collisionParticipants, { id = kartId, state = entry.state })
+					table.insert(activeStates, entry.state)
 					if #events > 0 then
 						entry.forceSnapshot = true
 					end
 				end
 			end
 
-			local activeStates: { KartSolver.KartState } = { dummyState }
-			for _, entry in entries do
-				table.insert(activeStates, entry.state)
+			if KartSolver.resolveKartKartCollisions(collisionParticipants) > 0 then
+				for _, other in entries do
+					other.forceSnapshot = true
+				end
 			end
+
 			for _, attackerState in activeStates do
 				if attackerState.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
 					if KartSolver.checkSwatterHits(attackerState, activeStates, itemWorld.elapsedTicks) > 0 then
@@ -525,12 +551,16 @@ function GreyboxKartServer.start()
 			id = TestDummyKart.DUMMY_STRING_ID,
 			pos = { dummyState.pos.x, dummyState.pos.y, dummyState.pos.z },
 			rot = { dummyState.rot.w, dummyState.rot.x, dummyState.rot.y, dummyState.rot.z },
+			linVel = { dummyState.linVel.x, dummyState.linVel.y, dummyState.linVel.z },
 			speed = dummyState.speed,
 			steer = dummyState.steer,
 			attachmentType = dummyTel.attachmentType,
 			plungerFaceTicks = dummyTel.plungerFaceTicks,
+			timedImpulseTicks = dummyState.timedImpulseTicks,
 			isSquashed = dummyTel.isSquashed,
 			rank = latestRanks[TestDummyKart.DUMMY_STRING_ID] or 1,
+			lap = dummyAI.lap,
+			trackNodeIdx = dummyAI.trackNodeIdx,
 		}
 
 		for _, entry in entries do
@@ -569,12 +599,16 @@ function GreyboxKartServer.start()
 							id = sid,
 							pos = { other.state.pos.x, other.state.pos.y, other.state.pos.z },
 							rot = { other.state.rot.w, other.state.rot.x, other.state.rot.y, other.state.rot.z },
+							linVel = { other.state.linVel.x, other.state.linVel.y, other.state.linVel.z },
 							speed = other.state.speed,
 							steer = other.state.steer,
 							attachmentType = oTel.attachmentType,
 							plungerFaceTicks = oTel.plungerFaceTicks,
+							timedImpulseTicks = other.state.timedImpulseTicks,
 							isSquashed = oTel.isSquashed,
 							rank = latestRanks[sid] or 1,
+							lap = other.progress.lap,
+							trackNodeIdx = other.progress.trackNodeIdx,
 						})
 					end
 				end

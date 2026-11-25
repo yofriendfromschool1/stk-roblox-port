@@ -180,15 +180,21 @@ end
 function MaxSpeed.update(state: MaxSpeedState, ticks: number, isOnGround: boolean)
 	-- Slowdowns: take minimum fraction (src/karts/max_speed.cpp:L306-L332, L406-L413)
 	local slowdownFactor = 1.0
-	for _, slowdown in state.decreases do
+	local toRemove: { string }? = nil
+	for cat, slowdown in state.decreases do
 		if slowdown.active then
 			if slowdown.durationTicks > -1 and ticks > 0 then
 				slowdown.durationTicks -= ticks
-				if slowdown.durationTicks < 0 then
+				if slowdown.durationTicks <= 0 then
 					slowdown.durationTicks = 0
 					slowdown.currentFraction = 1.0
 					slowdown.targetFraction = 1.0
 					slowdown.active = false
+					if toRemove == nil then
+						toRemove = { cat }
+					else
+						table.insert(toRemove :: { string }, cat)
+					end
 				end
 			end
 
@@ -209,6 +215,11 @@ function MaxSpeed.update(state: MaxSpeedState, ticks: number, isOnGround: boolea
 			if slowdown.active and slowdown.currentFraction < slowdownFactor then
 				slowdownFactor = slowdown.currentFraction
 			end
+		end
+	end
+	if toRemove ~= nil then
+		for _, cat in toRemove do
+			state.decreases[cat] = nil
 		end
 	end
 
@@ -256,6 +267,12 @@ end
 function MaxSpeed.isSpeedIncreaseActive(state: MaxSpeedState, category: SpeedIncreaseCategory): boolean
 	local entry = state.increases[category]
 	return entry ~= nil and entry.active and entry.durationTicks > -entry.fadeOutTicks
+end
+
+-- Ported from Kart::isSquashed / MaxSpeed::isSpeedDecreaseActive (src/karts/kart.cpp:L1937-L1941).
+function MaxSpeed.isSpeedDecreaseActive(state: MaxSpeedState, category: SpeedDecreaseCategory): boolean
+	local entry = state.decreases[category]
+	return entry ~= nil and entry.active
 end
 
 function MaxSpeed.instantSpeedIncrease(
