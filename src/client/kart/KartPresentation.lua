@@ -10,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
+local ItemTuning = require(Shared.ItemTuning)
 local KartTuning = require(Shared.KartTuning)
 local KartVisualMath = require(Shared.kart.KartVisualMath)
 local TuxBoundsData = require(Shared.kart.TuxBoundsData)
@@ -28,11 +29,18 @@ export type WheelVisual = {
 	spinRad: number,
 }
 
+export type AttachmentVisual = {
+	part: MeshPart,
+	localCf: CFrame,
+	activeTransparency: number,
+}
+
 export type VisualKart = {
 	model: Model,
 	isTexturedMesh: boolean,
 	staticParts: { StaticSubpart },
 	wheels: { WheelVisual }, -- 1: FL, 2: FR, 3: RL, 4: RR
+	attachments: { [number]: AttachmentVisual },
 	sparkLeft: Part,
 	sparkRight: Part,
 	sparkLocalLeftCf: CFrame,
@@ -428,6 +436,58 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 	local sparkLeft, sparkRight, sparkLocalLeftCf, sparkLocalRightCf, skidEmitterL, skidEmitterR, exhaustLeft, exhaustRight, exhaustLocalLeftCf, exhaustLocalRightCf, nitroEmitterL, nitroEmitterR, nitroLight =
 		attachVfx(model, profile)
 
+	local attachmentDefs = {
+		{ atype = ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD, itemId = "bubblegum_shield", trans = 0.45 },
+		{ atype = ItemTuning.ATTACHMENT_PARACHUTE, itemId = "parachute", trans = 0.0 },
+		{ atype = ItemTuning.ATTACHMENT_ANVIL, itemId = "anchor", trans = 0.0 },
+		{ atype = ItemTuning.ATTACHMENT_BOMB, itemId = "bomb", trans = 0.0 },
+	}
+	local attachments: { [number]: AttachmentVisual } = {}
+	local assetsRoot = ReplicatedStorage:FindFirstChild("Assets")
+	local itemsAssets = if assetsRoot then assetsRoot:FindFirstChild("Items") else nil
+	if itemsAssets then
+		for _, def in attachmentDefs do
+			local tmpl = itemsAssets:FindFirstChild(def.itemId)
+			if tmpl and tmpl:IsA("Model") and tmpl:GetAttribute("HasUploadedMeshes") == true then
+				local srcMp = tmpl:FindFirstChildWhichIsA("MeshPart")
+				if srcMp and srcMp.MeshId ~= "" then
+					local mp = srcMp:Clone()
+					mp.Name = "Attach_" .. def.itemId
+					mp.Anchored = true
+					mp.CanCollide = false
+					mp.CanTouch = false
+					mp.CanQuery = false
+					mp.Massless = true
+					mp.Transparency = 1.0
+					local orient = if mp:GetAttribute("ImportFlipY180") == true then FLIP_Y180_CF else CFrame.identity
+					local localCf: CFrame
+					if def.atype == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD then
+						-- attachment.cpp:L614-L615 scale = max(1.0, kart.highestPoint * 1.1)
+						local shieldScale = math.max(1.0, profile.collisionHeight * 1.1)
+						mp.Size = mp.Size * shieldScale
+						localCf = CFrame.new(0, 0.35, 0) * orient
+					else
+						local lx = mp:GetAttribute("LocalPosX")
+						local ly = mp:GetAttribute("LocalPosY")
+						local lz = mp:GetAttribute("LocalPosZ")
+						local pos = if type(lx) == "number"
+								and type(ly) == "number"
+								and type(lz) == "number"
+							then Vector3.new(lx, ly, lz)
+							else mp.Position
+						localCf = CFrame.new(pos) * orient
+					end
+					mp.Parent = model
+					attachments[def.atype] = {
+						part = mp,
+						localCf = localCf,
+						activeTransparency = def.trans,
+					}
+				end
+			end
+		end
+	end
+
 	model.Parent = folder
 
 	return {
@@ -435,6 +495,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 		isTexturedMesh = isTexturedMesh,
 		staticParts = staticParts,
 		wheels = wheels,
+		attachments = attachments,
 		sparkLeft = sparkLeft,
 		sparkRight = sparkRight,
 		sparkLocalLeftCf = sparkLocalLeftCf,
@@ -460,7 +521,8 @@ function KartPresentation.update(
 	wheelSuspensions: { number },
 	skidTier: number,
 	skidState: string,
-	nitroActive: boolean
+	nitroActive: boolean,
+	attachmentType: number?
 )
 	local groundOffsetY = Units.metersToStuds(KartVisualMath.computeBodyGroundOffsetY())
 	local kartOriginCf = bodyCFrame * CFrame.new(0, groundOffsetY, 0)
@@ -508,6 +570,17 @@ function KartPresentation.update(
 	visuals.nitroEmitterL.Enabled = nitroActive
 	visuals.nitroEmitterR.Enabled = nitroActive
 	visuals.nitroLight.Enabled = nitroActive
+
+	-- Active kart attachment visual mesh (attachment.cpp:L570-L635)
+	local activeAttach = attachmentType or ItemTuning.ATTACHMENT_NONE
+	for atype, att in visuals.attachments do
+		if atype == activeAttach then
+			att.part.CFrame = kartOriginCf * att.localCf
+			att.part.Transparency = att.activeTransparency
+		else
+			att.part.Transparency = 1.0
+		end
+	end
 end
 
 return table.freeze(KartPresentation)

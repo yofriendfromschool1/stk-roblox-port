@@ -41,7 +41,8 @@ export type ItemPickupEvent = {
 	isNitro: boolean,
 	nitroAmount: number,
 	isBonusBox: boolean,
-	isHazard: boolean,
+	isBanana: boolean,
+	isBubblegum: boolean,
 }
 
 export type NetTrackCooldown = {
@@ -172,9 +173,15 @@ function ItemWorld.addTrackItem(world: ItemWorldState, id: number, itemType: Ite
 	return entry
 end
 
--- Ported from ItemManager::dropNewItem (src/items/item_manager.cpp:L294-L334)
+-- Ported from ItemManager::dropNewItem (src/items/item_manager.cpp:L281-L335)
 -- & ItemState::ItemState owner immunity (src/items/item.cpp:L61-L62: 1.5s = 180 ticks).
-function ItemWorld.dropBanana(world: ItemWorldState, stkPos: Math3D.Vec3, ownerId: number?, worldQuery: any?): ItemEntry
+function ItemWorld.dropNewItem(
+	world: ItemWorldState,
+	itemType: ItemType,
+	stkPos: Math3D.Vec3,
+	ownerId: number?,
+	worldQuery: any?
+): ItemEntry
 	local dropPos = cloneVec3(stkPos)
 	if worldQuery ~= nil and type(worldQuery.raycast) == "function" then
 		local rayOrigin: Math3D.Vec3 = {
@@ -185,10 +192,10 @@ function ItemWorld.dropBanana(world: ItemWorldState, stkPos: Math3D.Vec3, ownerI
 		local hit = worldQuery.raycast(rayOrigin, { x = 0, y = -1, z = 0 }, ItemTuning.geometry.DROP_RAY_MAX_DIST)
 		if hit ~= nil and hit.materialName ~= "oasis-water.png" then
 			local n = hit.normal or { x = 0, y = 1, z = 0 }
-			-- STK places at hit_point + normal * -0.05 (item_manager.cpp:L306); raise slightly so sphere stays visible on floor
+			-- STK ItemManager::dropNewItem places at hit_point + up * -0.05 (item_manager.cpp:L306)
 			dropPos = {
 				x = hit.point.x + n.x * ItemTuning.geometry.DROP_OFFSET_NORMAL,
-				y = hit.point.y + n.y * 0.30,
+				y = hit.point.y + n.y * ItemTuning.geometry.DROP_OFFSET_NORMAL,
 				z = hit.point.z + n.z * ItemTuning.geometry.DROP_OFFSET_NORMAL,
 			}
 		end
@@ -198,19 +205,33 @@ function ItemWorld.dropBanana(world: ItemWorldState, stkPos: Math3D.Vec3, ownerI
 	world.nextDynamicId += 1
 	local resolvedOwner = ownerId or 0
 	local deactiveTicks = if resolvedOwner ~= 0 then FixedStep.timeToTicks(ItemTuning.timing.OWNER_DEACTIVE_SEC) else 0
+	local disappearCounter = if itemType == "bubblegum" then ItemTuning.bubblegum.DISAPPEAR_COUNTER else -1
 
 	local entry: ItemEntry = {
 		id = id,
-		itemType = "banana",
+		itemType = itemType,
 		pos = dropPos,
 		ticksTillReturn = 0,
 		deactiveTicks = deactiveTicks,
-		disappearCounter = ItemTuning.timing.BUBBLEGUM_DISAPPEAR_COUNTER,
+		disappearCounter = disappearCounter,
 		ownerId = resolvedOwner,
 		original = false,
 	}
 	table.insert(world.items, entry)
 	return entry
+end
+
+function ItemWorld.dropBubblegum(
+	world: ItemWorldState,
+	stkPos: Math3D.Vec3,
+	ownerId: number?,
+	worldQuery: any?
+): ItemEntry
+	return ItemWorld.dropNewItem(world, "bubblegum", stkPos, ownerId, worldQuery)
+end
+
+function ItemWorld.dropBanana(world: ItemWorldState, stkPos: Math3D.Vec3, ownerId: number?, worldQuery: any?): ItemEntry
+	return ItemWorld.dropNewItem(world, "banana", stkPos, ownerId, worldQuery)
 end
 
 -- Ported from ItemManager::update + ItemState::update (item_manager.cpp:L479-L507, item.cpp:L185-L212).
@@ -238,18 +259,23 @@ function ItemWorld.checkHits(
 	kartPos: Math3D.Vec3,
 	kartId: number?,
 	nitroSmallAmount: number?,
-	nitroBigAmount: number?
+	nitroBigAmount: number?,
+	isShielded: boolean?
 ): { ItemPickupEvent }
 	local events: { ItemPickupEvent } = {}
 	local resolvedKartId = kartId or 1
 	local smallAmt = nitroSmallAmount or KartTuning.nitro.smallContainer
 	local bigAmt = nitroBigAmount or KartTuning.nitro.bigContainer
 	local maxD2 = ItemTuning.geometry.DISTANCE_SQUARED
+	local shielded = (isShielded == true)
 
 	local idx = 1
 	while idx <= #world.items do
 		local entry = world.items[idx]
-		local skip = entry.ticksTillReturn > 0
+		-- Shielded karts drive over floor bubblegum without triggering or popping shield (item_manager.cpp:L412-L418)
+		local shieldBypassBubblegum = shielded and entry.itemType == "bubblegum"
+		local skip = shieldBypassBubblegum
+			or entry.ticksTillReturn > 0
 			or (entry.deactiveTicks > 0 and (entry.ownerId == 0 or entry.ownerId == resolvedKartId))
 
 		if not skip then
@@ -276,7 +302,8 @@ function ItemWorld.checkHits(
 					elseif entry.itemType == "small-nitro" then smallAmt
 					else 0
 				local isBonusBox = (entry.itemType == "item")
-				local isHazard = (entry.itemType == "banana" or entry.itemType == "bubblegum")
+				local isBanana = (entry.itemType == "banana")
+				local isBubblegum = (entry.itemType == "bubblegum")
 
 				table.insert(events, {
 					id = entry.id,
@@ -284,7 +311,8 @@ function ItemWorld.checkHits(
 					isNitro = isNitro,
 					nitroAmount = nitroAmount,
 					isBonusBox = isBonusBox,
-					isHazard = isHazard,
+					isBanana = isBanana,
+					isBubblegum = isBubblegum,
 				})
 
 				if removed then

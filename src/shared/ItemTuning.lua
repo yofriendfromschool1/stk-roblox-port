@@ -87,15 +87,58 @@ ItemTuning.geometry = table.freeze({
 	BANANA_DROP_CLEARANCE = 0.20,
 })
 
--- Slice 1 banana contact effect using existing MaxSpeed SQUASH tuning (data/powerup.xml:L88,
--- data/kart_characteristics.xml:L260-L261) + short upward/yaw knockback impulse.
-ItemTuning.banana = table.freeze({
-	SQUASH_SLOWDOWN = 0.5,
-	SQUASH_DURATION_SEC = 2.0,
-	SQUASH_FADE_IN_SEC = 0.1,
-	KNOCKBACK_UP_VEL = 3.5,
-	KNOCKBACK_YAW_RATE = 4.0,
-	KNOCKBACK_YAW_TICKS = 30,
+-- AttachmentType enum matching src/items/attachment.hpp (subset ported in Slice 1/2)
+ItemTuning.ATTACHMENT_NONE = 0
+ItemTuning.ATTACHMENT_PARACHUTE = 1
+ItemTuning.ATTACHMENT_ANVIL = 2
+ItemTuning.ATTACHMENT_BOMB = 3
+ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD = 4
+
+ItemTuning.ATTACHMENT_NAMES = table.freeze({
+	[0] = "NONE",
+	[1] = "PARACHUTE",
+	[2] = "ANVIL",
+	[3] = "BOMB",
+	[4] = "BUBBLEGUM_SHIELD",
+})
+
+-- Floor bubblegum & shield constants (data/kart_characteristics.xml:L238-L239, data/stk_config.xml:L248)
+ItemTuning.bubblegum = table.freeze({
+	DURATION_SEC = 1.0, -- data/kart_characteristics.xml:L238 duration="1"
+	SPEED_FRACTION = 0.3, -- data/kart_characteristics.xml:L238 speed-fraction="0.3"
+	TORQUE = 500.0, -- data/kart_characteristics.xml:L238 torque="500"
+	FADE_IN_SEC = 0.01, -- data/kart_characteristics.xml:L238 fade-in-time="0.01"
+	SHIELD_DURATION_SEC = 10.0, -- data/kart_characteristics.xml:L239 shield-duration="10.0" / stk_config.xml:L248
+	DISAPPEAR_COUNTER = 1, -- data/stk_config.xml:L248 disappear-counter="1"
+	RESTRICT_WEAPONS = false, -- data/stk_config.xml:L248 restrict-weapons="false"
+})
+
+-- Banana-triggered attachment constants (data/kart_characteristics.xml:L211, L229-L231, L301, stk_config.xml:L221)
+ItemTuning.parachute = table.freeze({
+	FRICTION = 5.0, -- data/kart_characteristics.xml:L229 friction="5.0"
+	DURATION_SEC = 3.0, -- data/kart_characteristics.xml:L229 duration="3"
+	LBOUND_FRACTION = 0.5, -- data/kart_characteristics.xml:L231 lbound-fraction="0.5"
+	UBOUND_FRACTION = 0.3, -- data/kart_characteristics.xml:L231 ubound-fraction="0.3"
+	MAX_SPEED = 30.0, -- data/kart_characteristics.xml:L231 max-speed="30"
+})
+
+ItemTuning.anvil = table.freeze({
+	DURATION_SEC = 2.0, -- data/kart_characteristics.xml:L211 duration="2.0"
+	WEIGHT_KG = 150.0, -- data/kart_characteristics.xml:L211 weight="150"
+	SPEED_FACTOR = 0.2, -- data/kart_characteristics.xml:L211 speed-factor="0.2"
+})
+
+ItemTuning.bomb = table.freeze({
+	DURATION_SEC = 30.0, -- data/stk_config.xml:L221 time="30.0"
+	EXPLOSION_DURATION_SEC = 1.5, -- data/kart_characteristics.xml:L301 duration="1.5"
+	EXPLOSION_UP_VEL = 4.5, -- explosion bounce impulse on bomb detonation
+})
+
+-- Deprecated alias preserved only for squash constants referenced by rubber-ball/swatter tuning
+ItemTuning.rubberBall = table.freeze({
+	SQUASH_SLOWDOWN = 0.5, -- data/powerup.xml:L88 squash-slowdown="0.5"
+	SQUASH_DURATION_SEC = 2.0, -- data/powerup.xml:L88 squash-duration="2"
+	SQUASH_FADE_IN_SEC = 0.1, -- src/karts/kart.cpp:L1879 time2Ticks(0.1f)
 })
 
 -- StandardRace::haveBonusBoxes (src/modes/standard_race.cpp:L64-L68) and

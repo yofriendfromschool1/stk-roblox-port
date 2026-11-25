@@ -240,7 +240,10 @@ end
 
 local function sanitizeInput(raw: any): (KartSolver.KartInput, number, boolean, boolean)
 	if type(raw) ~= "table" then
-		return { accel = 0, brake = false, steer = 0, drift = false, nitro = false, fire = false }, 0, false, false
+		return { accel = 0, brake = false, steer = 0, drift = false, nitro = false, fire = false, lookBack = false },
+			0,
+			false,
+			false
 	end
 	local seq = if type(raw.seq) == "number" and raw.seq == raw.seq then math.floor(raw.seq) else 0
 	local accel = if type(raw.accel) == "number" and raw.accel == raw.accel then math.clamp(raw.accel, 0, 1) else 0
@@ -249,6 +252,7 @@ local function sanitizeInput(raw: any): (KartSolver.KartInput, number, boolean, 
 	local drift = raw.drift == true
 	local nitro = raw.nitro == true
 	local fire = raw.fire == true
+	local lookBack = raw.lookBack == true
 	local reset = raw.reset == true
 	local grantNitro = raw.debugGrantNitro == true
 	return {
@@ -258,6 +262,7 @@ local function sanitizeInput(raw: any): (KartSolver.KartInput, number, boolean, 
 		drift = drift,
 		nitro = nitro,
 		fire = fire,
+		lookBack = lookBack,
 	},
 		seq,
 		reset,
@@ -328,7 +333,15 @@ function GreyboxKartServer.start()
 		entries[player] = {
 			player = player,
 			state = state,
-			input = { accel = 0, brake = false, steer = 0, drift = false, nitro = false, fire = false },
+			input = {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				nitro = false,
+				fire = false,
+				lookBack = false,
+			},
 			lastInputSeq = 0,
 			resetSeq = 1,
 			resetRequested = false,

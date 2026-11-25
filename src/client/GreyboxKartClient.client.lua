@@ -263,6 +263,7 @@ local function sampleInput(): (KartSolver.KartInput, boolean, boolean, boolean)
 		drift = drift,
 		nitro = nitro,
 		fire = fire,
+		lookBack = lookBack,
 	},
 		reset,
 		grantNitro,
@@ -425,6 +426,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 						drift = solverInput.drift,
 						nitro = solverInput.nitro,
 						fire = solverInput.fire,
+						lookBack = solverInput.lookBack,
 					},
 				})
 				if #inputHistory > MAX_INPUT_HISTORY then
@@ -448,6 +450,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		or solverInput.drift ~= lastSent.drift
 		or solverInput.nitro ~= lastSent.nitro
 		or (solverInput.fire == true) ~= (lastSent.fire == true)
+		or (solverInput.lookBack == true) ~= (lastSent.lookBack == true)
 		or wantsReset
 		or wantsGrantNitro
 
@@ -460,6 +463,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			drift = solverInput.drift,
 			nitro = solverInput.nitro == true,
 			fire = solverInput.fire == true,
+			lookBack = solverInput.lookBack == true,
 			reset = wantsReset,
 			debugGrantNitro = wantsGrantNitro,
 		}
@@ -505,7 +509,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		wheelSuspensions,
 		tel.skidTier,
 		tel.skidState,
-		tel.nitroActive
+		tel.nitroActive,
+		tel.attachmentType
 	)
 	debug.profileend()
 
@@ -642,16 +647,23 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	end
 
 	local powerupName = ItemTuning.POWERUP_NAMES[localState.heldPowerup] or "NONE"
-	local squashEntry = localState.maxSpeedState.decreases["SQUASH"]
-	local squashTag = if squashEntry ~= nil then " [SQUASH]" else ""
+	local statusTags = ""
+	if tel.attachmentType ~= ItemTuning.ATTACHMENT_NONE then
+		local attName = ItemTuning.ATTACHMENT_NAMES[tel.attachmentType] or "ATTACH"
+		statusTags ..= string.format(" [%s %.1fs]", attName, FixedStep.ticksToTime(tel.attachmentTicksLeft))
+	end
+	if tel.bubblegumTicks > 0 then
+		statusTags ..= string.format(" [BUBBLE %.1fs]", FixedStep.ticksToTime(tel.bubblegumTicks))
+	end
+	if localState.maxSpeedState.decreases["SQUASH"] ~= nil then
+		statusTags ..= " [SQUASH]"
+	end
 	if localState.heldPowerupCount > 0 then
-		hud.item.Text = string.format("ITEM:  %s x%d%s", powerupName, localState.heldPowerupCount, squashTag)
+		hud.item.Text = string.format("ITEM:  %s x%d%s", powerupName, localState.heldPowerupCount, statusTags)
 		hud.item.TextColor3 = Color3.fromRGB(255, 225, 115)
 	else
-		hud.item.Text = string.format("ITEM:  NONE%s", squashTag)
-		hud.item.TextColor3 = if squashEntry ~= nil
-			then Color3.fromRGB(255, 120, 100)
-			else Color3.fromRGB(150, 158, 172)
+		hud.item.Text = string.format("ITEM:  NONE%s", statusTags)
+		hud.item.TextColor3 = if statusTags ~= "" then Color3.fromRGB(255, 145, 220) else Color3.fromRGB(150, 158, 172)
 	end
 
 	local notice = if now < resetNoticeExpirySec then resetNoticeText else ""

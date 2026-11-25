@@ -15,6 +15,7 @@ export type ClientInputPacket = {
 	drift: boolean,
 	nitro: boolean,
 	fire: boolean?,
+	lookBack: boolean?,
 	reset: boolean,
 	debugGrantNitro: boolean,
 }
@@ -135,6 +136,15 @@ function GreyboxProtocol.packSnapshot(
 		ns.squashTargetFraction or 1.0,
 		ns.squashFadeTicks or 0,
 		ns.squashDurationTicks or 0,
+		ns.attachmentType or 0,
+		ns.attachmentTicksLeft or 0,
+		ns.attachmentInitialSpeed or 0.0,
+		ns.bubblegumTicks or 0,
+		if ns.bubblegumTorqueSign then 1 else 0,
+		ns.bubbleFraction or 1.0,
+		ns.bubbleTargetFraction or 1.0,
+		ns.bubbleFadeTicks or 0,
+		ns.bubbleDurationTicks or 0,
 	}
 
 	local incs: { { number } }? = nil
@@ -186,7 +196,7 @@ function GreyboxProtocol.packSnapshot(
 end
 
 function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: any, rawItems: any): TelemetryPacket?
-	if type(rawNums) ~= "table" or #rawNums < 49 then
+	if type(rawNums) ~= "table" or #rawNums < 58 then
 		return nil
 	end
 	local nums = rawNums :: { number }
@@ -283,6 +293,15 @@ function GreyboxProtocol.unpackSnapshot(rawNums: any, rawIncs: any, rawNotice: a
 		squashTargetFraction = nums[47],
 		squashFadeTicks = nums[48],
 		squashDurationTicks = nums[49],
+		attachmentType = nums[50],
+		attachmentTicksLeft = nums[51],
+		attachmentInitialSpeed = nums[52],
+		bubblegumTicks = nums[53],
+		bubblegumTorqueSign = nums[54] == 1,
+		bubbleFraction = nums[55],
+		bubbleTargetFraction = nums[56],
+		bubbleFadeTicks = nums[57],
+		bubbleDurationTicks = nums[58],
 		increases = increases,
 		itemWorldSnapshot = itemWorldSnapshot,
 	}

@@ -219,81 +219,211 @@ return {
 		end,
 	},
 	{
-		name = "PA_FIRE drops banana behind kart with 1.5s owner immunity & triggers SQUASH on hit",
+		name = "Bubblegum forward activates 10s shield, absorbs 1 hit -> drops floor gum; expiry also drops gum",
 		fn = function()
 			local world = makeFlatPlaneWorld(0.0)
 			local profile = KartTuning.buildProfile("medium", "best")
-			local state = KartSolver.createState(profile, { x = 0, y = 0.35, z = 0 }, 0)
+			local state = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
 			local itemWorld = ItemWorld.createEmpty("NORMAL_RACE")
-			KartSolver.setPowerup(state, ItemTuning.POWERUP_BOWLING, 1)
+			KartSolver.setPowerup(state, ItemTuning.POWERUP_BUBBLEGUM, 1)
 
-			-- Press PA_FIRE while grounded
+			-- Forward PA_FIRE -> activates 1200-tick (10.0s) bubblegum shield
 			KartSolver.stepWithItems(state, {
 				accel = 0,
 				brake = false,
 				steer = 0,
 				drift = false,
 				fire = true,
+				lookBack = false,
 			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 7 })
 
-			assertEqual(state.heldPowerupCount, 0, "PA_FIRE consumes held powerup")
-			assertEqual(state.heldPowerup, ItemTuning.POWERUP_NONE, "powerup cleared at 0 charges")
-			assertEqual(#itemWorld.items, 1, "one dropped banana exists")
-			local banana = itemWorld.items[1]
-			assertEqual(banana.itemType, "banana", "dropped item is banana")
-			local expectedZ = -(0.5 * profile.length + ItemTuning.geometry.BANANA_DROP_CLEARANCE)
-			assertNear(banana.pos.z, expectedZ, 0.05, "dropped behind rear bumper")
-			assertEqual(banana.deactiveTicks, 180, "owner immunity is 180 ticks (1.5s)")
+			assertEqual(state.heldPowerupCount, 0, "PA_FIRE consumes bubblegum")
+			assertEqual(KartSolver.isShielded(state), true, "shield active")
+			assertEqual(state.attachmentType, ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD, "attachment is shield")
+			assertEqual(state.attachmentTicksLeft, 1200, "shield duration is 1200 ticks (10.0s)")
+			assertEqual(#itemWorld.items, 0, "no floor gum dropped on shield activation")
 
-			-- Another kart (kartId=8) immediately hitting the banana gets hit right away
-			local otherKart = KartSolver.createState(profile, { x = banana.pos.x, y = 0.35, z = banana.pos.z }, 0)
-			local otherHits = KartSolver.stepWithItems(otherKart, {
+			-- Absorb one banana hit -> pops shield & drops ITEM_BUBBLEGUM at kart ground pos (NOT banana!)
+			ItemWorld.addTrackItem(itemWorld, 1, "banana", { x = 5.0, y = 0.0, z = 5.0 })
+			state.pos = { x = 5.0, y = 0.291, z = 5.0 }
+			KartSolver.stepWithItems(state, {
 				accel = 0,
 				brake = false,
 				steer = 0,
 				drift = false,
-			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 8, advanceItemWorld = false })
-			assertEqual(#otherHits, 1, "other kart triggers banana without owner immunity")
-			assertEqual(#itemWorld.items, 0, "consumed dropped banana disappears")
-			assertEqual(otherKart.maxSpeedState.decreases["SQUASH"] ~= nil, true, "SQUASH slowdown active")
-			assertNear(otherKart.linVel.y, ItemTuning.banana.KNOCKBACK_UP_VEL, 0.15, "banana upward knockback")
-			assertNear(otherKart.timedRotationRate, ItemTuning.banana.KNOCKBACK_YAW_RATE, 1e-6, "banana yaw rate")
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 7 })
 
-			-- Now verify owner immunity blocks hits for 179 ticks then hits on tick 180
-			local itemWorld2 = ItemWorld.createEmpty("NORMAL_RACE")
-			local dropped = ItemWorld.dropBanana(itemWorld2, { x = 0, y = 0.3, z = 0 }, 7, world)
-			assertEqual(dropped.deactiveTicks, 180)
-			for _ = 1, 179 do
-				ItemWorld.tick(itemWorld2)
-				local immuneHits = ItemWorld.checkHits(itemWorld2, { x = 0, y = 0.3, z = 0 }, 7)
-				assertEqual(#immuneHits, 0, "owner immune during first 179 ticks")
+			assertEqual(KartSolver.isShielded(state), false, "banana hit popped shield")
+			assertEqual(state.attachmentType, ItemTuning.ATTACHMENT_NONE, "attachment cleared after shield drop")
+			assertEqual(#itemWorld.items, 2, "banana remains (respawning) + dropped bubblegum created")
+			local dropped = itemWorld.items[2]
+			assertEqual(dropped.itemType, "bubblegum", "popped shield drops ITEM_BUBBLEGUM, NOT banana")
+			assertEqual(dropped.deactiveTicks, 180, "dropped gum has 180-tick (1.5s) owner immunity")
+
+			-- Projectile/squash absorb helper + natural 1200-tick expiry also drops ITEM_BUBBLEGUM
+			local sExpire = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local iwExpire = ItemWorld.createEmpty("NORMAL_RACE")
+			KartSolver.setPowerup(sExpire, ItemTuning.POWERUP_BUBBLEGUM, 1)
+			KartSolver.stepWithItems(sExpire, {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				fire = true,
+			}, world, FixedStep.FIXED_DT, iwExpire, { isServer = true, kartId = 9 })
+			for _ = 1, 1199 do
+				KartSolver.stepWithItems(sExpire, {
+					accel = 0,
+					brake = false,
+					steer = 0,
+					drift = false,
+				}, world, FixedStep.FIXED_DT, iwExpire, { isServer = true, kartId = 9 })
+				assertEqual(KartSolver.isShielded(sExpire), true, "shield stays up through tick 1199")
 			end
-			ItemWorld.tick(itemWorld2)
-			local postImmuneHits = ItemWorld.checkHits(itemWorld2, { x = 0, y = 0.3, z = 0 }, 7)
-			assertEqual(#postImmuneHits, 1, "owner vulnerable at tick 180")
+			-- Tick 1200 hits 0 -> expires & drops floor gum
+			KartSolver.stepWithItems(sExpire, {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+			}, world, FixedStep.FIXED_DT, iwExpire, { isServer = true, kartId = 9 })
+			assertEqual(KartSolver.isShielded(sExpire), false, "shield expires at 1200 ticks")
+			assertEqual(#iwExpire.items, 1, "expired shield drops 1 item")
+			assertEqual(iwExpire.items[1].itemType, "bubblegum", "expired shield drops bubblegum")
+
+			-- Projectile absorb check via applySquashHit
+			local sProj = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local iwProj = ItemWorld.createEmpty("NORMAL_RACE")
+			KartSolver.setPowerup(sProj, ItemTuning.POWERUP_BUBBLEGUM, 1)
+			KartSolver.stepWithItems(sProj, {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				fire = true,
+			}, world, FixedStep.FIXED_DT, iwProj, { isServer = true, kartId = 3 })
+			local squashed = KartSolver.applySquashHit(sProj)
+			assertEqual(squashed, false, "shield absorbs incoming squash/projectile hit")
+			KartSolver.stepWithItems(sProj, {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+			}, world, FixedStep.FIXED_DT, iwProj, { isServer = true, kartId = 3 })
+			assertEqual(KartSolver.isShielded(sProj), false, "shield cleared after projectile absorb")
+			assertEqual(#iwProj.items, 1, "projectile-popped shield drops bubblegum")
+			assertEqual(iwProj.items[1].itemType, "bubblegum", "dropped item is bubblegum")
 		end,
 	},
 	{
-		name = "Deterministic net snapshot & unacknowledged input replay across nitro, box pickup, & banana drop",
+		name = "Look-back + PA_FIRE drops floor bubblegum (180t owner immunity), and shield ignores floor gum",
+		fn = function()
+			local world = makeFlatPlaneWorld(0.0)
+			local profile = KartTuning.buildProfile("medium", "best")
+			local state = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local itemWorld = ItemWorld.createEmpty("NORMAL_RACE")
+			KartSolver.setPowerup(state, ItemTuning.POWERUP_BUBBLEGUM, 1)
+
+			-- Hold lookBack + PA_FIRE -> drops ITEM_BUBBLEGUM directly without activating shield
+			KartSolver.stepWithItems(state, {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				fire = true,
+				lookBack = true,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 7 })
+
+			assertEqual(KartSolver.isShielded(state), false, "look-back drop must not activate shield")
+			assertEqual(#itemWorld.items, 1, "one dropped bubblegum created")
+			local gum = itemWorld.items[1]
+			assertEqual(gum.itemType, "bubblegum", "dropped item is bubblegum")
+			assertEqual(gum.deactiveTicks, 180, "owner immunity is 180 ticks (1.5s)")
+
+			-- Shielded kart drives over the floor bubblegum -> ignores it completely!
+			local shieldedKart = KartSolver.createState(profile, { x = gum.pos.x, y = 0.291, z = gum.pos.z }, 0)
+			shieldedKart.attachmentType = ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD
+			shieldedKart.attachmentTicksLeft = 600
+			gum.deactiveTicks = 0
+			local shieldHits = KartSolver.stepWithItems(shieldedKart, {
+				accel = 1.0,
+				brake = false,
+				steer = 0,
+				drift = false,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 8, advanceItemWorld = false })
+			assertEqual(#shieldHits, 0, "shielded kart bypasses floor gum")
+			assertEqual(#itemWorld.items, 1, "floor gum stays on track after shielded kart passes")
+			assertEqual(KartSolver.isShielded(shieldedKart), true, "floor gum does NOT pop shield")
+			assertEqual(shieldedKart.bubblegumTicks, 0, "shielded kart receives zero bubblegum ticks")
+
+			-- Unshielded kart drives over floor gum -> 1.0s (120t) BUBBLE 0.3x slowdown, engine cut, disappearCounter=0
+			local unshielded = KartSolver.createState(profile, { x = gum.pos.x, y = 0.291, z = gum.pos.z }, 0)
+			unshielded.linVel = { x = 0, y = 0, z = 20.0 }
+			unshielded.speed = 20.0
+			local hits = KartSolver.stepWithItems(unshielded, {
+				accel = 1.0,
+				brake = false,
+				steer = 0,
+				drift = false,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 9, advanceItemWorld = false })
+			assertEqual(#hits, 1, "unshielded kart collects floor gum")
+			assertEqual(hits[1].isBubblegum, true, "event flagged isBubblegum")
+			assertEqual(hits[1].isBanana, false, "event is NOT banana")
+			assertEqual(#itemWorld.items, 0, "disappear-counter=1 removes floor gum")
+			assert(unshielded.bubblegumTicks >= 119, "bubblegumTicks ~120 (1.0s)")
+			local bubble = unshielded.maxSpeedState.decreases["BUBBLE"]
+			assert(bubble ~= nil, "BUBBLE slowdown active")
+			assertNear((bubble :: any).targetFraction, 0.3, 1e-6, "BUBBLE slows to 0.3x")
+			assertEqual(unshielded.maxSpeedState.decreases["SQUASH"], nil, "floor gum does NOT set SQUASH")
+		end,
+	},
+	{
+		name = "Banana hit attaches PARACHUTE / ANVIL / BOMB per upstream STK mod-3 table (no squash)",
+		fn = function()
+			local profile = KartTuning.buildProfile("medium", "best")
+			-- Slot 0 (ticks=0..15): PARACHUTE (360 ticks = 3.0s, 5x air drag)
+			local sPara = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			sPara.speed = 20.0
+			KartSolver.applyBananaHit(sPara, 0, false)
+			assertEqual(sPara.attachmentType, ItemTuning.ATTACHMENT_PARACHUTE, "slot 0 -> PARACHUTE")
+			assertEqual(sPara.attachmentTicksLeft, 360, "parachute 360 ticks")
+			assertEqual(sPara.maxSpeedState.decreases["SQUASH"], nil, "banana never sets SQUASH")
+
+			-- Slot 1 (ticks=16..31): ANVIL (240 ticks = 2.0s, 0.2x speed factor, +150 kg)
+			local sAnvil = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			sAnvil.linVel = { x = 0, y = 0, z = 20.0 }
+			sAnvil.speed = 20.0
+			KartSolver.applyBananaHit(sAnvil, 16, false)
+			assertEqual(sAnvil.attachmentType, ItemTuning.ATTACHMENT_ANVIL, "slot 1 -> ANVIL")
+			assertEqual(sAnvil.attachmentTicksLeft, 240, "anvil 240 ticks")
+			assertNear(sAnvil.linVel.z, 4.0, 1e-5, "anvil adjusts speed immediately by 0.2x")
+
+			-- Slot 2 (ticks=32..47): BOMB (3600 ticks = 30.0s in NORMAL_RACE)
+			local sBomb = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			KartSolver.applyBananaHit(sBomb, 32, false)
+			assertEqual(sBomb.attachmentType, ItemTuning.ATTACHMENT_BOMB, "slot 2 -> BOMB")
+			assertEqual(sBomb.attachmentTicksLeft, 3600, "bomb 3600 ticks")
+		end,
+	},
+	{
+		name = "Deterministic net snapshot & unacknowledged input replay across shield, look-back gum, and pickups",
 		fn = function()
 			local world = makeFlatPlaneWorld(0.0)
 			local profile = KartTuning.buildProfile("medium", "best")
 			local mgr = PowerupManager.new("NORMAL_RACE", 1)
 
-			-- Authoritative server setup with nitro + box + track banana
 			local srvItemWorld = ItemWorld.createEmpty("NORMAL_RACE")
-			ItemWorld.addTrackItem(srvItemWorld, 1, "small-nitro", { x = 0, y = 0.35, z = 6.0 })
-			ItemWorld.addTrackItem(srvItemWorld, 2, "item", { x = 0, y = 0.35, z = 12.0 })
-			ItemWorld.addTrackItem(srvItemWorld, 3, "big-nitro", { x = 0, y = 0.35, z = 18.0 })
+			ItemWorld.addTrackItem(srvItemWorld, 1, "small-nitro", { x = 0, y = 0.291, z = 6.0 })
+			ItemWorld.addTrackItem(srvItemWorld, 2, "item", { x = 0, y = 0.291, z = 12.0 })
+			ItemWorld.addTrackItem(srvItemWorld, 3, "big-nitro", { x = 0, y = 0.291, z = 18.0 })
 
-			-- Client mirrors exact initial arena track items
 			local cliItemWorld = ItemWorld.createEmpty("NORMAL_RACE")
-			ItemWorld.addTrackItem(cliItemWorld, 1, "small-nitro", { x = 0, y = 0.35, z = 6.0 })
-			ItemWorld.addTrackItem(cliItemWorld, 2, "item", { x = 0, y = 0.35, z = 12.0 })
-			ItemWorld.addTrackItem(cliItemWorld, 3, "big-nitro", { x = 0, y = 0.35, z = 18.0 })
+			ItemWorld.addTrackItem(cliItemWorld, 1, "small-nitro", { x = 0, y = 0.291, z = 6.0 })
+			ItemWorld.addTrackItem(cliItemWorld, 2, "item", { x = 0, y = 0.291, z = 12.0 })
+			ItemWorld.addTrackItem(cliItemWorld, 3, "big-nitro", { x = 0, y = 0.291, z = 18.0 })
 
-			local srvState = KartSolver.createState(profile, { x = 0, y = 0.35, z = 0 }, 0)
-			local cliState = KartSolver.createState(profile, { x = 0, y = 0.35, z = 0 }, 0)
+			local srvState = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local cliState = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
 
 			local history: { { seq: number, input: KartSolver.KartInput } } = {}
 			local ackSeq = 0
@@ -303,7 +433,7 @@ return {
 			local ackItems: any = nil
 
 			local totalTicks = 240
-			local ackAtTick = 170 -- after nitro #1 and box #2 have been collected on server
+			local ackAtTick = 170
 			for tick = 1, totalTicks do
 				local input: KartSolver.KartInput = {
 					accel = 1.0,
@@ -311,15 +441,17 @@ return {
 					steer = 0.0,
 					drift = false,
 					nitro = false,
-					fire = (tick == 195), -- unacknowledged PA_FIRE after ackAtTick
+					fire = (tick == 195),
+					lookBack = (tick == 195), -- unacknowledged look-back + PA_FIRE drops floor bubblegum
 				}
 				table.insert(history, { seq = tick, input = input })
 
 				KartSolver.stepWithItems(srvState, input, world, FixedStep.FIXED_DT, srvItemWorld, {
 					isServer = true,
 					kartId = 42,
-					rollPowerup = function(_s, ev)
-						return mgr:getRandomPowerup(1, ev.id * 101 + 140, tick * FixedStep.FIXED_DT)
+					rollPowerup = function(_s, _ev)
+						-- Seed 0 in rank-1 NORMAL_RACE deterministically rolls POWERUP_BUBBLEGUM
+						return mgr:getRandomPowerup(1, 0, tick * FixedStep.FIXED_DT)
 					end,
 				})
 				KartSolver.stepWithItems(cliState, input, world, FixedStep.FIXED_DT, cliItemWorld, {
@@ -339,13 +471,10 @@ return {
 				end
 			end
 
-			-- Verify box #2 rolled BOWLING x1 on server
-			assertEqual(srvState.heldPowerup, ItemTuning.POWERUP_NONE, "server spent BOWLING on tick 195 fire")
-			assertEqual(srvState.heldPowerupCount, 0, "server count consumed on fire")
-			assertNear(srvState.nitro.energy, 4.0, 1e-6, "server collected small (+1) + big (+3) nitro")
-			assertEqual(#srvItemWorld.items, 4, "3 track items + 1 dropped banana")
+			assertEqual(srvState.heldPowerup, ItemTuning.POWERUP_NONE, "server spent BUBBLEGUM on tick 195")
+			assertEqual(#srvItemWorld.items, 4, "3 track items + 1 dropped bubblegum")
+			assertEqual(srvItemWorld.items[4].itemType, "bubblegum", "dropped item #4 is bubblegum")
 
-			-- Reconcile client from ackAtTick snapshot and replay ticks 171..240
 			local packet = GreyboxProtocol.unpackSnapshot(ackNums, ackIncs, ackNotice, ackItems)
 			assertEqual(packet ~= nil, true, "snapshot unpacked")
 			local pkt = packet :: GreyboxProtocol.TelemetryPacket
@@ -359,17 +488,17 @@ return {
 				end
 			end
 
-			-- Exact parity between client replay & authoritative server after reconciliation
 			assertNear(cliState.pos.x, srvState.pos.x, 1e-6, "reconciled pos.x")
 			assertNear(cliState.pos.y, srvState.pos.y, 1e-6, "reconciled pos.y")
 			assertNear(cliState.pos.z, srvState.pos.z, 1e-6, "reconciled pos.z")
 			assertNear(cliState.nitro.energy, srvState.nitro.energy, 1e-6, "reconciled nitro")
-			assertEqual(cliState.heldPowerup, srvState.heldPowerup, "reconciled heldPowerup")
-			assertEqual(cliState.heldPowerupCount, srvState.heldPowerupCount, "reconciled heldPowerupCount")
-			assertEqual(cliState.fireWasDown, srvState.fireWasDown, "reconciled fireWasDown")
+			assertEqual(cliState.attachmentType, srvState.attachmentType, "reconciled attachmentType")
+			assertEqual(cliState.attachmentTicksLeft, srvState.attachmentTicksLeft, "reconciled attachmentTicksLeft")
+			assertEqual(cliState.bubblegumTicks, srvState.bubblegumTicks, "reconciled bubblegumTicks")
 			assertEqual(#cliItemWorld.items, #srvItemWorld.items, "reconciled item count")
 			for i = 1, #srvItemWorld.items do
 				assertEqual(cliItemWorld.items[i].id, srvItemWorld.items[i].id, "item id match")
+				assertEqual(cliItemWorld.items[i].itemType, srvItemWorld.items[i].itemType, "itemType match")
 				assertEqual(
 					cliItemWorld.items[i].ticksTillReturn,
 					srvItemWorld.items[i].ticksTillReturn,
