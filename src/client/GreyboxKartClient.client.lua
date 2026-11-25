@@ -23,6 +23,7 @@ local KartPresentation = require("./kart/KartPresentation")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local Math3D = require(Shared.sim.Math3D)
+local ReconciliationSmoother = require(Shared.net.ReconciliationSmoother)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local Units = require(Shared.Units)
 
@@ -175,8 +176,14 @@ end
 
 local localOnlyMode = false
 local inputSeq = 0
+local lastReceivedServerTick = 0
 local lastAppliedServerTick = 0
 local lastResetSeq = 0
+local pendingSnapshot: TelemetryPacket? = nil
+local reconciler = ReconciliationSmoother.new(
+	ReconciliationSmoother.DEFAULT_TAU_SEC,
+	ReconciliationSmoother.DEFAULT_SNAP_THRESHOLD_METERS
+)
 local resetNoticeText = ""
 local resetNoticeExpirySec = 0.0
 local lastCorrectionErrMeters = 0.0
@@ -212,6 +219,8 @@ UserInputService.InputBegan:Connect(function(inputObj: InputObject, gameProcesse
 		localOnlyMode = not localOnlyMode
 		lastCorrectionErrMeters = 0.0
 		lastReplayedTicks = 0
+		pendingSnapshot = nil
+		ReconciliationSmoother.reset(reconciler)
 		table.clear(inputHistory)
 	end
 end)
@@ -269,53 +278,11 @@ telemetryRemote.OnClientEvent:Connect(function(rawNums: any, rawIncs: any, rawNo
 		return
 	end
 	-- UnreliableRemoteEvent can deliver packets out of order; discard stale ticks immediately
-	if snapshot.tick <= lastAppliedServerTick then
+	if snapshot.tick <= lastReceivedServerTick then
 		return
 	end
-	lastAppliedServerTick = snapshot.tick
-
-	if snapshot.resetSeq > lastResetSeq then
-		lastResetSeq = snapshot.resetSeq
-		KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
-		table.clear(inputHistory)
-		prevPose = capturePose(localState)
-		currPose = capturePose(localState)
-		lastCorrectionErrMeters = 0.0
-		lastReplayedTicks = 0
-		if snapshot.resetNotice ~= "" then
-			resetNoticeText = snapshot.resetNotice
-			resetNoticeExpirySec = os.clock() + 1.5
-		end
-		return
-	end
-
-	-- Exact state-reset + unacknowledged input replay reconciliation
-	local worldQuery = resolveWorldQuery()
-	if worldQuery == nil then
-		return
-	end
-
-	local prePos = localState.pos
-	local retained: { InputHistoryEntry } = {}
-	for _, entry in inputHistory do
-		if entry.seq > snapshot.lastInputSeq then
-			table.insert(retained, entry)
-		end
-	end
-	inputHistory = retained
-
-	KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
-	for _, entry in inputHistory do
-		prevPose = capturePose(localState)
-		KartSolver.stepWithItems(localState, entry.input, worldQuery, FixedStep.FIXED_DT, localItemWorld, {
-			isServer = false,
-			kartId = localKartId,
-		})
-	end
-	currPose = capturePose(localState)
-
-	lastReplayedTicks = #inputHistory
-	lastCorrectionErrMeters = Math3D.len(Math3D.sub(localState.pos, prePos))
+	lastReceivedServerTick = snapshot.tick
+	pendingSnapshot = snapshot
 end)
 
 -- STK normal/reverse follow-camera state (src/graphics/camera/camera_normal.cpp:L102-L144, L224-L241, user_config.hpp:L1046-L1066)
@@ -342,11 +309,94 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	if wantsReset then
 		localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
 		table.clear(inputHistory)
+		pendingSnapshot = nil
+		ReconciliationSmoother.reset(reconciler)
 		prevPose = capturePose(localState)
 		currPose = capturePose(localState)
 	end
 
 	local worldQuery = resolveWorldQuery()
+	if pendingSnapshot ~= nil and not localOnlyMode and worldQuery ~= nil then
+		local snapshot = pendingSnapshot :: TelemetryPacket
+		pendingSnapshot = nil
+		if snapshot.tick > lastAppliedServerTick then
+			lastAppliedServerTick = snapshot.tick
+			local preAlpha = localStepper:getAlpha()
+			local preInterpPos = Math3D.vecLerp(prevPose.pos, currPose.pos, preAlpha)
+			local preInterpRot = Math3D.quatSlerp(prevPose.rot, currPose.rot, preAlpha)
+			local renderedBeforePos, renderedBeforeRot =
+				ReconciliationSmoother.apply(reconciler, preInterpPos, preInterpRot)
+
+			if snapshot.resetSeq > lastResetSeq then
+				lastResetSeq = snapshot.resetSeq
+				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
+				table.clear(inputHistory)
+				prevPose = capturePose(localState)
+				currPose = capturePose(localState)
+				ReconciliationSmoother.reset(reconciler)
+				lastCorrectionErrMeters = 0.0
+				lastReplayedTicks = 0
+				if snapshot.resetNotice ~= "" then
+					resetNoticeText = snapshot.resetNotice
+					resetNoticeExpirySec = now + 1.5
+				end
+			else
+				local oldCurrPos = currPose.pos
+				local oldCurrRot = currPose.rot
+				local prePos = localState.pos
+				local retained: { InputHistoryEntry } = {}
+				for _, entry in inputHistory do
+					if entry.seq > snapshot.lastInputSeq then
+						table.insert(retained, entry)
+					end
+				end
+				inputHistory = retained
+
+				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
+				local replayCount = #inputHistory
+				if replayCount > 0 then
+					for idx, entry in inputHistory do
+						if idx == replayCount then
+							prevPose = capturePose(localState)
+						end
+						KartSolver.stepWithItems(
+							localState,
+							entry.input,
+							worldQuery,
+							FixedStep.FIXED_DT,
+							localItemWorld,
+							{
+								isServer = false,
+								kartId = localKartId,
+							}
+						)
+					end
+					currPose = capturePose(localState)
+				else
+					currPose = capturePose(localState)
+					-- Preserve previous-tick span when 0 unacked ticks exist so alpha stays continuous
+					local posShift = Math3D.sub(currPose.pos, oldCurrPos)
+					local rotShift =
+						Math3D.quatNormalize(Math3D.quatMul(currPose.rot, Math3D.quatConjugate(oldCurrRot)))
+					prevPose.pos = Math3D.add(prevPose.pos, posShift)
+					prevPose.rot = Math3D.quatNormalize(Math3D.quatMul(rotShift, prevPose.rot))
+				end
+
+				local postInterpPos = Math3D.vecLerp(prevPose.pos, currPose.pos, preAlpha)
+				local postInterpRot = Math3D.quatSlerp(prevPose.rot, currPose.rot, preAlpha)
+				ReconciliationSmoother.recordCorrection(
+					reconciler,
+					renderedBeforePos,
+					renderedBeforeRot,
+					postInterpPos,
+					postInterpRot
+				)
+				lastReplayedTicks = replayCount
+				lastCorrectionErrMeters = Math3D.len(Math3D.sub(localState.pos, prePos))
+			end
+		end
+	end
+
 	local steppedThisFrame = false
 	if worldQuery ~= nil then
 		debug.profilebegin("OpenKart_ClientSim")
@@ -361,6 +411,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				end
 				localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
 				table.clear(inputHistory)
+				pendingSnapshot = nil
+				ReconciliationSmoother.reset(reconciler)
 				prevPose = capturePose(localState)
 				currPose = capturePose(localState)
 			else
@@ -424,12 +476,14 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	local alpha = localStepper:getAlpha()
 	local interpPos = Math3D.vecLerp(prevPose.pos, currPose.pos, alpha)
 	local interpRot = Math3D.quatSlerp(prevPose.rot, currPose.rot, alpha)
+	ReconciliationSmoother.decay(reconciler, dt)
+	local finalPos, finalRot = ReconciliationSmoother.apply(reconciler, interpPos, interpRot)
 	local interpYaw = prevPose.visualSkidYaw + (currPose.visualSkidYaw - prevPose.visualSkidYaw) * alpha
 	local interpHop = prevPose.hopHeight + (currPose.hopHeight - prevPose.hopHeight) * alpha
 	local interpSpeedMps = prevPose.speedMps + (currPose.speedMps - prevPose.speedMps) * alpha
 	local interpNitroEnergy = prevPose.nitroEnergy + (currPose.nitroEnergy - prevPose.nitroEnergy) * alpha
 
-	local renderPose = RobloxWorldQuery.stkPoseToRobloxCFrame(interpPos, interpRot, 0, 0)
+	local renderPose = RobloxWorldQuery.stkPoseToRobloxCFrame(finalPos, finalRot, 0, 0)
 	local hopOffset = Vector3.new(0, Units.metersToStuds(interpHop), 0)
 	local bodyCFrame = (renderPose + hopOffset)
 		* (if interpYaw ~= 0 then CFrame.Angles(0, -interpYaw, 0) else CFrame.identity)
@@ -457,21 +511,23 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 
 	local attrStart = Workspace:GetAttribute("OpenKartRaceStartTime")
 	local raceStartServerTime = if type(attrStart) == "number" then attrStart else Workspace:GetServerTimeNow()
+	local nitroGateOpen = (solverInput.accel > 0 and localState.isOnGround) or tel.nitroActive
 	HudState.publish(
-		interpPos.x,
-		interpPos.z,
+		finalPos.x,
+		finalPos.z,
 		interpSpeedMps,
 		profile.maxSpeed,
 		interpNitroEnergy,
 		profile.nitro.max,
-		solverInput.nitro == true or tel.nitroActive,
+		tel.nitroActive,
 		"NORMAL_RACE",
 		raceStartServerTime,
 		0,
 		0,
-		math.max(0.0, interpPos.z),
+		math.max(0.0, finalPos.z),
 		localState.heldPowerup,
-		localState.heldPowerupCount
+		localState.heldPowerupCount,
+		nitroGateOpen
 	)
 
 	-- STK CameraNormal speed-proportional pull-back + skid_angle/2 offset + constant 80 deg vertical FOV

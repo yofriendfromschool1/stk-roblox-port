@@ -1027,7 +1027,15 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 		end
 	end
 	MaxSpeed.update(state.maxSpeedState, 1, state.isOnGround)
-	Nitro.update(state.nitro, profile.nitro, state.maxSpeedState, 1, input.nitro == true, state.isOnGround)
+	Nitro.update(
+		state.nitro,
+		profile.nitro,
+		state.maxSpeedState,
+		1,
+		input.nitro == true,
+		state.isOnGround,
+		input.accel > 0
+	)
 	MaxSpeed.update(state.maxSpeedState, 0, state.isOnGround)
 
 	-- Front wheel steer angle from speed-indexed R(v) * skidding.steeringFraction (kart.cpp:L2649-L2651)

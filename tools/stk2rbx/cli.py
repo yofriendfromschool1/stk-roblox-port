@@ -98,6 +98,15 @@ def fetch_kart(
     return _fetch_svn_dir(f"karts/{kart_id}", dest_dir, revision=revision, include_media=include_media)
 
 
+def fetch_models(
+    dest_dir: Path,
+    revision: str = "",
+    include_media: bool = False,
+) -> tuple[str, list[str]]:
+    """Download STK stk-assets/models directory at pinned revision."""
+    return _fetch_svn_dir("models", dest_dir, revision=revision, include_media=include_media)
+
+
 def fetch_track(
     track_id: str,
     dest_dir: Path,
@@ -373,6 +382,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_fk.add_argument("--revision", default="", help="Pin SVN revision via !svn/bc/<rev>/ (e.g. 18627)")
     p_fk.add_argument("--include-media", action="store_true", help="Also download textures/audio")
 
+    p_fm = sub.add_parser("fetch-models", help="Download stk-assets/models directory from STK SourceForge SVN")
+    p_fm.add_argument("--dest", required=True, type=Path, help="Output directory outside repo")
+    p_fm.add_argument("--revision", default="", help="Pin SVN revision via !svn/bc/<rev>/ (e.g. 18627)")
+    p_fm.add_argument("--include-media", action="store_true", help="Also download textures/audio")
+
     p_ck = sub.add_parser("convert-kart", help="Emit static kart .glb assembly + Rojo .model.json")
     p_ck.add_argument("kart_dir", type=Path, help="Local upstream kart directory")
     p_ck.add_argument("--out-model", required=True, type=Path, help="Output .model.json path")
@@ -425,6 +439,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             include_media=args.include_media,
         )
         print(f"Fetched kart {args.kart_id} (rev {rev}): {len(files)} files -> {args.dest}")
+        for f in files:
+            print(f"  {f}")
+        return 0
+
+    if args.cmd == "fetch-models":
+        rev, files = fetch_models(
+            args.dest,
+            revision=args.revision,
+            include_media=args.include_media,
+        )
+        print(f"Fetched models (rev {rev}): {len(files)} files -> {args.dest}")
         for f in files:
             print(f"  {f}")
         return 0

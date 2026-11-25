@@ -500,6 +500,7 @@ local lastTimerText = ""
 local lastSpeedRatio = -1.0
 local lastNitroRatio = -1.0
 local lastNitroUsing: boolean? = nil
+local lastNitroGateOpen: boolean? = nil
 local lastRankText = ""
 local lastRankSizePx = -1
 local lastMmX = math.huge
@@ -681,16 +682,30 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			end
 		end
 
-		-- 3) Nitro Energy Meter CanvasGroup mask updated only when ratio or nitroUsing toggles
+		-- 3) Nitro Energy Meter CanvasGroup mask updated only when ratio, nitroUsing, or nitroGateOpen toggles
 		local nitroRatio = RaceHudMath.snapNitroRatio(renderHud.nitroEnergy, renderHud.nitroMaxEnergy)
-		if math.abs(nitroRatio - lastNitroRatio) > 1e-4 or renderHud.nitroUsing ~= lastNitroUsing then
+		if
+			math.abs(nitroRatio - lastNitroRatio) > 1e-4
+			or renderHud.nitroUsing ~= lastNitroUsing
+			or renderHud.nitroGateOpen ~= lastNitroGateOpen
+		then
 			lastNitroRatio = nitroRatio
 			lastNitroUsing = renderHud.nitroUsing
+			lastNitroGateOpen = renderHud.nitroGateOpen
 			if nitroRatio <= 0.0 then
 				energyFill.container.Visible = false
 			else
 				energyFill.container.Visible = true
-				energyFill.image.Image = if renderHud.nitroUsing then GAUGE_FULL_BRIGHT_ASSET else GAUGE_FULL_ASSET
+				local isGatedClosed = (not renderHud.nitroUsing) and not renderHud.nitroGateOpen
+				if isGatedClosed then
+					energyFill.image.Image = GAUGE_FULL_ASSET
+					energyFill.image.ImageTransparency = 0.55
+					energyFill.image.ImageColor3 = Color3.fromRGB(145, 160, 180)
+				else
+					energyFill.image.Image = if renderHud.nitroUsing then GAUGE_FULL_BRIGHT_ASSET else GAUGE_FULL_ASSET
+					energyFill.image.ImageTransparency = 0
+					energyFill.image.ImageColor3 = Color3.fromRGB(255, 255, 255)
+				end
 				local currDeg = RaceHudMath.computeNitroSweepAngleDeg(nitroRatio)
 				energyFill.gradStart.Rotation = currDeg - 90.0
 				energyFill.gradEnd.Rotation = RaceHudMath.NITRO_START_DEG + 90.0

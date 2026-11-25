@@ -1,11 +1,12 @@
 --!strict
 -- src/client/items/ItemPresentation.lua
 -- SPDX-License-Identifier: GPL-3.0-or-later
+-- ported from src/items/item.cpp:L458-L508, src/items/item.hpp:L415 (STK 1.5)
 -- Non-yielding visual renderer for arena pickups & dropped hazards.
 -- Prefers hydrated ReplicatedStorage.Assets.Items templates (with live MeshPart.Size/MeshSize
 -- assertions against ItemBoundsData.lua); falls back immediately without yielding to exact
 -- ItemBoundsData-sized submesh Parts when a template is absent or unhydrated, upgrading cleanly
--- once ready.
+-- once ready. Applies STK spin (3.0 rad/s = 120/40 for rotating items) and 1.0s respawn appear scale.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -19,6 +20,7 @@ export type VisualSubpart = {
 	part: BasePart,
 	localPos: Vector3,
 	baseRot: CFrame,
+	baseSize: Vector3,
 }
 
 export type ItemVisualInstance = {
@@ -27,6 +29,8 @@ export type ItemVisualInstance = {
 	container: Model,
 	subparts: { VisualSubpart },
 	usingFallback: boolean,
+	wasAvailable: boolean,
+	respawnAnimStartSec: number?,
 }
 
 export type ItemPresentationController = {
@@ -114,7 +118,12 @@ local function assertItemLiveBounds(model: Model, modelId: string)
 	end
 end
 
-local function buildBoundsFallback(entryId: number, modelId: string, folder: Folder): ItemVisualInstance
+local function buildBoundsFallback(
+	entryId: number,
+	modelId: string,
+	folder: Folder,
+	initiallyAvailable: boolean
+): ItemVisualInstance
 	local container = Instance.new("Model")
 	container.Name = string.format("Item_%d_%s", entryId, modelId)
 	local subparts: { VisualSubpart } = {}
@@ -134,12 +143,14 @@ local function buildBoundsFallback(entryId: number, modelId: string, folder: Fol
 			p.BottomSurface = Enum.SurfaceType.Smooth
 			p.Material = Enum.Material.SmoothPlastic
 			p.Color = if partName == "Logo" or partName == "Ribbon" then Color3.fromRGB(245, 248, 255) else color
-			p.Size = Vector3.new(info.size[1], info.size[2], info.size[3])
+			local sizeVec = Vector3.new(info.size[1], info.size[2], info.size[3])
+			p.Size = sizeVec
 			p.Parent = container
 			table.insert(subparts, {
 				part = p :: BasePart,
 				localPos = Vector3.new(info.center[1], info.center[2], info.center[3]),
 				baseRot = CFrame.identity,
+				baseSize = sizeVec,
 			})
 		end
 	end
@@ -151,11 +162,14 @@ local function buildBoundsFallback(entryId: number, modelId: string, folder: Fol
 		container = container,
 		subparts = subparts,
 		usingFallback = true,
+		wasAvailable = initiallyAvailable,
+		respawnAnimStartSec = nil,
 	}
 end
 
 local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): ItemVisualInstance
 	local modelId = TYPE_TO_MODEL_ID[entry.itemType] or "banana"
+	local initiallyAvailable = entry.ticksTillReturn <= 0
 	local template = resolveReadyItemTemplate(modelId)
 	if template == nil then
 		if not warnedState[modelId .. "_fallback"] then
@@ -167,7 +181,7 @@ local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): It
 				)
 			)
 		end
-		return buildBoundsFallback(entry.id, modelId, folder)
+		return buildBoundsFallback(entry.id, modelId, folder, initiallyAvailable)
 	end
 
 	local cloned = template:Clone()
@@ -214,6 +228,7 @@ local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): It
 				part = bp,
 				localPos = localPos,
 				baseRot = baseRot,
+				baseSize = bp.Size,
 			})
 		end
 	end
@@ -225,6 +240,8 @@ local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): It
 		container = cloned,
 		subparts = subparts,
 		usingFallback = false,
+		wasAvailable = initiallyAvailable,
+		respawnAnimStartSec = nil,
 	}
 end
 
@@ -248,9 +265,13 @@ function ItemPresentation.sync(ctrl: ItemPresentationController, itemWorld: Item
 	for _, entry in itemWorld.items do
 		seen[entry.id] = true
 		local vis: ItemVisualInstance? = ctrl.instances[entry.id]
+		local prevWasAvailable: boolean? = nil
+		local prevRespawnAnimStartSec: number? = nil
 		if vis ~= nil and vis.usingFallback then
 			local readyTemplate = resolveReadyItemTemplate(vis.modelId)
 			if readyTemplate ~= nil then
+				prevWasAvailable = vis.wasAvailable
+				prevRespawnAnimStartSec = vis.respawnAnimStartSec
 				vis.container:Destroy()
 				ctrl.instances[entry.id] = nil
 				vis = nil
@@ -259,6 +280,10 @@ function ItemPresentation.sync(ctrl: ItemPresentationController, itemWorld: Item
 		local activeVis: ItemVisualInstance
 		if vis == nil then
 			local created = instantiateVisual(entry, ctrl.folder)
+			if prevWasAvailable ~= nil then
+				created.wasAvailable = prevWasAvailable
+				created.respawnAnimStartSec = prevRespawnAnimStartSec
+			end
 			ctrl.instances[entry.id] = created
 			activeVis = created
 		else
@@ -269,15 +294,40 @@ function ItemPresentation.sync(ctrl: ItemPresentationController, itemWorld: Item
 			Units.metersToStuds(entry.pos.y),
 			Units.metersToStuds(-entry.pos.z)
 		)
-		local spinRot = if entry.itemType == "banana" or entry.itemType == "bubblegum"
-			then CFrame.identity
-			else CFrame.Angles(0, nowSec * 1.8, 0)
+
+		-- STK ItemState::rotating() = (type != ITEM_BUBBLEGUM) at 120/40 = 3.0 rad/s (item.hpp:L415, item.cpp:L492-L504)
+		local spinAngle = if entry.itemType ~= "bubblegum" then ((nowSec * 3.0) % (2.0 * math.pi)) else 0.0
+		local spinRot = if spinAngle ~= 0.0 then CFrame.Angles(0, spinAngle, 0) else CFrame.identity
 		local originCf = CFrame.new(originPos) * spinRot
 
-		local transparency = if entry.ticksTillReturn > 0 then 1.0 elseif entry.deactiveTicks > 0 then 0.5 else 0.0
+		-- STK Item::updateGraphics 1.0 s elastic squash-and-stretch appear animation (item.cpp:L464-L485)
+		local isAvailable = entry.ticksTillReturn <= 0
+		if isAvailable and not activeVis.wasAvailable then
+			activeVis.respawnAnimStartSec = nowSec
+		elseif not isAvailable then
+			activeVis.respawnAnimStartSec = nil
+		end
+		activeVis.wasAvailable = isAvailable
+
+		local factorH = 1.0
+		local factorV = 1.0
+		if isAvailable and activeVis.respawnAnimStartSec ~= nil then
+			local p = math.max(0.0, nowSec - activeVis.respawnAnimStartSec)
+			if p < 1.0 then
+				local f = 1.0 - p
+				factorV = math.max(0.05, math.sin(-13.0 * (math.pi * 0.5) * (p + 1.0)) * (2.0 ^ (-10.0 * p)) + 1.0)
+				factorH = math.max(0.05, 1.0 - (f ^ 5 - f ^ 3 * math.sin(f * math.pi)))
+			else
+				activeVis.respawnAnimStartSec = nil
+			end
+		end
+
+		local transparency = if not isAvailable then 1.0 elseif entry.deactiveTicks > 0 then 0.5 else 0.0
 
 		for _, sp in activeVis.subparts do
-			sp.part.CFrame = originCf * CFrame.new(sp.localPos) * sp.baseRot
+			local scaledPos = Vector3.new(sp.localPos.X * factorH, sp.localPos.Y * factorV, sp.localPos.Z * factorH)
+			sp.part.Size = Vector3.new(sp.baseSize.X * factorH, sp.baseSize.Y * factorV, sp.baseSize.Z * factorH)
+			sp.part.CFrame = originCf * CFrame.new(scaledPos) * sp.baseRot
 			sp.part.Transparency = transparency
 		end
 	end

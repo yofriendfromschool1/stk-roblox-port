@@ -16,6 +16,7 @@ export type InterpolatedHudState = {
 	nitroEnergy: number,
 	nitroMaxEnergy: number,
 	nitroUsing: boolean,
+	nitroGateOpen: boolean,
 	heldPowerup: number,
 	heldPowerupCount: number,
 	raceMode: RaceHudMath.RaceMode,
@@ -33,6 +34,7 @@ local currentState: InterpolatedHudState = {
 	nitroEnergy = 0.0,
 	nitroMaxEnergy = 20.0,
 	nitroUsing = false,
+	nitroGateOpen = true,
 	heldPowerup = 0,
 	heldPowerupCount = 0,
 	raceMode = "TIME_TRIAL",
@@ -58,7 +60,8 @@ function HudState.publish(
 	checkpoint: number,
 	distance: number,
 	heldPowerup: number?,
-	heldPowerupCount: number?
+	heldPowerupCount: number?,
+	nitroGateOpen: boolean?
 )
 	currentState.ready = true
 	currentState.pos.x = posX
@@ -68,6 +71,7 @@ function HudState.publish(
 	currentState.nitroEnergy = nitroEnergy
 	currentState.nitroMaxEnergy = nitroMaxEnergy
 	currentState.nitroUsing = nitroUsing
+	currentState.nitroGateOpen = if nitroGateOpen ~= nil then nitroGateOpen else true
 	currentState.heldPowerup = heldPowerup or 0
 	currentState.heldPowerupCount = heldPowerupCount or 0
 	currentState.raceMode = raceMode

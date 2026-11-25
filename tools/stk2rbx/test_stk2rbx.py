@@ -10,7 +10,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.stk2rbx.cli import _svn_assets_url, convert_track
+from unittest.mock import patch
+
+from tools.stk2rbx.cli import _svn_assets_url, convert_track, main as cli_main
 from tools.stk2rbx.coords import (
     STUDS_PER_METER,
     flip_triangle_winding,
@@ -815,6 +817,17 @@ class TestStk2Rbx(unittest.TestCase):
                             src_sub_size = (src_sub.bbox_max_m[ax] - src_sub.bbox_min_m[ax]) * STUDS_PER_METER
                             self.assertAlmostEqual(glb_size, sp["size_studs"][ax], delta=0.001)
                             self.assertAlmostEqual(glb_size, src_sub_size, delta=0.001)
+
+    def test_fetch_models_delegates_to_svn_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "models"
+            with patch(
+                "tools.stk2rbx.cli._fetch_svn_dir",
+                return_value=("18627", ["banana.spm", "gift-box.spm", "nitrotank-big.spm", "nitrotank-small.spm"]),
+            ) as mock_fetch:
+                rc = cli_main(["fetch-models", "--dest", str(dest), "--revision", "18627", "--include-media"])
+            self.assertEqual(rc, 0)
+            mock_fetch.assert_called_once_with("models", dest, revision="18627", include_media=True)
 
 
 if __name__ == "__main__":

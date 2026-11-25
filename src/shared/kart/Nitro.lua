@@ -45,13 +45,16 @@ function Nitro.collect(state: NitroState, amount: number): number
 end
 
 -- Per-tick nitro consumption and MaxSpeed::MS_INCREASE_NITRO activation (kart.cpp:L2244-L2302)
+-- OpenKart divergence (docs/divergences.md): initial activation and post-64-tick continuation
+-- require accelHeld and isOnGround; an already-committed 64-tick burn finishes without aborting.
 function Nitro.update(
 	state: NitroState,
 	nitroCfg: KartTuning.NitroProfile,
 	maxSpeedState: MaxSpeed.MaxSpeedState,
 	ticks: number,
 	nitroPressed: boolean,
-	isOnGround: boolean
+	isOnGround: boolean,
+	accelHeld: boolean
 ): boolean
 	if state.energy <= 0 then
 		state.energy = 0.0
@@ -60,7 +63,8 @@ function Nitro.update(
 		return false
 	end
 
-	if nitroPressed and state.minNitroTicks <= 0 and state.energy > 0 then
+	local canActivate = nitroPressed and isOnGround and accelHeld
+	if canActivate and state.minNitroTicks <= 0 and state.energy > 0 then
 		state.minNitroTicks = nitroCfg.minConsumptionTicks
 		local minConsumption = state.minNitroTicks * nitroCfg.consumptionPerTick
 		state.energyToMinRatio = if minConsumption > 0 then math.min(1.0, state.energy / minConsumption) else 1.0
@@ -68,8 +72,8 @@ function Nitro.update(
 
 	if state.minNitroTicks > 0 then
 		state.minNitroTicks -= ticks
-		-- Keep active while key is held after initial min burn completes (kart.cpp:L2263-L2264)
-		if nitroPressed and state.minNitroTicks <= 0 then
+		-- Keep active while key + throttle remain held on ground after initial min burn completes
+		if canActivate and state.minNitroTicks <= 0 then
 			state.minNitroTicks = 1
 		end
 	end

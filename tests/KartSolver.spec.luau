@@ -800,15 +800,15 @@ local tests: { TestCase } = {
 			local nitroState = Nitro.new(profile.nitro.max)
 			assertNear(Nitro.collect(nitroState, 50.0), 20.0, 1e-6, "nitro reserve clamps at max=20.0")
 			local burnMs = MaxSpeed.new(profile.maxSpeed)
-			-- Press nitro for 1 tick, then release; minNitroTicks counts down 63 -> 0 (ticks 1..63 active, tick 64 exits)
-			local firstActive = Nitro.update(nitroState, profile.nitro, burnMs, 1, true, true)
+			-- Press nitro + accel for 1 tick, then release; minNitroTicks counts down 63 -> 0 (ticks 1..63 active, tick 64 exits)
+			local firstActive = Nitro.update(nitroState, profile.nitro, burnMs, 1, true, true, true)
 			assert(firstActive == true, "tick 1 activates nitro")
 			assert(nitroState.minNitroTicks == 63, "min burn starts at 64-1=63 ticks")
 			for _ = 2, 63 do
-				local active = Nitro.update(nitroState, profile.nitro, burnMs, 1, false, true)
+				local active = Nitro.update(nitroState, profile.nitro, burnMs, 1, false, true, true)
 				assert(active == true, "nitro stays active throughout 64-tick minimum burn")
 			end
-			local afterMin = Nitro.update(nitroState, profile.nitro, burnMs, 1, false, true)
+			local afterMin = Nitro.update(nitroState, profile.nitro, burnMs, 1, false, true, true)
 			assert(afterMin == false, "nitro stops once 64-tick min burn expires with key released")
 
 			-- Partial reserve below minConsumption scales NITRO duration proportionally
@@ -816,7 +816,7 @@ local tests: { TestCase } = {
 			local minConsumption = profile.nitro.minConsumptionTicks * profile.nitro.consumptionPerTick
 			Nitro.collect(tinyNitro, minConsumption * 0.5)
 			local partialMs = MaxSpeed.new(profile.maxSpeed)
-			Nitro.update(tinyNitro, profile.nitro, partialMs, 1, true, true)
+			Nitro.update(tinyNitro, profile.nitro, partialMs, 1, true, true, true)
 			assertNear(tinyNitro.energyToMinRatio, 0.5, 1e-4, "partial reserve scales energyToMinRatio")
 			local expectedHalfTicks = FixedStep.timeToTicks(profile.nitro.duration * 0.5)
 			assert(
@@ -1166,6 +1166,79 @@ local tests: { TestCase } = {
 					reboundAt20
 				)
 			)
+		end,
+	},
+	{
+		name = "nitro activation requires accel > 0 and grounded; committed 64-tick burn survives accel release",
+		fn = function()
+			local profile = KartTuning.buildProfile("medium", "best")
+			local roadWorld = makeMaterialPlaneWorld(function()
+				return "road.jpg"
+			end, 0.0)
+			local airWorld = makeEmptyAirWorld()
+
+			-- 1) Grounded kart pressing nitro without accel does NOT activate or drain reserve
+			local sNoAccel = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			KartSolver.addNitro(sNoAccel, 10.0)
+			for _ = 1, 20 do
+				KartSolver.step(
+					sNoAccel,
+					{ accel = 0, brake = false, steer = 0, drift = false, nitro = true },
+					roadWorld,
+					FixedStep.FIXED_DT
+				)
+			end
+			assert(not sNoAccel.nitro.active, "nitro must not activate without accel > 0")
+			assert(sNoAccel.nitro.minNitroTicks == 0, "minNitroTicks stays 0 without accel > 0")
+			assertNear(sNoAccel.nitro.energy, 10.0, 1e-6, "no nitro energy drained without accel > 0")
+
+			-- 2) Airborne kart pressing nitro WITH accel does NOT activate or drain reserve
+			local sAir = KartSolver.createState(profile, { x = 0, y = 10.0, z = 0 }, 0)
+			KartSolver.addNitro(sAir, 10.0)
+			for _ = 1, 10 do
+				KartSolver.step(
+					sAir,
+					{ accel = 1, brake = false, steer = 0, drift = false, nitro = true },
+					airWorld,
+					FixedStep.FIXED_DT
+				)
+			end
+			assert(not sAir.nitro.active, "nitro must not activate while airborne")
+			assert(sAir.nitro.minNitroTicks == 0, "minNitroTicks stays 0 while airborne")
+			assertNear(sAir.nitro.energy, 10.0, 1e-6, "no nitro energy drained while airborne")
+
+			-- 3) Committed 64-tick burn (activated with accel=1 & grounded) completes if accel + nitro are released
+			local sCommit = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			KartSolver.addNitro(sCommit, 20.0)
+			KartSolver.step(
+				sCommit,
+				{ accel = 1, brake = false, steer = 0, drift = false, nitro = true },
+				roadWorld,
+				FixedStep.FIXED_DT
+			)
+			assert(sCommit.nitro.active, "tick 1 with accel+ground+nitro activates committed burn")
+			assert(sCommit.nitro.minNitroTicks == 63, "64-tick commitment starts at 63 remaining ticks")
+			for tick = 2, 63 do
+				KartSolver.step(
+					sCommit,
+					{ accel = 0, brake = false, steer = 0, drift = false, nitro = false },
+					roadWorld,
+					FixedStep.FIXED_DT
+				)
+				assert(
+					sCommit.nitro.active,
+					string.format("committed burn must stay active at tick %d even with accel=0", tick)
+				)
+			end
+			-- On tick 64, holding nitro with accel=0 must NOT extend past the committed 64 ticks
+			KartSolver.step(
+				sCommit,
+				{ accel = 0, brake = false, steer = 0, drift = false, nitro = true },
+				roadWorld,
+				FixedStep.FIXED_DT
+			)
+			assert(not sCommit.nitro.active, "committed burn ends at tick 64 and does not re-ignite while accel=0")
+			assert(sCommit.nitro.minNitroTicks == 0, "minNitroTicks returns to 0 after committed burn")
 		end,
 	},
 }
