@@ -7,7 +7,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
@@ -19,6 +18,7 @@ local FlyablePresentation = require("./items/FlyablePresentation")
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local HudState = require("./HudState")
+local InputMapper = require("./InputMapper")
 local ItemPresentation = require("./items/ItemPresentation")
 local ItemTuning = require(Shared.ItemTuning)
 local ItemWorld = require(Shared.items.ItemWorld)
@@ -29,6 +29,7 @@ local Math3D = require(Shared.sim.Math3D)
 local ReconciliationSmoother = require(Shared.net.ReconciliationSmoother)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local Standings = require(Shared.race.Standings)
+local TouchControls = require("./TouchControls")
 local Units = require(Shared.Units)
 
 type ClientInputPacket = GreyboxProtocol.ClientInputPacket
@@ -212,72 +213,25 @@ local lastSent: ClientInputPacket = {
 	debugGrantNitro = false,
 }
 local lastSentTime = 0.0
-local resetPulse = false
-local grantNitroPulse = false
-
-UserInputService.InputBegan:Connect(function(inputObj: InputObject, gameProcessed: boolean)
-	if gameProcessed then
-		return
-	end
-	if inputObj.KeyCode == Enum.KeyCode.R or inputObj.KeyCode == Enum.KeyCode.Backspace then
-		resetPulse = true
-	elseif inputObj.KeyCode == Enum.KeyCode.F3 then
+local touchControls = TouchControls.create()
+local inputMapper = InputMapper.createLive({
+	isStudio = IS_STUDIO,
+	getTouchState = touchControls.getState,
+	onToggleDebugHud = function()
 		hud.gui.Enabled = not hud.gui.Enabled
-	elseif IS_STUDIO and inputObj.KeyCode == Enum.KeyCode.G then
-		grantNitroPulse = true
-	elseif IS_STUDIO and inputObj.KeyCode == Enum.KeyCode.F8 then
+	end,
+	onToggleLocalMode = function()
 		localOnlyMode = not localOnlyMode
 		lastCorrectionErrMeters = 0.0
 		lastReplayedTicks = 0
 		pendingSnapshot = nil
 		ReconciliationSmoother.reset(reconciler)
 		table.clear(inputHistory)
-	end
-end)
+	end,
+})
 
--- Default keyboard bindings from src/input/keyboard_config.cpp:L54-L65 (STK 1.5)
 local function sampleInput(): (KartSolver.KartInput, boolean, boolean, boolean)
-	local accel = if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up)
-		then 1.0
-		else 0.0
-	local brake = UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down)
-
-	local steer = 0.0
-	if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
-		steer -= 1.0
-	end
-	if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
-		steer += 1.0
-	end
-
-	local drift = UserInputService:IsKeyDown(Enum.KeyCode.V)
-		or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
-		or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-
-	local nitro = UserInputService:IsKeyDown(Enum.KeyCode.N)
-	-- PA_FIRE = IRR_KEY_SPACE (src/input/keyboard_config.cpp:L63)
-	local fire = UserInputService:IsKeyDown(Enum.KeyCode.Space)
-	-- Hold-to-look-back (PA_LOOK_BACK = IRR_KEY_B, keyboard_config.cpp:L64, player_controller.cpp:L222-L223)
-	local lookBack = UserInputService:IsKeyDown(Enum.KeyCode.B)
-
-	local reset = resetPulse
-	resetPulse = false
-
-	local grantNitro = IS_STUDIO and grantNitroPulse
-	grantNitroPulse = false
-
-	return {
-		accel = accel,
-		brake = brake,
-		steer = steer,
-		drift = drift,
-		nitro = nitro,
-		fire = fire,
-		lookBack = lookBack,
-	},
-		reset,
-		grantNitro,
-		lookBack
+	return inputMapper.sample()
 end
 
 telemetryRemote.OnClientEvent:Connect(function(rawPayload: any, rawNotice: any)
