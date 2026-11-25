@@ -15,6 +15,7 @@ local suites = {
 	{ name = "Reconciliation", tests = require("./Reconciliation.spec") },
 	{ name = "InputMapper", tests = require("./InputMapper.spec") },
 	{ name = "GamepadSelect", tests = require("./GamepadSelect.spec") },
+	{ name = "SfxEvents", tests = require("./SfxEvents.spec") },
 }
 
 local passed = 0

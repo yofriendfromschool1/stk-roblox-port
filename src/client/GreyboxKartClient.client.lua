@@ -28,6 +28,8 @@ local KartTuning = require(Shared.KartTuning)
 local Math3D = require(Shared.sim.Math3D)
 local ReconciliationSmoother = require(Shared.net.ReconciliationSmoother)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
+local SfxEvents = require(Shared.audio.SfxEvents)
+local SfxPlayer = require("./SfxPlayer")
 local Standings = require(Shared.race.Standings)
 local TouchControls = require("./TouchControls")
 local Units = require(Shared.Units)
@@ -165,6 +167,9 @@ local flyableVisuals = FlyablePresentation.create()
 local latestRemoteKarts: { GreyboxProtocol.RemoteKartState } = {}
 local remoteKartStates: { [string]: KartSolver.KartState } = {}
 local remoteKartVisuals: { [string]: KartPresentation.VisualKart } = {}
+local sfxPlayer = SfxPlayer.create()
+local localAudioTracker = SfxEvents.createTracker()
+local remoteAudioTrackers: { [string]: SfxEvents.AudioTracker } = {}
 
 local localStepper = FixedStep.new()
 local localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
@@ -588,11 +593,35 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		local numericId = tonumber(rk.id) or -idx
 		kartPositionsById[numericId] =
 			Vector3.new(Units.metersToStuds(rk.pos[1]), Units.metersToStuds(rk.pos[2]), Units.metersToStuds(-rk.pos[3]))
+
+		local rTr = remoteAudioTrackers[rk.id]
+		if not rTr then
+			rTr = SfxEvents.createTracker()
+			remoteAudioTrackers[rk.id] = rTr
+		end
+		local rRs = remoteKartStates[rk.id]
+		local rStep = SfxEvents.step(rTr, {
+			speedMps = rk.speed,
+			maxSpeedMps = profile.maxSpeed,
+			isOnGround = if rRs then rRs.isOnGround else true,
+			skidState = "SKID_NONE",
+			nitroActive = false,
+			nitroEnergy = 0.0,
+			nitroMax = profile.nitro.max,
+			heldPowerup = 0,
+			heldPowerupCount = 0,
+			attachmentType = rk.attachmentType,
+			itemEffectType = if rk.isSquashed then 2 elseif rRs then rRs.itemEffect.effectType else 0,
+			plungerFaceTicks = rk.plungerFaceTicks,
+			bounceBackTicks = if rRs then rRs.bounceBackTicks else 0,
+		}, dt, false)
+		SfxPlayer.applyStep(sfxPlayer, rk.id, rStep, rv.model.PrimaryPart or rv.sparkLeft)
 	end
 	for id, rv in remoteKartVisuals do
 		if not seenRemotes[id] then
 			rv.model:Destroy()
 			remoteKartVisuals[id] = nil
+			remoteAudioTrackers[id] = nil
 		end
 	end
 
@@ -668,6 +697,22 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	)
 	kartPositionsById[localKartId] = bodyCFrame.Position
 	FlyablePresentation.sync(flyableVisuals, localFlyableWorld, now, kartPositionsById)
+	local localAudioStep = SfxEvents.step(localAudioTracker, {
+		speedMps = interpSpeedMps,
+		maxSpeedMps = profile.maxSpeed,
+		isOnGround = localState.isOnGround,
+		skidState = tel.skidState,
+		nitroActive = tel.nitroActive,
+		nitroEnergy = interpNitroEnergy,
+		nitroMax = profile.nitro.max,
+		heldPowerup = localState.heldPowerup,
+		heldPowerupCount = localState.heldPowerupCount,
+		attachmentType = tel.attachmentType,
+		itemEffectType = localState.itemEffect.effectType,
+		plungerFaceTicks = tel.plungerFaceTicks,
+		bounceBackTicks = localState.bounceBackTicks,
+	}, dt, true)
+	SfxPlayer.applyStep(sfxPlayer, "local", localAudioStep, visuals.model.PrimaryPart or visuals.sparkLeft)
 	debug.profileend()
 
 	local attrStart = Workspace:GetAttribute("OpenKartRaceStartTime")

@@ -1,0 +1,232 @@
+{
+  "creator_user_id": "7225229891",
+  "source": "stk-assets/sfx@18627 (STK 1.5)",
+  "sounds": {
+    "engine_large": {
+      "file": "engine_large.ogg",
+      "assetId": "94283905578848",
+      "moderationState": "Approved"
+    },
+    "engine_small": {
+      "file": "engine_small.ogg",
+      "assetId": "91467644182458",
+      "moderationState": "Approved"
+    },
+    "skid": {
+      "file": "skid.ogg",
+      "assetId": "125864704763458",
+      "moderationState": "Approved"
+    },
+    "nitro": {
+      "file": "nitro.ogg",
+      "assetId": "105288944651788",
+      "moderationState": "Approved"
+    },
+    "crash": {
+      "file": "crash.ogg",
+      "assetId": "109763809903840",
+      "moderationState": "Approved"
+    },
+    "crash2": {
+      "file": "crash2.ogg",
+      "assetId": "118021477075169",
+      "moderationState": "Approved"
+    },
+    "crash3": {
+      "file": "crash3.ogg",
+      "assetId": "139928354742532",
+      "moderationState": "Approved"
+    },
+    "boing": {
+      "file": "boing.ogg",
+      "assetId": "95665192042834",
+      "moderationState": "Approved"
+    },
+    "grab_collectable": {
+      "file": "grab_collectable.ogg",
+      "assetId": "139522143976969",
+      "moderationState": "Approved"
+    },
+    "energy_bar_full": {
+      "file": "energy_bar_full.ogg",
+      "assetId": "106130850336173",
+      "moderationState": "Approved"
+    },
+    "energy_bar_unfull": {
+      "file": "energy_bar_unfull.ogg",
+      "assetId": "78980693660286",
+      "moderationState": "Reviewing"
+    },
+    "explosion": {
+      "file": "explosion.ogg",
+      "assetId": "93029946732158",
+      "moderationState": "Approved"
+    },
+    "clock": {
+      "file": "clock.ogg",
+      "assetId": "120687241645494",
+      "moderationState": "Approved"
+    },
+    "inflate": {
+      "file": "inflate.ogg",
+      "assetId": "113899654448067",
+      "moderationState": "Approved"
+    },
+    "bubblegum_explode": {
+      "file": "bubblegum_explode.ogg",
+      "assetId": "102411856522210",
+      "moderationState": "Approved"
+    },
+    "goo": {
+      "file": "goo.ogg",
+      "assetId": "103438405510998",
+      "moderationState": "Approved"
+    },
+    "hammer": {
+      "file": "hammer.ogg",
+      "assetId": "101347987321909",
+      "moderationState": "Approved"
+    },
+    "swatter": {
+      "file": "swatter.ogg",
+      "assetId": "93907616599955",
+      "moderationState": "Approved"
+    },
+    "parachute": {
+      "file": "parachute.ogg",
+      "assetId": "117701053936944",
+      "moderationState": "Approved"
+    },
+    "shoot": {
+      "file": "shoot.ogg",
+      "assetId": "71939316371085",
+      "moderationState": "Approved"
+    },
+    "bowling_roll": {
+      "file": "bowling_roll.ogg",
+      "assetId": "99662722263620",
+      "moderationState": "Approved"
+    },
+    "strike": {
+      "file": "strike.ogg",
+      "assetId": "84870115830592",
+      "moderationState": "Approved"
+    },
+    "ball_bounce": {
+      "file": "ball_bounce.ogg",
+      "assetId": "84645142187500",
+      "moderationState": "Approved"
+    },
+    "plunger": {
+      "file": "plunger.ogg",
+      "assetId": "111822911285581",
+      "moderationState": "Approved"
+    },
+    "swap": {
+      "file": "swap.ogg",
+      "assetId": "95420411218192",
+      "moderationState": "Approved"
+    },
+    "anvil": {
+      "file": "anvil.ogg",
+      "assetId": "102283919593002",
+      "moderationState": "Approved"
+    },
+    "pre_start_race": {
+      "file": "pre_start_race.ogg",
+      "assetId": "95617820063055",
+      "moderationState": "Approved"
+    },
+    "start_race": {
+      "file": "start_race.ogg",
+      "assetId": "111537049982169",
+      "moderationState": "Approved"
+    },
+    "last_lap_fanfare": {
+      "file": "last_lap_fanfare.ogg",
+      "assetId": "95675948434367",
+      "moderationState": "Approved"
+    },
+    "race_finish": {
+      "file": "race_finish.ogg",
+      "assetId": "138646935281234",
+      "moderationState": "Approved"
+    },
+    "race_finish_victory": {
+      "file": "race_finish_victory.ogg",
+      "assetId": "70911599219847",
+      "moderationState": "Approved"
+    },
+    "horn": {
+      "file": "horn.ogg",
+      "assetId": "89955934166508",
+      "moderationState": "Approved"
+    },
+    "appear": {
+      "file": "appear.ogg",
+      "assetId": "134345908436200",
+      "moderationState": "Approved"
+    },
+    "bzzt": {
+      "file": "bzzt.ogg",
+      "assetId": "76846870239163",
+      "moderationState": "Approved"
+    },
+    "jump": {
+      "file": "jump.ogg",
+      "assetId": "80088446420028",
+      "moderationState": "Approved"
+    },
+    "wee": {
+      "file": "wee.ogg",
+      "assetId": "115105182937968",
+      "moderationState": "Approved"
+    },
+    "ugh": {
+      "file": "ugh.ogg",
+      "assetId": "128349802147368",
+      "moderationState": "Approved"
+    },
+    "wooden_bridge": {
+      "file": "wooden_bridge.ogg",
+      "assetId": "107898910817891",
+      "moderationState": "Approved"
+    },
+    "splash": {
+      "file": "splash.ogg",
+      "assetId": "135043763924138",
+      "moderationState": "Reviewing"
+    },
+    "track_intro": {
+      "file": "track_intro.ogg",
+      "assetId": "110292854496463",
+      "moderationState": "Approved"
+    },
+    "goal_scored": {
+      "file": "goal_scored.ogg",
+      "assetId": "75380120139269",
+      "moderationState": "Reviewing"
+    },
+    "gp_end": {
+      "file": "gp_end.ogg",
+      "assetId": "136771824415098",
+      "moderationState": "Approved"
+    },
+    "plopp": {
+      "file": "plopp.ogg",
+      "assetId": "99887724850897",
+      "moderationState": "Reviewing"
+    },
+    "thunder": {
+      "file": "thunder.ogg",
+      "assetId": "108762679470437",
+      "moderationState": "Approved"
+    },
+    "locked": {
+      "file": "locked.ogg",
+      "assetId": "70466335465093",
+      "moderationState": "Reviewing"
+    }
+  },
+  "failed": {}
+}
