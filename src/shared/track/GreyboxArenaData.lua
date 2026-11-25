@@ -19,12 +19,27 @@ export type ArenaBoxSpec = {
 	labelColorRgb: { number }?,
 }
 
+export type ArenaDrivelinePoint = {
+	x: number,
+	z: number,
+}
+
+export type ArenaBounds = {
+	minX: number,
+	maxX: number,
+	minZ: number,
+	maxZ: number,
+	range: number,
+}
+
 export type ArenaSpec = {
 	trackId: string,
 	planeSizeStuds: number,
 	planeThicknessStuds: number,
 	gridSpacingStuds: number,
 	boxes: { ArenaBoxSpec },
+	drivelineQuadCenters: { ArenaDrivelinePoint },
+	minimapBounds: ArenaBounds,
 }
 
 local function deepFreeze<T>(tbl: T): T
@@ -225,6 +240,19 @@ local GreyboxArenaData: ArenaSpec = {
 			labelY = 3.5,
 			labelColorRgb = { 255, 120, 120 },
 		},
+	},
+	drivelineQuadCenters = {
+		{ x = 0.0, z = -192.0 },
+		{ x = 0.0, z = -64.0 },
+		{ x = 0.0, z = 64.0 },
+		{ x = 0.0, z = 192.0 },
+	},
+	minimapBounds = {
+		minX = -256.0,
+		maxX = 256.0,
+		minZ = -256.0,
+		maxZ = 256.0,
+		range = 512.0,
 	},
 }
 

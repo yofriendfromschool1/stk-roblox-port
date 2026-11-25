@@ -5,6 +5,9 @@
 local suites = {
 	{ name = "Units", tests = require("./Units.spec") },
 	{ name = "FixedStep", tests = require("./FixedStep.spec") },
+	{ name = "KartSolver", tests = require("./KartSolver.spec") },
+	{ name = "RaceHudMath", tests = require("./RaceHudMath.spec") },
+	{ name = "Standings", tests = require("./Standings.spec") },
 }
 
 local passed = 0

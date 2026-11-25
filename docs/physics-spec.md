@@ -15,7 +15,7 @@ This document specifies OpenKart's custom Luau raycast kart physics solver (`src
 | Decision | Choice | Rationale |
 |---|---|---|
 | **Simulation tick rate** | `120 Hz` (`FIXED_DT = 1 / 120 s`) | Matches STK `1.5` (`data/stk_config.xml:L147`) 1:1; preserves integer tick timers (`Skidding`, `MaxSpeed`, timed knockback/rotation, nitro) and keeps the stiff suspension spring ($\omega_n \Delta t \approx 0.28$) comfortably stable. Driven by a variable-`dt` `Heartbeat` accumulator ([FixedStep.lua](../src/shared/sim/FixedStep.lua): `FIXED_DT = 1/120`, `MAX_FRAME_DT = 0.25`, `MAX_SUBSTEPS = 8`) — never assumes a 60 Hz `Heartbeat`. |
-| **Internal solver units** | **SI metric** (`m`, `kg`, `s`, `N`, `rad`) | Allows direct 1:1 transcription of STK `1.5` equations and `KartTuning.lua` constants without error-prone compound unit conversions (`N·m`, `kg·m²`). Spatial boundary conversions happen exclusively via [Units.lua](../src/shared/Units.lua) (`1 stud = 0.28 m`). |
+| **Internal solver units** | **SI metric** (`m`, `kg`, `s`, `N`, `rad`) | Allows direct 1:1 transcription of STK `1.5` equations and `KartTuning.lua` constants without error-prone compound unit conversions (`N·m`, `kg·m²`). Spatial boundary conversions happen exclusively via [Units.lua](../src/shared/Units.lua) (`1 stud = 1.0 m`, locked in [decisions.md](decisions.md)). |
 | **Integration backing** | **Pure-Luau rigid-body integrator** | Solver owns chassis `(position, orientation, linearVel, angularVel)` and calls an injected `WorldQuery` interface (`raycast`, `sweepChassis`). Runs identically in headless Lune tests and Roblox Studio/Server, enabling deterministic client prediction and server reconciliation. Visual/collider `Model` is anchored and driven by interpolated `CFrame`. |
 | **Tire lateral & drift model** | **Parameterized slip-angle → grip curve + STK-faithful `Skidding` state machine** | Replaces Bullet's bilateral lateral constraint without low-speed jitter while hitting STK's `R(v)` turn radii. Preserves STK's exact 6-state `Skidding` machine (steering remap `[0.2, 0.8]`, visual yaw, post-skid `timedRotation`) with an explicit `driftRearGripScale` hook (default `1.0` for pure STK fidelity; tunable `< 1.0` during Month 2 feel testing). |
 
@@ -28,8 +28,8 @@ Recorded from `C:\dev\stk-code\README.md` and [Units.lua](../src/shared/Units.lu
 | Right axis | `+X` | `+X` | `x_rbx = x_stk * STUDS_PER_METER` |
 | Up axis | `+Y` | `+Y` | `y_rbx = y_stk * STUDS_PER_METER` |
 | Forward axis | `+Z` | `-Z` (`CFrame.LookVector`) | `z_rbx = -z_stk * STUDS_PER_METER` |
-| Yaw sign (turn left / right) | STK `steer < 0` turns right, `steer > 0` turns left (see `player_controller.cpp:L288-L297`, `skidding.cpp:L184-L209`) | Right-handed `+Y` yaw: `+yaw` rotates `-Z` toward `-X` (left) | Solver uses STK sign convention internally; boundary flips `Z` and hands a standard right-handed `CFrame` to Roblox. |
-| Scale factor | `1.0 m` | `3.5714285714 studs` (`1 / 0.28`) | `Units.metersToStuds` / `Units.studsToMeters` |
+| Yaw sign (turn left / right) | STK `steer > 0` turns right, `steer < 0` turns left (see `player_controller.cpp:L152-L174, L288-L297`, `skidding.cpp:L184-L209`) | Right-handed `+Y` yaw: `+yaw` rotates `-Z` toward `-X` (left), `-yaw` rotates `-Z` toward `+X` (right) | Solver uses STK sign convention internally (`+Y` rotates `+Z` toward `+X` right); boundary flips `Z` via `S = diag(1, 1, -1)` and negates visual yaw (`CFrame.Angles(0, -visualRotation, 0)`) to hand a proper right-handed `CFrame` to Roblox. |
+| Scale factor | `1.0 m` | `1.0 studs` (`1 / 1.0`) | `Units.metersToStuds` / `Units.studsToMeters` |
 
 ---
 
@@ -391,42 +391,42 @@ The solver exposes a unified impulse/disruption queue supporting both instantane
 
 ## 8. Measurable Handling-Targets Table
 
-All targets below are calibrated for the **Medium reference kart (`tux`: `m = 262.5 kg`, `L = 1.437 m`, `W = 0.821 m`, `H = 0.675 m`) on `best` (100%) difficulty** over flat horizontal ground (`g = 9.80665 m/s²`), unless noted. Conversions use `1 stud = 0.28 m` ([Units.lua](../src/shared/Units.lua)).
+All targets below are calibrated for the **Medium reference kart (`tux`: `m = 262.5 kg`, `L = 1.437 m`, `W = 0.821 m`, `H = 0.675 m`) on `best` (100%) difficulty** over flat horizontal ground (`g = 9.80665 m/s²`), unless noted. Conversions use `1 stud = 1.0 m` ([Units.lua](../src/shared/Units.lua)).
 
 Every metric is intended to be asserted in automated headless Lune tests (`lune run tests/run.luau`) before human Studio feel playtests.
 
 | Category | Metric | Target (SI Metric) | Target (Roblox Studs) | Acceptance Tolerance | Verification Harness |
 |---|---|---|---|---|---|
-| **Top Speed** | Medium base top speed | `25.00 m/s` (`90.0 km/h`) | `89.29 studs/s` | `±0.10 m/s` | Flat straight, full throttle 8 s |
-| **Top Speed** | Light / Heavy base top speed | `23.75` / `26.25 m/s` | `84.82` / `93.75 studs/s` | `±0.10 m/s` | Flat straight, class presets |
-| **Top Speed** | Medium reverse top speed | `12.19 m/s` (`0.4875×`) | `43.53 studs/s` | `±0.15 m/s` | Flat straight, full brake from rest |
-| **Top Speed** | Medium + Tier 1 / Tier 2 skid boost | `29.50` / `31.50 m/s` | `105.36` / `112.50 studs/s` | `±0.20 m/s` | Release drift at `1.5 s` / `3.5 s` |
-| **Top Speed** | Medium + Nitro / Zipper | `30.00` / `40.00 m/s` | `107.14` / `142.86 studs/s` | `±0.20 m/s` | Nitro active / Zipper pad trigger |
-| **Acceleration** | `0 → 10 m/s` (`36 km/h`) | `0.85 s` | `0 → 35.71 studs/s` | `±0.15 s` | Flat straight from standstill |
-| **Acceleration** | `0 → 20 m/s` (`72 km/h`) | `2.45 s` | `0 → 71.43 studs/s` | `±0.25 s` | Flat straight from standstill |
-| **Acceleration** | `0 → 25 m/s` (`90 km/h`) | `3.90 s` | `0 → 89.29 studs/s` | `±0.35 s` | Flat straight from standstill |
-| **Braking** | `25 → 0 m/s` full brake time | `≤ 1.35 s` | `89.29 → 0 studs/s` | `0.85–1.35 s`, no oscillation | Brake from top speed on flat |
-| **Parking** | Coasting hold below `5 m/s` | Stops cleanly `< 0.5 s` on `5°` grade | `17.86 studs/s` threshold | `|v| < 0.2 m/s` steady | Release throttle on `5°` ramp |
+| **Top Speed** | Medium base top speed | `25.00 m/s` (`90.0 km/h`) | `25.00 studs/s` | `±0.10 m/s` | Flat straight, full throttle 8 s |
+| **Top Speed** | Light / Heavy base top speed | `23.75` / `26.25 m/s` | `23.75` / `26.25 studs/s` | `±0.10 m/s` | Flat straight, class presets |
+| **Top Speed** | Medium reverse top speed | `12.19 m/s` (`0.4875×`) | `12.19 studs/s` | `±0.15 m/s` | Flat straight, full brake from rest |
+| **Top Speed** | Medium + Tier 1 / Tier 2 skid boost | `29.50` / `31.50 m/s` | `29.50` / `31.50 studs/s` | `±0.20 m/s` | Release drift at `1.5 s` / `3.5 s` |
+| **Top Speed** | Medium + Nitro / Zipper | `30.00` / `40.00 m/s` | `30.00` / `40.00 studs/s` | `±0.20 m/s` | Nitro active / Zipper pad trigger |
+| **Acceleration** | `0 → 10 m/s` (`36 km/h`) | `0.85 s` | `0 → 10.00 studs/s` | `±0.15 s` | Flat straight from standstill |
+| **Acceleration** | `0 → 20 m/s` (`72 km/h`) | `2.45 s` | `0 → 20.00 studs/s` | `±0.25 s` | Flat straight from standstill |
+| **Acceleration** | `0 → 25 m/s` (`90 km/h`) | `3.90 s` | `0 → 25.00 studs/s` | `±0.35 s` | Flat straight from standstill |
+| **Braking** | `25 → 0 m/s` full brake time | `≤ 1.35 s` | `25.00 → 0 studs/s` | `0.85–1.35 s`, no oscillation | Brake from top speed on flat |
+| **Parking** | Coasting hold below `5 m/s` | Stops cleanly `< 0.5 s` on `5°` grade | `5.00 studs/s` threshold | `|v| < 0.2 m/s` steady | Release throttle on `5°` ramp |
 | **Steering** | Full-lock ramp (`0 → 1`) / return (`1 → 0`) | `0.225 s` / `0.100 s` | `27` / `12` ticks (`120 Hz`) | Exact (`±1 tick`) | Step steer input test |
 | **Steering** | Straight-line yaw stability (`25 m/s`, 5 s) | `|Δyaw| < 0.1°` | Lateral drift `< 0.05 studs` | Zero bias | Zero-steer straight run |
-| **Cornering** | Steady-state turn radius at `5 m/s` | `5.46 m` | `19.51 studs` | `±8%` | Constant speed, full steer, no drift |
-| **Cornering** | Steady-state turn radius at `10 m/s` | `8.625 m` | `30.80 studs` | `±8%` | Constant speed, full steer, no drift |
-| **Cornering** | Steady-state turn radius at `25 m/s` | `17.25 m` | `61.61 studs` | `±8%` | Constant speed, full steer, no drift |
-| **Drift** | Minimum entry speed | `10.0 m/s` | `35.71 studs/s` | Exact (`9.9` rejected, `10.1` enters) | Press drift + left across speeds |
+| **Cornering** | Steady-state turn radius at `5 m/s` | `5.46 m` | `5.46 studs` | `±8%` | Constant speed, full steer, no drift |
+| **Cornering** | Steady-state turn radius at `10 m/s` | `8.625 m` | `8.625 studs` | `±8%` | Constant speed, full steer, no drift |
+| **Cornering** | Steady-state turn radius at `25 m/s` | `17.25 m` | `17.25 studs` | `±8%` | Constant speed, full steer, no drift |
+| **Drift** | Minimum entry speed | `10.0 m/s` | `10.00 studs/s` | Exact (`9.9` rejected, `10.1` enters) | Press drift + left across speeds |
 | **Drift** | Tier 1 / Tier 2 charge thresholds | `1.00 s` / `3.00 s` | `120` / `360` ticks | Exact (`±1 tick`) | Hold drift at `20 m/s` |
-| **Drift** | Tier 1 / Tier 2 instant speed jump | `+2.25` / `+3.25 m/s` | `+8.04` / `+11.61 studs/s` | `±0.15 m/s` | Measure speed 1 tick post-release |
+| **Drift** | Tier 1 / Tier 2 instant speed jump | `+2.25` / `+3.25 m/s` | `+2.25` / `+3.25 studs/s` | `±0.15 m/s` | Measure speed 1 tick post-release |
 | **Drift** | Arc modulation ratio (outer vs inner steer) | `steerFraction ∈ [0.2, 0.8]` (4:1 ratio) | Countersteer widens, inner tightens | Always stays in locked direction | Sweep `steer ∈ [-1, 1]` while drifting |
 | **Drift** | Post-release heading alignment | Completes in `≤ 0.70 s` | `≤ 84 ticks`, smooth yaw | No single-frame snap (`|Δyaw/tick| < 1.5°`) | Release after `1.5 s` drift |
-| **Drift** | Entry hop apex height & duration | `0.196 m` apex, `0.40 s` total | `0.70 studs` apex | `±0.01 m` | Sample visual offset on drift entry |
-| **Suspension** | Static sag at rest (`v = 0`) | `0.0088 m` (`suspLen = 0.291 m`) | `0.031 studs` (`1.040 studs`) | `±0.005 m` | Rest on flat plane for 2 s |
-| **Suspension** | Equilibrium sag at `25 m/s` (with downforce) | `0.060 m` (`suspLen = 0.240 m`) | `0.214 studs` (`0.857 studs`) | `±0.015 m`, no bottom-out | Flat straight at `25 m/s` |
-| **Suspension** | Drop settling (`0.5 m` drop onto flat) | Settled within `0.50 s` | `1.79 studs` drop | Max 1 overshoot `< 15%`, zero bottom-out | Drop test at `v = 0` |
-| **Suspension** | Seam crossing (`0.02 m` gap in track mesh) | `numWheelsOnGround == 4` | `0.07 studs` seam | Zero bounce/snag via `0.95×` fallback | Drive across seam at `25 m/s` |
+| **Drift** | Entry hop apex height & duration | `0.196 m` apex, `0.40 s` total | `0.196 studs` apex | `±0.01 m` | Sample visual offset on drift entry |
+| **Suspension** | Static sag at rest (`v = 0`) | `0.0088 m` (`suspLen = 0.291 m`) | `0.009 studs` (`0.291 studs`) | `±0.005 m` | Rest on flat plane for 2 s |
+| **Suspension** | Equilibrium sag at `25 m/s` (with downforce) | `0.060 m` (`suspLen = 0.240 m`) | `0.060 studs` (`0.240 studs`) | `±0.015 m`, no bottom-out | Flat straight at `25 m/s` |
+| **Suspension** | Drop settling (`0.5 m` drop onto flat) | Settled within `0.50 s` | `0.50 studs` drop | Max 1 overshoot `< 15%`, zero bottom-out | Drop test at `v = 0` |
+| **Suspension** | Seam crossing (`0.02 m` gap in track mesh) | `numWheelsOnGround == 4` | `0.02 studs` seam | Zero bounce/snag via `0.95×` fallback | Drive across seam at `25 m/s` |
 | **Slope** | Steep wall grip loss (`dot(n, up) < 0.85`, `> 31.8°`) | Wheel grip `= 0` (unless `highTireAdhesion`) | Slides down steep non-banked wall | Zero wall-climbing | Drive at `35°` ramp without adhesion flag |
-| **Airtime** | Effective airborne downward accel (`0` wheels) | `17.81 m/s²` (`g + 4×2`) | `63.60 studs/s²` | `±0.20 m/s²` | Launch off `15°` ramp at `25 m/s` |
+| **Airtime** | Effective airborne downward accel (`0` wheels) | `17.81 m/s²` (`g + 4×2`) | `17.81 studs/s²` | `±0.20 m/s²` | Launch off `15°` ramp at `25 m/s` |
 | **Airtime** | Mid-air yaw spin arrest & leveling | Yaw decays `75%/tick`; landing `|pitch|, |roll| < 5°` | Clean flat touchdown | No tumble or 90° spin off ramp | Launch while turning at `25 m/s` |
-| **Knockback** | Kart–kart equal-mass/speed side bump (`f = 1`) | Lateral `Δv ≈ 1.14 m/s` over `0.10 s` | `4.08 studs/s` over `12 ticks` | `±15%`, `angVel == 0` on hit | Two Medium karts side-swipe at `20 m/s` |
-| **Knockback** | Heavy ramming Light (`f = 2`, `f² = 4`) | Light lateral `Δv ≈ 5.71 m/s` | `20.41 studs/s` | `±15%`, kart stays upright | Heavy rams Light laterally |
+| **Knockback** | Kart–kart equal-mass/speed side bump (`f = 1`) | Lateral `Δv ≈ 1.14 m/s` over `0.10 s` | `1.14 studs/s` over `12 ticks` | `±15%`, `angVel == 0` on hit | Two Medium karts side-swipe at `20 m/s` |
+| **Knockback** | Heavy ramming Light (`f = 2`, `f² = 4`) | Light lateral `Δv ≈ 5.71 m/s` | `5.71 studs/s` | `±15%`, kart stays upright | Heavy rams Light laterally |
 | **Timestep** | Irregular-`dt` determinism (`16/33/8/43 ms`, `1/60 s`, `1/120 s` to `0.100 s`) | Identical tick count (`12`) and bit-identical final state | Remainder carried across variable `Heartbeat` `dt` | Exact (`0` drift); `200 ms` stall caps at `8` substeps & drops debt | [FixedStep.spec.luau](../tests/FixedStep.spec.luau) |
 | **Edge Cases** | Zero-velocity & steering at rest (`|v| < 0.05 m/s`) | `alpha = 0`, `|Δyaw| == 0` under full steer input | Zero chassis rotation at rest | Exact (`0` NaN, `0` rotation) | Pre-solver Lune unit test |
 | **Edge Cases** | Reverse slip-angle grip sign (`v_fwd < 0`, `-10 m/s`) | Lateral force opposes `v_lat` (`sign(F_lat) == -sign(v_lat)`) | Same right-side/left-side sign semantics as forward | Zero grip sign inversion | Pre-solver Lune unit test |

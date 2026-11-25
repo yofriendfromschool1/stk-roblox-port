@@ -69,7 +69,7 @@ Expected output: `1fb491f507216c5d181ccd85f29ff08eca003827` and `1.5`.
 Recorded from `C:\dev\stk-code\README.md`:
 - **STK world coordinates:** `X` right, `Y` up, `Z` forward (metric SI units: meters, m/s, m/s^2).
 - **Blender export convention:** `X` right, `Y` forward, `Z` up (STK exporters convert XY ground to XZ ground).
-- **Roblox world coordinates:** `X` right, `Y` up, `-Z` forward (right-handed; `1 stud = 0.28 m` in `src/shared/Units.lua`).
+- **Roblox world coordinates:** `X` right, `Y` up, `-Z` forward (right-handed; `1 stud = 1.0 m` in `src/shared/Units.lua`).
 - `tools/stk2rbx` and physics ports must account for the handedness / forward-axis flip (`+Z` vs `-Z`) and meter-to-stud scaling explicitly.
 
 ---

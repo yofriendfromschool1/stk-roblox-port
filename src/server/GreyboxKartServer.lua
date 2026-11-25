@@ -12,6 +12,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FixedStep = require(Shared.sim.FixedStep)
+local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
@@ -34,12 +35,18 @@ type PlayerKartEntry = {
 
 local DEBUG_ALLOW_NITRO_GRANT = RunService:IsStudio()
 
-local PLANE_SIZE_STUDS = 512
-local PLANE_THICKNESS_STUDS = 2
-local GRID_SPACING_STUDS = 32
 local VOID_RESET_Y_METERS = GreyboxProtocol.VOID_RESET_Y_METERS
 local SPAWN_HEIGHT_METERS = GreyboxProtocol.SPAWN_HEIGHT_METERS
 local SNAPSHOT_INTERVAL_SEC = 1 / GreyboxProtocol.SNAPSHOT_RATE_HZ
+
+local RBX_MATERIALS: { [string]: Enum.Material } = {
+	Concrete = Enum.Material.Concrete,
+	Sand = Enum.Material.Sand,
+	Slate = Enum.Material.Slate,
+	Glass = Enum.Material.Glass,
+	Sandstone = Enum.Material.Sandstone,
+	Neon = Enum.Material.Neon,
+}
 
 local GreyboxKartServer = {}
 
@@ -150,180 +157,49 @@ local function createGreyboxArena(): (Folder, BasePart)
 	surfaces.Name = "Surfaces"
 	surfaces.Parent = arena
 
-	local roadColor = Color3.fromRGB(132, 136, 144)
-	local half = PLANE_SIZE_STUDS * 0.5
-	local yCenter = -PLANE_THICKNESS_STUDS * 0.5
+	local primaryRoad: BasePart? = nil
+	for _, box in GreyboxArenaData.boxes do
+		local cf = CFrame.new(box.pos[1], box.pos[2], box.pos[3])
+			* CFrame.Angles(math.rad(box.rotDeg[1]), math.rad(box.rotDeg[2]), math.rad(box.rotDeg[3]))
+		local part = makeSurfacePart(
+			surfaces,
+			box.name,
+			Vector3.new(box.size[1], box.size[2], box.size[3]),
+			cf,
+			Color3.fromRGB(box.colorRgb[1], box.colorRgb[2], box.colorRgb[3]),
+			RBX_MATERIALS[box.rbxMaterial] or Enum.Material.Concrete,
+			box.material,
+			box.canCollide,
+			box.transparency
+		)
+		if box.isPrimary then
+			primaryRoad = part
+		end
+		if box.label and box.labelY and box.labelColorRgb then
+			addLabel(
+				part,
+				box.label,
+				box.labelY,
+				Color3.fromRGB(box.labelColorRgb[1], box.labelColorRgb[2], box.labelColorRgb[3])
+			)
+		end
+	end
+	assert(primaryRoad ~= nil, "GreyboxArenaData missing isPrimary box")
+	local primaryPart: BasePart = primaryRoad
 
-	-- Water pit cutout at X in [-48, -24], Z in [-90, -50] so oasis-water.png sits over sunken seabed.jpg
-	local pitMinX, pitMaxX = -48, -24
-	local pitMinZ, pitMaxZ = -90, -50
-	local pitW = pitMaxX - pitMinX
-
-	local eastW = half - pitMaxX
-	local primaryRoad = makeSurfacePart(
-		surfaces,
-		GreyboxProtocol.PLANE_NAME,
-		Vector3.new(eastW, PLANE_THICKNESS_STUDS, PLANE_SIZE_STUDS),
-		CFrame.new(pitMaxX + eastW * 0.5, yCenter, 0),
-		roadColor,
-		Enum.Material.Concrete,
-		"road.jpg"
-	)
-
-	local westW = pitMinX - -half
-	makeSurfacePart(
-		surfaces,
-		"RoadFloorWest",
-		Vector3.new(westW, PLANE_THICKNESS_STUDS, PLANE_SIZE_STUDS),
-		CFrame.new(-half + westW * 0.5, yCenter, 0),
-		roadColor,
-		Enum.Material.Concrete,
-		"road.jpg"
-	)
-
-	local northD = pitMinZ - -half
-	makeSurfacePart(
-		surfaces,
-		"RoadFloorNorthPit",
-		Vector3.new(pitW, PLANE_THICKNESS_STUDS, northD),
-		CFrame.new(0.5 * (pitMinX + pitMaxX), yCenter, -half + northD * 0.5),
-		roadColor,
-		Enum.Material.Concrete,
-		"road.jpg"
-	)
-
-	local southD = half - pitMaxZ
-	makeSurfacePart(
-		surfaces,
-		"RoadFloorSouthPit",
-		Vector3.new(pitW, PLANE_THICKNESS_STUDS, southD),
-		CFrame.new(0.5 * (pitMinX + pitMaxX), yCenter, pitMaxZ + southD * 0.5),
-		roadColor,
-		Enum.Material.Concrete,
-		"road.jpg"
-	)
-
-	-- 1) Flush sand slowdown strip (top Y = 0.002 m; zero curb bounce)
-	local sandPart = makeSurfacePart(
-		surfaces,
-		"SandPatch",
-		Vector3.new(20, 0.20, 95),
-		CFrame.new(0, -0.098, -72.5),
-		Color3.fromRGB(224, 192, 112),
-		Enum.Material.Sand,
-		"sand.png"
-	)
-	addLabel(sandPart, "SAND.PNG (0.5x CAP / 12.5 m/s)", 3.5, Color3.fromRGB(255, 225, 130))
-
-	-- 2) Non-colliding oasis-water.png over sunken seabed.jpg reset basin
-	local seabedPart = makeSurfacePart(
-		surfaces,
-		"SeabedFloor",
-		Vector3.new(pitW + 2, 1.0, pitMaxZ - pitMinZ + 2),
-		CFrame.new(0.5 * (pitMinX + pitMaxX), -3.0, 0.5 * (pitMinZ + pitMaxZ)),
-		Color3.fromRGB(95, 82, 58),
-		Enum.Material.Slate,
-		"seabed.jpg"
-	)
-	local waterPart = makeSurfacePart(
-		surfaces,
-		"OasisWaterSheet",
-		Vector3.new(pitW, 0.08, pitMaxZ - pitMinZ),
-		CFrame.new(0.5 * (pitMinX + pitMaxX), -0.04, 0.5 * (pitMinZ + pitMaxZ)),
-		Color3.fromRGB(45, 165, 235),
-		Enum.Material.Glass,
-		"oasis-water.png",
-		false,
-		0.45
-	)
-	addLabel(waterPart, "OASIS-WATER (IGNORE) -> SEABED (RESET)", 3.5, Color3.fromRGB(115, 215, 255))
-	addLabel(seabedPart, "SEABED.JPG (RESET)", 2.0, Color3.fromRGB(255, 140, 120))
-
-	-- 3) 35 deg bank ramps (pyramidwall.jpg high-adhesion vs road.jpg control) + 60 deg steep wall
-	local rampW, rampH, rampL = 16, 1, 36
-	local tiltRad = math.rad(35)
-	local rampCenterY = (rampW * 0.5) * math.sin(tiltRad) - (rampH * 0.5) * math.cos(tiltRad)
-
-	local pyramidRamp = makeSurfacePart(
-		surfaces,
-		"PyramidWallRamp",
-		Vector3.new(rampW, rampH, rampL),
-		CFrame.new(28, rampCenterY, -45) * CFrame.Angles(0, 0, tiltRad),
-		Color3.fromRGB(198, 152, 92),
-		Enum.Material.Sandstone,
-		"pyramidwall.jpg"
-	)
-	addLabel(pyramidRamp, "PYRAMIDWALL.JPG (35 deg HIGH ADHESION)", 5.0, Color3.fromRGB(255, 215, 130))
-
-	local controlRamp = makeSurfacePart(
-		surfaces,
-		"RoadControlRamp",
-		Vector3.new(rampW, rampH, rampL),
-		CFrame.new(28, rampCenterY, -95) * CFrame.Angles(0, 0, tiltRad),
-		Color3.fromRGB(108, 112, 122),
-		Enum.Material.Concrete,
-		"road.jpg"
-	)
-	addLabel(controlRamp, "ROAD.JPG (35 deg CONTROL / SLIDES)", 5.0, Color3.fromRGB(220, 225, 235))
-
-	local wallW, wallH, wallL = 12, 1, 36
-	local wallTilt = math.rad(60)
-	local wallCenterY = (wallW * 0.5) * math.sin(wallTilt) - (wallH * 0.5) * math.cos(wallTilt)
-	local steepWall = makeSurfacePart(
-		surfaces,
-		"SteepWall60",
-		Vector3.new(wallW, wallH, wallL),
-		CFrame.new(52, wallCenterY, -70) * CFrame.Angles(0, 0, wallTilt),
-		Color3.fromRGB(165, 130, 90),
-		Enum.Material.Slate,
-		"road.jpg"
-	)
-	addLabel(steepWall, "60 deg WALL SLIDE TEST", 5.5, Color3.fromRGB(255, 200, 140))
-
-	-- Vertical 90 deg corner walls for resting contact & inside-corner manifold testing
-	local cornerWallN = makeSurfacePart(
-		surfaces,
-		"CornerWallNorth",
-		Vector3.new(20, 4, 2),
-		CFrame.new(-6, 2, -142),
-		Color3.fromRGB(145, 160, 180),
-		Enum.Material.Concrete,
-		"road.jpg"
-	)
-	makeSurfacePart(
-		surfaces,
-		"CornerWallWest",
-		Vector3.new(2, 4, 20),
-		CFrame.new(-17, 2, -133),
-		Color3.fromRGB(145, 160, 180),
-		Enum.Material.Concrete,
-		"road.jpg"
-	)
-	addLabel(cornerWallN, "90 deg INSIDE CORNER TEST", 4.0, Color3.fromRGB(175, 220, 255))
-
-	-- 4) Flush reset barrier strip (top Y = 0.004 m)
-	local resetStrip = makeSurfacePart(
-		surfaces,
-		"ResetStrip",
-		Vector3.new(24, 0.25, 10),
-		CFrame.new(26, -0.121, -135),
-		Color3.fromRGB(235, 60, 60),
-		Enum.Material.Neon,
-		"transparence2.png",
-		true,
-		0.25
-	)
-	addLabel(resetStrip, "TRANSPARENCE2.PNG (COLLISION RESET)", 3.5, Color3.fromRGB(255, 120, 120))
-
-	-- 5) Real sandtrack road.jpg thin-mesh collision probe (64 tris)
+	-- Real sandtrack road.jpg thin-mesh collision probe (64 tris)
 	buildThinRoadMeshProbe(surfaces)
 
 	-- Flush non-collidable, non-queryable visual grid lines
+	local planeSize = GreyboxArenaData.planeSizeStuds
+	local half = planeSize * 0.5
+	local gridSpacing = GreyboxArenaData.gridSpacingStuds
+
 	local gridFolder = Instance.new("Folder")
 	gridFolder.Name = "GridLines"
 	gridFolder.Parent = arena
 
-	for offset = -half, half, GRID_SPACING_STUDS do
+	for offset = -half, half, gridSpacing do
 		local isCenter = (offset == 0)
 		local thickness = if isCenter then 0.35 else 0.12
 		local color = if isCenter then Color3.fromRGB(220, 185, 70) else Color3.fromRGB(98, 102, 110)
@@ -336,7 +212,7 @@ local function createGreyboxArena(): (Folder, BasePart)
 		lineX.CanQuery = false
 		lineX.Material = Enum.Material.SmoothPlastic
 		lineX.Color = color
-		lineX.Size = Vector3.new(PLANE_SIZE_STUDS, 0.02, thickness)
+		lineX.Size = Vector3.new(planeSize, 0.02, thickness)
 		lineX.CFrame = CFrame.new(0, 0.005, offset)
 		lineX.Parent = gridFolder
 
@@ -348,14 +224,14 @@ local function createGreyboxArena(): (Folder, BasePart)
 		lineZ.CanQuery = false
 		lineZ.Material = Enum.Material.SmoothPlastic
 		lineZ.Color = color
-		lineZ.Size = Vector3.new(thickness, 0.02, PLANE_SIZE_STUDS)
+		lineZ.Size = Vector3.new(thickness, 0.02, planeSize)
 		lineZ.CFrame = CFrame.new(offset, 0.005, 0)
 		lineZ.Parent = gridFolder
 	end
 
-	arena.PrimaryPart = primaryRoad
+	arena.PrimaryPart = primaryPart
 	arena.Parent = Workspace
-	return surfaces, primaryRoad
+	return surfaces, primaryPart
 end
 
 local function sanitizeInput(raw: any): (KartSolver.KartInput, number, boolean, boolean)
@@ -415,6 +291,7 @@ function GreyboxKartServer.start()
 	end
 
 	local surfacesFolder, arenaPrimaryPart = createGreyboxArena()
+	Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
 	local worldQuery = RobloxWorldQuery.create(surfacesFolder)
 
 	local remotesFolder = Instance.new("Folder")

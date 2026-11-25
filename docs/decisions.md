@@ -16,9 +16,9 @@ This log records Month 1+ engineering decisions and any future changes to baseli
 - **Decision:** Kart chassis motion (`position`, `orientation`, `linearVel`, `angularVel`), suspension spring-damper forces, and tire forces are integrated in pure Luau using SI metric units (`m`, `kg`, `s`, `N`, `rad`), querying track geometry via an injected `WorldQuery` interface and writing interpolated anchored `CFrame`s for visual/collider presentation.
 - **Rationale:** Enables identical execution in headless Lune tests (`lune run tests/run.luau`) and Roblox Server/Client prediction & reconciliation.
 
-## 3. World Scale Freedom (`METERS_PER_STUD`)
-- **Decision:** Initial boundary scale is set to `METERS_PER_STUD = 0.28` in [Units.lua](../src/shared/Units.lua) and [coords.py](../tools/stk2rbx/coords.py), with explicit flexibility to re-evaluate before finalizing `.spm` spatial mesh chunking.
-- **Rationale:** Because the pure-Luau integrator runs entirely in SI meters without Roblox gravity, friction, or dynamic rigid bodies, `METERS_PER_STUD` is purely a rendering, `float32` coordinate precision, and `BasePart.Size` (`2048`-stud limit) chunking choice at the boundary. Smaller stud extents reduce float32 drift and the number of spatial chunks needed for large tracks (`sandtrack_track.spm` spans `6543.5 × 4598.1` studs at `0.28 m/stud`).
+## 3. World Scale Lock (`METERS_PER_STUD = 1.0`)
+- **Decision (Locked):** Boundary scale is locked to **`METERS_PER_STUD = 1.0`** (`1 stud = 1.0 m`) in [Units.lua](../src/shared/Units.lua) and [coords.py](../tools/stk2rbx/coords.py), paired with pure STK kart + driver meshes (`Players.CharacterAutoLoads = false`, no Roblox Humanoids/avatars, no Roblox Terrain). See `## Scale: METERS_PER_STUD = 1.0` below.
+- **Rationale & Tiling Roadmap:** At `1.0 m/stud`, `sandtrack_track.spm` (`1724.9 × 232.7 × 1287.5 m`) fits within Roblox's `2048`-stud `BasePart.Size` cap on all three axes without spatial chunking. Other upstream tracks whose mesh or submesh bounds exceed `2048 m` still require spatial bucketing, so the spatial tiler remains on the `tools/stk2rbx` roadmap for multi-track support.
 
 ## 4. `rojo serve` vs. `rojo build` Workflow
 - **Decision:** Keep `rojo serve` as the live Studio development loop, and treat `rojo build default.project.json -o openkart-dev.rbxl` as a CI/verification/publish build artifact only (never hand-edit `.rbxl` files).
@@ -33,6 +33,22 @@ This log records Month 1+ engineering decisions and any future changes to baseli
   - `178` zero-dot triangles (`148` `road.jpg`, `20` `sand.png`, `10` `texture_egypte.jpg`) all have `area = 0.00000000 m²` (degenerate zero-area slivers; safe to strip on mesh export).
   - `36` negative average-normal-dot triangles (`0` in `road.jpg` out of `3,064` road triangles; `30` in `texture_egypte.jpg`, `2` in `camel_col.jpg`, `2` in `sand.png`, `2` in `woodPost.png`): `3` are degenerate micro-tris (`area <= 1e-6 m²`) and `33` are valid triangles with mixed-sign per-vertex smooth normals spanning sharp creases. **`0 / 11,444` non-degenerate triangles have all three vertex normals opposing the geometric face normal**, confirming zero flipped submeshes and zero track surface winding holes (`test_sandtrack_spm_winding_audit` in `tools/stk2rbx/test_stk2rbx.py`).
 
-## 6. Next-Phase Sequencing: Park Mesh Export, Build Greybox Kart Solver First
-- **Decision:** Park full `.spm` → `.glb` mesh export and `> 2048`-stud spatial chunking until after the Month 2 drift-feel gate (`"does drift feel good"`). Next build `src/shared/sim/KartSolver.lua` as pure math against [physics-spec.md](physics-spec.md) with Lune tests (zero-velocity floor, reverse slip guard, airtime skid-charge persistence), followed by a Roblox wrapper driving on a flat greybox plane with live telemetry.
-- **Rationale:** `tools/stk2rbx` XML → logic-volume conversion and mesh cap auditing are proven (`sandtrack` needs spatial chunking on 4 submeshes). Sinking weeks into `.glb` material splitting and chunking before validating drift feel on a flat plane violates the Month 2 gate priority (`AGENTS.md`).
+## 6. Next-Phase Sequencing: Materials, Greybox Surface Patches & Thin-Mesh Probe
+- **Decision:** Validate STK handling on real per-material physics parameters (`materials.xml`: sand slowdown, non-colliding water pass-through, reset triggers, `pyramidwall` high adhesion) in `KartSolver` + Lune tests and a material-patch greybox arena first, alongside ONE small `road.jpg` thin-mesh collision probe from `sandtrack_track.spm` (`tools/stk2rbx/road_probe.py`) before building the full `.spm` exporter and spatial tiler (still required for tracks exceeding `2048 m`).
+- **Rationale:** `KartSolver` + `Skidding` + `MaxSpeed` can be tested offline in Lune and interactively on color-coded surface patches while verifying Roblox thin-mesh raycast collision fidelity (`PreciseConvexDecomposition` / `.glb`) on real STK road triangles before investing in full textured visual track export.
+
+## 7. Thin-Mesh Collision Probe Findings (`sandtrack` `road.jpg`)
+- **Probe Setup:** Extracted ONE contiguous 64-triangle `road.jpg` patch (`10.58 × 1.15 × 34.45` studs at `1.0 m/stud`) from `sandtrack_track.spm` (rev `18627`) via [road_probe.py](../tools/stk2rbx/road_probe.py), applying `S = diag(1, 1, -1)` (`det = -1`) and `flip_triangle_winding`. Emitted [sandtrack_road_patch.glb](../build/probes/sandtrack_road_patch.glb) and [SandtrackRoadProbeData.lua](../src/shared/track/SandtrackRoadProbeData.lua).
+- **Studio Empirical Measurements (`MeshPart`, `PreciseConvexDecomposition`):**
+  - Server downward raycasts hit **`64 / 64` triangles (`100%`, zero holes)** with **`64 / 64` upward outward normals (`MinNormY = 0.9904`)** and true road grade normals (e.g., `(-0.00, 1.00, 0.03)`).
+  - `CreateMeshPartAsync` preserves the mesh's local vertex origin `(0, 0, 0)` (does not re-center to bounding-box midpoint), while `PreciseConvexDecomposition` thickens zero-thickness single-sided shells slightly into thin convex hulls (`0.0257–0.1341 m` thickness, max upward hull offset `+0.0945 m` over exact triangle centroids).
+  - **Runtime `EditableMesh` vs `.glb` Import Boundary:** Client console logged `EditableMesh is not accessible. Go to the Security Tab in Experience Settings to enable this API.` Thus runtime `EditableMesh` works only as a Studio server probe; production track imports will use offline `.glb` → Roblox `MeshPart` AssetIds (with spatial tiling retained on the roadmap for tracks exceeding `2048 m` on any axis).
+
+## Scale: METERS_PER_STUD = 1.0
+Decision: pure STK kart meshes + STK driver models. No visible Roblox avatars.
+Rationale: 1:1 asset fidelity. STK karts include driver models; substituting R15
+avatars is a divergence, not a port. Physics is unaffected (solver is SI-native).
+Consequences:
+- Players.CharacterAutoLoads = false; no Humanoid, no default character scripts.
+- Do NOT use Roblox Terrain (4-stud voxels = 4 m at this scale). Meshes only.
+- Optional avatar-display mode may be added later as an explicit divergence.
