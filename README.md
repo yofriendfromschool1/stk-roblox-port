@@ -1,4 +1,4 @@
-https://github.com/yofriendfromschool1/stk-roblox-port/blob/main/OpenKart.jpg?raw=true
+![](https://github.com/yofriendfromschool1/stk-roblox-port/blob/main/OpenKart.jpg?raw=true)
 
 # OpenKart
 
