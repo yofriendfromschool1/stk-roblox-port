@@ -1,3 +1,5 @@
+https://github.com/yofriendfromschool1/stk-roblox-port/blob/main/OpenKart.jpg?raw=true
+
 # OpenKart
 
 **Unofficial port of [SuperTuxKart](https://supertuxkart.net/) (`1.5`) to Roblox.**
