@@ -271,9 +271,36 @@ local EMPTY_MAPPED: MappedInput = {
 	lookBack = false,
 }
 
+local function isGamepadInputType(userInputType: Enum.UserInputType): boolean
+	return string.sub(userInputType.Name, 1, 7) == "Gamepad"
+end
+
+local function readGamepadAxes(userInputService: UserInputService, slot: Enum.UserInputType): GamepadAxes
+	local axes: GamepadAxes = {
+		thumbstick1X = 0.0,
+		thumbstick1Y = 0.0,
+		triggerR2 = 0.0,
+		triggerL2 = 0.0,
+	}
+	for _, inputObj in userInputService:GetGamepadState(slot) do
+		if inputObj.KeyCode == Enum.KeyCode.Thumbstick1 then
+			axes.thumbstick1X = inputObj.Position.X
+			axes.thumbstick1Y = inputObj.Position.Y
+		elseif inputObj.KeyCode == Enum.KeyCode.ButtonR2 then
+			axes.triggerR2 = inputObj.Position.Z
+		elseif inputObj.KeyCode == Enum.KeyCode.ButtonL2 then
+			axes.triggerL2 = inputObj.Position.Z
+		end
+	end
+	return axes
+end
+
 function InputMapper.createLive(options: LiveOptions): LiveMapper
 	local GuiService = game:GetService("GuiService")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local UserInputService = game:GetService("UserInputService")
+	local Shared = ReplicatedStorage:WaitForChild("Shared")
+	local GamepadSelect = require(Shared.input.GamepadSelect)
 
 	-- Prevent gamepad UI focus navigation from stealing driving buttons
 	GuiService.AutoSelectGuiEnabled = false
@@ -281,38 +308,58 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 
 	local resetPulse = false
 	local grantNitroPulse = false
-	local gamepadButtonsDown: { [string]: boolean } = {}
+	local connectedGamepads: { Enum.UserInputType } = UserInputService:GetConnectedGamepads()
+	local lastActiveSlot: Enum.UserInputType? = nil
+	local gamepadButtonsBySlot: { [Enum.UserInputType]: { [string]: boolean } } = {}
 
-	local function setGamepadButton(keyCode: Enum.KeyCode, isDown: boolean)
+	local function setGamepadButton(slot: Enum.UserInputType, keyCode: Enum.KeyCode, isDown: boolean)
+		local buttonsDown = gamepadButtonsBySlot[slot]
+		if not buttonsDown then
+			buttonsDown = {}
+			gamepadButtonsBySlot[slot] = buttonsDown
+		end
 		if keyCode == Enum.KeyCode.ButtonA then
-			gamepadButtonsDown.ButtonA = isDown
+			buttonsDown.ButtonA = isDown
 		elseif keyCode == Enum.KeyCode.ButtonB then
-			gamepadButtonsDown.ButtonB = isDown
+			buttonsDown.ButtonB = isDown
 		elseif keyCode == Enum.KeyCode.ButtonX then
-			gamepadButtonsDown.ButtonX = isDown
+			buttonsDown.ButtonX = isDown
 		elseif keyCode == Enum.KeyCode.ButtonY then
-			gamepadButtonsDown.ButtonY = isDown
+			buttonsDown.ButtonY = isDown
 		elseif keyCode == Enum.KeyCode.ButtonL1 then
-			gamepadButtonsDown.ButtonL1 = isDown
+			buttonsDown.ButtonL1 = isDown
 		elseif keyCode == Enum.KeyCode.ButtonR1 then
-			gamepadButtonsDown.ButtonR1 = isDown
+			buttonsDown.ButtonR1 = isDown
 		elseif keyCode == Enum.KeyCode.ButtonR3 then
-			gamepadButtonsDown.ButtonR3 = isDown
+			buttonsDown.ButtonR3 = isDown
 		elseif keyCode == Enum.KeyCode.DPadLeft then
-			gamepadButtonsDown.DPadLeft = isDown
+			buttonsDown.DPadLeft = isDown
 		elseif keyCode == Enum.KeyCode.DPadRight then
-			gamepadButtonsDown.DPadRight = isDown
+			buttonsDown.DPadRight = isDown
 		elseif keyCode == Enum.KeyCode.DPadUp then
-			gamepadButtonsDown.DPadUp = isDown
+			buttonsDown.DPadUp = isDown
 		elseif keyCode == Enum.KeyCode.ButtonSelect then
-			gamepadButtonsDown.ButtonSelect = isDown
+			buttonsDown.ButtonSelect = isDown
 		end
 	end
 
+	local connectedConn = UserInputService.GamepadConnected:Connect(function(_slot: Enum.UserInputType)
+		connectedGamepads = UserInputService:GetConnectedGamepads()
+	end)
+
+	local disconnectedConn = UserInputService.GamepadDisconnected:Connect(function(slot: Enum.UserInputType)
+		connectedGamepads = UserInputService:GetConnectedGamepads()
+		gamepadButtonsBySlot[slot] = nil
+		if lastActiveSlot == slot then
+			lastActiveSlot = nil
+		end
+	end)
+
 	local beganConn = UserInputService.InputBegan:Connect(function(inputObj: InputObject, gameProcessed: boolean)
-		if inputObj.UserInputType == Enum.UserInputType.Gamepad1 then
+		if isGamepadInputType(inputObj.UserInputType) then
 			GuiService.SelectedObject = nil
-			setGamepadButton(inputObj.KeyCode, true)
+			lastActiveSlot = inputObj.UserInputType
+			setGamepadButton(inputObj.UserInputType, inputObj.KeyCode, true)
 			if inputObj.KeyCode == Enum.KeyCode.ButtonSelect or inputObj.KeyCode == Enum.KeyCode.DPadUp then
 				resetPulse = true
 			end
@@ -337,8 +384,8 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 	end)
 
 	local endedConn = UserInputService.InputEnded:Connect(function(inputObj: InputObject)
-		if inputObj.UserInputType == Enum.UserInputType.Gamepad1 then
-			setGamepadButton(inputObj.KeyCode, false)
+		if isGamepadInputType(inputObj.UserInputType) then
+			setGamepadButton(inputObj.UserInputType, inputObj.KeyCode, false)
 		end
 	end)
 
@@ -365,24 +412,25 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 		grantNitroPulse = false
 
 		local gpMapped = EMPTY_MAPPED
-		if UserInputService:GetGamepadConnected(Enum.UserInputType.Gamepad1) then
-			local axes: GamepadAxes = {
-				thumbstick1X = 0.0,
-				thumbstick1Y = 0.0,
-				triggerR2 = 0.0,
-				triggerL2 = 0.0,
-			}
-			for _, inputObj in UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1) do
-				if inputObj.KeyCode == Enum.KeyCode.Thumbstick1 then
-					axes.thumbstick1X = inputObj.Position.X
-					axes.thumbstick1Y = inputObj.Position.Y
-				elseif inputObj.KeyCode == Enum.KeyCode.ButtonR2 then
-					axes.triggerR2 = inputObj.Position.Z
-				elseif inputObj.KeyCode == Enum.KeyCode.ButtonL2 then
-					axes.triggerL2 = inputObj.Position.Z
-				end
+		if #connectedGamepads > 0 then
+			local pads: { GamepadSelect.PadEntry<Enum.UserInputType> } = {}
+			local axesBySlot: { [Enum.UserInputType]: GamepadAxes } = {}
+			for _, slot in connectedGamepads do
+				local axes = readGamepadAxes(UserInputService, slot)
+				axesBySlot[slot] = axes
+				table.insert(pads, { slot = slot, axes = axes })
 			end
-			gpMapped = InputMapper.fromGamepad(axes, gamepadButtonsDown, false)
+
+			local activeSlot = GamepadSelect.pickActive(pads, InputMapper.GAMEPAD_DEADZONE)
+			if activeSlot ~= nil then
+				lastActiveSlot = activeSlot
+			end
+
+			local selectedSlot = activeSlot or lastActiveSlot
+			if selectedSlot ~= nil and axesBySlot[selectedSlot] ~= nil then
+				gpMapped =
+					InputMapper.fromGamepad(axesBySlot[selectedSlot], gamepadButtonsBySlot[selectedSlot] or {}, false)
+			end
 		end
 
 		local touchMapped = EMPTY_MAPPED
@@ -398,6 +446,8 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 	end
 
 	local function destroy()
+		connectedConn:Disconnect()
+		disconnectedConn:Disconnect()
 		beganConn:Disconnect()
 		endedConn:Disconnect()
 	end

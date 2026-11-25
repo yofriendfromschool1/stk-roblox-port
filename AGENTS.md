@@ -72,3 +72,7 @@ GO/NO-GO at end of month 2 is "does drift feel good". No content ahead of that g
 - ROBLOX_OPEN_CLOUD_KEY is an env var. Never print, echo, log, or write its
   value to any file. Never commit it. Reference it only as os.environ[...].
 - If a command would echo the key, redact it. Report "key present" not the value.
+
+VERIFY: run stylua, selene, luau-lsp with @roblox defs, and lune tests. PASTE THE
+ACTUAL OUTPUT. Do not report success without a green run. Do not search the web
+for functions in this repo — they are local.
