@@ -45,6 +45,9 @@ local POWERUP_ICON_ASSETS: { [number]: string } = {
 	[ItemTuning.POWERUP_ANVIL] = "rbxassetid://85031117296474",
 }
 
+-- Verified CC-BY-SA-3.0 plunger-in-face overlay (stk-assets/textures/plungerface.png rev 18627; credits in assets/CREDITS.md)
+local PLUNGER_FACE_ASSET = "rbxassetid://86029430083812"
+
 local RANK_ANIM_DURATION_SEC = 0.4 -- race_gui.cpp:L953
 local RANK_MIN_SHRINK = 0.3 -- race_gui.cpp:L954
 
@@ -158,6 +161,19 @@ gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = playerGui
+
+-- RaceGUIBase::drawPlungerInFace overlay (race_gui_base.cpp:L1263-L1335)
+local plungerFaceOverlay = Instance.new("ImageLabel")
+plungerFaceOverlay.Name = "PlungerInFaceOverlay"
+plungerFaceOverlay.BackgroundTransparency = 1
+plungerFaceOverlay.AnchorPoint = Vector2.new(0.5, 0.5)
+plungerFaceOverlay.Position = UDim2.fromScale(0.5, 0.5)
+plungerFaceOverlay.Size = UDim2.fromScale(0.45, 0.6)
+plungerFaceOverlay.ScaleType = Enum.ScaleType.Fit
+plungerFaceOverlay.Image = PLUNGER_FACE_ASSET
+plungerFaceOverlay.ZIndex = 50
+plungerFaceOverlay.Visible = false
+plungerFaceOverlay.Parent = gui
 
 -- Bindable Element #1: Speedometer (speedback.png + 8-segment speedfore.png, race_gui.cpp:L1011-L1131)
 local speedRoot = Instance.new("Frame")
@@ -564,15 +580,18 @@ end
 RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value + 2, function(dt: number)
 	debug.profilebegin("OpenKart_GameHud")
 	local renderHud = HudState.get()
-	local standingsInput: { Standings.StandingsEntry } = {
-		{
-			id = "local",
-			lap = renderHud.lap,
-			checkpoint = renderHud.checkpoint,
-			distance = renderHud.distance,
-			initialPosition = 1,
-		},
-	}
+	local standingsInput: { Standings.StandingsEntry } = if renderHud.standingsEntries ~= nil
+			and #renderHud.standingsEntries > 0
+		then renderHud.standingsEntries
+		else {
+			{
+				id = "local",
+				lap = renderHud.lap,
+				checkpoint = renderHud.checkpoint,
+				distance = renderHud.distance,
+				initialPosition = 1,
+			},
+		}
 	local rank, totalKarts = Standings.getRankForId(standingsInput, "local")
 	local vis = RaceHudMath.getModeVisibility(renderHud.raceMode, {
 		isRacePhase = renderHud.ready,
@@ -830,6 +849,18 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		else
 			powerupCountLabel.Visible = false
 		end
+	end
+
+	-- 7) Plunger-in-face screen obstruction (RaceGUIBase::drawPlungerInFace, race_gui_base.cpp:L1263-L1335)
+	local plungerTicks = renderHud.plungerFaceTicks
+	if plungerTicks > 0 then
+		plungerFaceOverlay.Visible = true
+		local remSec = plungerTicks / 120.0
+		local yOff = if remSec < 0.5 then -(1.0 - remSec * 2.0) * 0.65 else math.sin(remSec * 7.0) * 0.02
+		local xOff = math.cos(remSec * 5.0) * 0.02
+		plungerFaceOverlay.Position = UDim2.fromScale(0.5 + xOff, 0.5 + yOff)
+	else
+		plungerFaceOverlay.Visible = false
 	end
 	debug.profileend()
 end)

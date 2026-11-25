@@ -13,6 +13,8 @@ local Workspace = game:GetService("Workspace")
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FixedStep = require(Shared.sim.FixedStep)
+local Flyable = require(Shared.sim.Flyable)
+local FlyablePresentation = require("./items/FlyablePresentation")
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local HudState = require("./HudState")
@@ -25,6 +27,7 @@ local KartTuning = require(Shared.KartTuning)
 local Math3D = require(Shared.sim.Math3D)
 local ReconciliationSmoother = require(Shared.net.ReconciliationSmoother)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
+local Standings = require(Shared.race.Standings)
 local Units = require(Shared.Units)
 
 type ClientInputPacket = GreyboxProtocol.ClientInputPacket
@@ -154,7 +157,11 @@ local visuals = KartPresentation.create(localPlayer, profile, "tux")
 
 local localKartId = if localPlayer.UserId ~= 0 then localPlayer.UserId else 1
 local localItemWorld = ItemWorld.fromArenaSpec(GreyboxArenaData, "NORMAL_RACE")
+local localFlyableWorld = Flyable.createWorld()
 local itemVisuals = ItemPresentation.create()
+local flyableVisuals = FlyablePresentation.create()
+local latestRemoteKarts: { GreyboxProtocol.RemoteKartState } = {}
+local remoteKartVisuals: { [string]: KartPresentation.VisualKart } = {}
 
 local localStepper = FixedStep.new()
 local localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
@@ -270,11 +277,11 @@ local function sampleInput(): (KartSolver.KartInput, boolean, boolean, boolean)
 		lookBack
 end
 
-telemetryRemote.OnClientEvent:Connect(function(rawNums: any, rawIncs: any, rawNotice: any, rawItems: any)
+telemetryRemote.OnClientEvent:Connect(function(rawPayload: any, rawNotice: any)
 	if localOnlyMode then
 		return
 	end
-	local snapshot = GreyboxProtocol.unpackSnapshot(rawNums, rawIncs, rawNotice, rawItems)
+	local snapshot = GreyboxProtocol.unpackSnapshot(rawPayload, rawNotice)
 	if snapshot == nil then
 		return
 	end
@@ -285,6 +292,53 @@ telemetryRemote.OnClientEvent:Connect(function(rawNums: any, rawIncs: any, rawNo
 	lastReceivedServerTick = snapshot.tick
 	pendingSnapshot = snapshot
 end)
+
+local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, number, { Flyable.KartProxy })
+	local entries: { Standings.StandingsEntry } = {
+		{
+			id = "local",
+			lap = 0,
+			checkpoint = 0,
+			distance = localState.pos.z,
+			initialPosition = 2,
+		},
+	}
+	for idx, rk in latestRemoteKarts do
+		table.insert(entries, {
+			id = rk.id,
+			lap = 0,
+			checkpoint = 0,
+			distance = rk.pos[3],
+			initialPosition = idx,
+		})
+	end
+	local myRank = Standings.getRankForId(entries, "local")
+	local proxies: { Flyable.KartProxy } = {
+		KartSolver.makeFlyableProxy(localKartId, localState, myRank, "best"),
+	}
+	for idx, rk in latestRemoteKarts do
+		local numericId = tonumber(rk.id) or -idx
+		table.insert(proxies, {
+			id = numericId,
+			pos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] },
+			rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] },
+			linVel = { x = 0, y = 0, z = rk.speed },
+			speed = rk.speed,
+			length = profile.length,
+			rank = rk.rank,
+			baseMaxSpeed = profile.maxSpeed,
+			isInvulnerable = false,
+			isInAnimation = false,
+			isShielded = (rk.attachmentType == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD),
+			hasBomb = (rk.attachmentType == ItemTuning.ATTACHMENT_BOMB),
+			onExplode = function() end,
+			onSquash = function() end,
+			onPlungerFace = function() end,
+			onRubberBandPull = function() end,
+		})
+	end
+	return entries, myRank, proxies
+end
 
 -- STK normal/reverse follow-camera state (src/graphics/camera/camera_normal.cpp:L102-L144, L224-L241, user_config.hpp:L1046-L1066)
 local camCfg = KartTuning.camera
@@ -322,6 +376,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		pendingSnapshot = nil
 		if snapshot.tick > lastAppliedServerTick then
 			lastAppliedServerTick = snapshot.tick
+			latestRemoteKarts = snapshot.remoteKarts or {}
 			local preAlpha = localStepper:getAlpha()
 			local preInterpPos = Math3D.vecLerp(prevPose.pos, currPose.pos, preAlpha)
 			local preInterpRot = Math3D.quatSlerp(prevPose.rot, currPose.rot, preAlpha)
@@ -330,7 +385,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 
 			if snapshot.resetSeq > lastResetSeq then
 				lastResetSeq = snapshot.resetSeq
-				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
+				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld, localFlyableWorld)
 				table.clear(inputHistory)
 				prevPose = capturePose(localState)
 				currPose = capturePose(localState)
@@ -353,13 +408,14 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				end
 				inputHistory = retained
 
-				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld)
+				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld, localFlyableWorld)
 				local replayCount = #inputHistory
 				if replayCount > 0 then
 					for idx, entry in inputHistory do
 						if idx == replayCount then
 							prevPose = capturePose(localState)
 						end
+						local _, myRank, proxies = buildClientStandingsAndProxies()
 						KartSolver.stepWithItems(
 							localState,
 							entry.input,
@@ -369,7 +425,20 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 							{
 								isServer = false,
 								kartId = localKartId,
+								flyableWorld = localFlyableWorld,
+								allKartProxies = proxies,
+								drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+								rank = myRank,
+								difficulty = "best",
 							}
+						)
+						Flyable.step(
+							localFlyableWorld,
+							proxies,
+							worldQuery,
+							FixedStep.FIXED_DT,
+							GreyboxArenaData.drivelineQuadCenters,
+							localItemWorld.elapsedTicks
 						)
 					end
 					currPose = capturePose(localState)
@@ -432,10 +501,24 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				if #inputHistory > MAX_INPUT_HISTORY then
 					table.remove(inputHistory, 1)
 				end
+				local _, myRank, proxies = buildClientStandingsAndProxies()
 				KartSolver.stepWithItems(localState, solverInput, worldQuery, fixedDt, localItemWorld, {
 					isServer = false,
 					kartId = localKartId,
+					flyableWorld = localFlyableWorld,
+					allKartProxies = proxies,
+					drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+					rank = myRank,
+					difficulty = "best",
 				})
+				Flyable.step(
+					localFlyableWorld,
+					proxies,
+					worldQuery,
+					fixedDt,
+					GreyboxArenaData.drivelineQuadCenters,
+					localItemWorld.elapsedTicks
+				)
 				currPose = capturePose(localState)
 			end
 		end)
@@ -443,6 +526,50 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	end
 
 	ItemPresentation.sync(itemVisuals, localItemWorld, now)
+
+	-- Sync remote karts (including TestDummyKart) and Flyable projectiles
+	local kartPositionsById: { [number]: Vector3 } = {}
+	local seenRemotes: { [string]: boolean } = {}
+	local defaultSusp = {
+		KartTuning.suspension.rest,
+		KartTuning.suspension.rest,
+		KartTuning.suspension.rest,
+		KartTuning.suspension.rest,
+	}
+	for idx, rk in latestRemoteKarts do
+		seenRemotes[rk.id] = true
+		local rv = remoteKartVisuals[rk.id]
+		if rv == nil then
+			rv = KartPresentation.create(rk.id, profile, "tux")
+			remoteKartVisuals[rk.id] = rv
+		end
+		local rPos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
+		local rRot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] }
+		local rCf = RobloxWorldQuery.stkPoseToRobloxCFrame(rPos, rRot, 0, 0)
+		KartPresentation.update(
+			rv,
+			rCf,
+			rk.speed,
+			dt,
+			rk.steer,
+			defaultSusp,
+			0,
+			"SKID_NONE",
+			false,
+			rk.attachmentType,
+			rk.isSquashed,
+			rk.plungerFaceTicks
+		)
+		local numericId = tonumber(rk.id) or -idx
+		kartPositionsById[numericId] =
+			Vector3.new(Units.metersToStuds(rk.pos[1]), Units.metersToStuds(rk.pos[2]), Units.metersToStuds(-rk.pos[3]))
+	end
+	for id, rv in remoteKartVisuals do
+		if not seenRemotes[id] then
+			rv.model:Destroy()
+			remoteKartVisuals[id] = nil
+		end
+	end
 
 	local changed = solverInput.accel ~= lastSent.accel
 		or solverInput.brake ~= lastSent.brake
@@ -511,13 +638,17 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		tel.skidState,
 		tel.nitroActive,
 		tel.attachmentType,
-		tel.isSquashed
+		tel.isSquashed,
+		tel.plungerFaceTicks
 	)
+	kartPositionsById[localKartId] = bodyCFrame.Position
+	FlyablePresentation.sync(flyableVisuals, localFlyableWorld, now, kartPositionsById)
 	debug.profileend()
 
 	local attrStart = Workspace:GetAttribute("OpenKartRaceStartTime")
 	local raceStartServerTime = if type(attrStart) == "number" then attrStart else Workspace:GetServerTimeNow()
 	local nitroGateOpen = (solverInput.accel > 0 and localState.isOnGround) or tel.nitroActive
+	local standingsEntries, _, _ = buildClientStandingsAndProxies()
 	HudState.publish(
 		finalPos.x,
 		finalPos.z,
@@ -533,7 +664,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		math.max(0.0, finalPos.z),
 		localState.heldPowerup,
 		localState.heldPowerupCount,
-		nitroGateOpen
+		nitroGateOpen,
+		tel.plungerFaceTicks,
+		standingsEntries
 	)
 
 	-- STK CameraNormal speed-proportional pull-back + skid_angle/2 offset + constant 80 deg vertical FOV
@@ -665,6 +798,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	end
 	if localItemWorld.switchTicks >= 0 then
 		statusTags ..= string.format(" [SWITCH %.1fs]", FixedStep.ticksToTime(localItemWorld.switchTicks))
+	end
+	if tel.plungerFaceTicks > 0 then
+		statusTags ..= string.format(" [PLUNGER_FACE %.1fs]", FixedStep.ticksToTime(tel.plungerFaceTicks))
 	end
 	if localState.heldPowerupCount > 0 then
 		hud.item.Text = string.format("ITEM:  %s x%d%s", powerupName, localState.heldPowerupCount, statusTags)

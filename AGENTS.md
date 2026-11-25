@@ -8,6 +8,7 @@
 - Cite origin in every ported module:
     -- ported from src/karts/kart.cpp:L210-L268 (STK <tag>)
 - Keep docs/port-map.md current: upstream file → Luau module → status.
+- May reference https://supertuxkart.net and upstream docs for behavioral intent. Pinned STK 1.5 source is authoritative for all constants. Log any conflict in divergences.md.
 
 ## License
 - GPLv3-or-later. SPDX header on every source file. Never relicense.

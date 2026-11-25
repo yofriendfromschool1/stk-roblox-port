@@ -42,6 +42,8 @@ export type VisualKart = {
 	staticParts: { StaticSubpart },
 	wheels: { WheelVisual }, -- 1: FL, 2: FR, 3: RL, 4: RR
 	attachments: { [number]: AttachmentVisual },
+	plungerFacePart: MeshPart?,
+	plungerFaceLocalCf: CFrame,
 	sparkLeft: Part,
 	sparkRight: Part,
 	sparkLocalLeftCf: CFrame,
@@ -321,7 +323,8 @@ local function buildGreyboxFallback(model: Model, profile: KartTuning.KartProfil
 	return staticParts, wheels
 end
 
-function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartProfile, kartId: string?): VisualKart
+function KartPresentation.create(kartKey: Player | string, profile: KartTuning.KartProfile, kartId: string?): VisualKart
+	local keyStr = if typeof(kartKey) == "string" then kartKey else tostring((kartKey :: Player).UserId)
 	local folder = Workspace:FindFirstChild(GreyboxProtocol.LOCAL_KARTS_FOLDER)
 	if not folder then
 		local f = Instance.new("Folder")
@@ -330,7 +333,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 		folder = f
 	end
 
-	local existing = (folder :: Folder):FindFirstChild("Kart_" .. tostring(localPlayer.UserId))
+	local existing = (folder :: Folder):FindFirstChild("Kart_" .. keyStr)
 	if existing then
 		existing:Destroy()
 	end
@@ -343,7 +346,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 
 	if template ~= nil then
 		model = template:Clone()
-		model.Name = "Kart_" .. tostring(localPlayer.UserId)
+		model.Name = "Kart_" .. keyStr
 		if (kartId or "tux") == "tux" then
 			assertTuxLiveBounds(model)
 		end
@@ -422,7 +425,7 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 	else
 		warn("[OpenKart] Hydrated Tux template missing; falling back to greybox kart primitives")
 		model = Instance.new("Model")
-		model.Name = "Kart_" .. tostring(localPlayer.UserId)
+		model.Name = "Kart_" .. keyStr
 		staticParts, wheels = buildGreyboxFallback(model, profile)
 		local rootPart = makeVfxHolder(
 			"ChassisRoot",
@@ -492,6 +495,29 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 		end
 	end
 
+	local plungerFacePart: MeshPart? = nil
+	-- Measured from tux.spm frame-20 Driver submesh eye/face surface (docs/kart-spec.md:L59-L83); rigid approximation.
+	-- Unflipped plunger mesh places the +Z suction cup against Tux's beak/eyes (~z=-0.20) with handle extending -Z.
+	local plungerFaceLocalCf = CFrame.new(0, 0.58, -0.62)
+	if itemsAssets then
+		local plungerTmpl = itemsAssets:FindFirstChild("plunger")
+		if plungerTmpl and plungerTmpl:IsA("Model") and plungerTmpl:GetAttribute("HasUploadedMeshes") == true then
+			local srcMp = plungerTmpl:FindFirstChildWhichIsA("MeshPart")
+			if srcMp and srcMp.MeshId ~= "" then
+				local pFace = srcMp:Clone()
+				pFace.Name = "Attach_plunger_face"
+				pFace.Anchored = true
+				pFace.CanCollide = false
+				pFace.CanTouch = false
+				pFace.CanQuery = false
+				pFace.Massless = true
+				pFace.Transparency = 1.0
+				pFace.Parent = model
+				plungerFacePart = pFace
+			end
+		end
+	end
+
 	model.Parent = folder
 
 	return {
@@ -500,6 +526,8 @@ function KartPresentation.create(localPlayer: Player, profile: KartTuning.KartPr
 		staticParts = staticParts,
 		wheels = wheels,
 		attachments = attachments,
+		plungerFacePart = plungerFacePart,
+		plungerFaceLocalCf = plungerFaceLocalCf,
 		sparkLeft = sparkLeft,
 		sparkRight = sparkRight,
 		sparkLocalLeftCf = sparkLocalLeftCf,
@@ -527,7 +555,8 @@ function KartPresentation.update(
 	skidState: string,
 	nitroActive: boolean,
 	attachmentType: number?,
-	isSquashed: boolean?
+	isSquashed: boolean?,
+	plungerFaceTicks: number?
 )
 	local groundOffsetY = Units.metersToStuds(KartVisualMath.computeBodyGroundOffsetY())
 	local kartOriginCf = bodyCFrame * CFrame.new(0, groundOffsetY, 0)
@@ -586,6 +615,15 @@ function KartPresentation.update(
 			att.part.Transparency = att.activeTransparency
 		else
 			att.part.Transparency = 1.0
+		end
+	end
+
+	if visuals.plungerFacePart ~= nil then
+		if (plungerFaceTicks or 0) > 0 then
+			visuals.plungerFacePart.CFrame = kartOriginCf * visuals.plungerFaceLocalCf
+			visuals.plungerFacePart.Transparency = 0.0
+		else
+			visuals.plungerFacePart.Transparency = 1.0
 		end
 	end
 end

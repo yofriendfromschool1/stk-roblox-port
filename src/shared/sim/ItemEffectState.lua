@@ -46,6 +46,10 @@ export type State = {
 	addRollRate: number,
 	torqueSign: boolean,
 	slowdownFraction: number,
+	parachuteDragActive: boolean,
+	plungerFaceTicks: number,
+	externalPullAccel: Vec3,
+	externalPullTicks: number,
 }
 
 export type NetEffectState = {
@@ -67,6 +71,10 @@ export type NetEffectState = {
 	addRollRate: number,
 	torqueSign: boolean,
 	slowdownFraction: number,
+	parachuteDragActive: boolean,
+	plungerFaceTicks: number,
+	externalPullAccel: { number },
+	externalPullTicks: number,
 }
 
 export type StepResult = {
@@ -75,6 +83,7 @@ export type StepResult = {
 	explosionRot: Quat?,
 	finishedExplosion: boolean,
 	bubblegumTorqueY: number,
+	externalPullAccel: Vec3?,
 }
 
 local function cloneVec3(v: Vec3): Vec3
@@ -105,7 +114,38 @@ function ItemEffectState.create(): State
 		addRollRate = 0,
 		torqueSign = false,
 		slowdownFraction = 1.0,
+		parachuteDragActive = false,
+		plungerFaceTicks = 0,
+		externalPullAccel = { x = 0, y = 0, z = 0 },
+		externalPullTicks = 0,
 	}
+end
+
+function ItemEffectState.setParachuteDrag(eff: State, active: boolean)
+	eff.parachuteDragActive = active
+end
+
+function ItemEffectState.getAirDragMultiplier(eff: State): number
+	return if eff.parachuteDragActive then ItemTuning.parachute.FRICTION else 1.0
+end
+
+-- Ported from Kart::blockViewWithPlunger (src/karts/kart.cpp:L606-L618): does NOT extend if already blocked.
+function ItemEffectState.triggerPlungerFace(eff: State, durationSec: number): boolean
+	if eff.plungerFaceTicks > 0 then
+		return false
+	end
+	eff.plungerFaceTicks = FixedStep.timeToTicks(durationSec)
+	return true
+end
+
+function ItemEffectState.clearPlungerFace(eff: State)
+	eff.plungerFaceTicks = 0
+end
+
+-- Transient rubber-band acceleration applied cleanly during KartSolver.step (rubber_band.cpp:L304-L312).
+function ItemEffectState.applyRubberBandForce(eff: State, accelVec: Vec3, ticks: number?)
+	eff.externalPullAccel = { x = accelVec.x, y = accelVec.y, z = accelVec.z }
+	eff.externalPullTicks = math.max(1, ticks or 1)
 end
 
 function ItemEffectState.isActive(eff: State): boolean
@@ -259,6 +299,17 @@ function ItemEffectState.tick(eff: State): StepResult
 	if eff.invulnerableTicks > 0 then
 		eff.invulnerableTicks -= 1
 	end
+	if eff.plungerFaceTicks > 0 then
+		eff.plungerFaceTicks -= 1
+	end
+	local pullAccel: Vec3? = nil
+	if eff.externalPullTicks > 0 then
+		pullAccel = cloneVec3(eff.externalPullAccel)
+		eff.externalPullTicks -= 1
+		if eff.externalPullTicks <= 0 then
+			eff.externalPullAccel = { x = 0, y = 0, z = 0 }
+		end
+	end
 
 	local activeType = eff.effectType
 	if activeType == ItemEffectState.EFFECT_NONE or eff.ticksRemaining <= 0 then
@@ -271,6 +322,7 @@ function ItemEffectState.tick(eff: State): StepResult
 			explosionRot = nil,
 			finishedExplosion = false,
 			bubblegumTorqueY = 0.0,
+			externalPullAccel = pullAccel,
 		}
 	end
 
@@ -291,6 +343,7 @@ function ItemEffectState.tick(eff: State): StepResult
 				explosionRot = endRot,
 				finishedExplosion = true,
 				bubblegumTorqueY = 0.0,
+				externalPullAccel = nil,
 			}
 		end
 
@@ -302,11 +355,12 @@ function ItemEffectState.tick(eff: State): StepResult
 		local nextRot = Math3D.quatNormalize(Math3D.quatMul(eff.originRot, qSpin))
 
 		return {
-			activeType = ItemEffectState.EFFECT_EXPLOSION,
+			activeType = activeType,
 			explosionPos = nextPos,
 			explosionRot = nextRot,
 			finishedExplosion = false,
 			bubblegumTorqueY = 0.0,
+			externalPullAccel = nil,
 		}
 	end
 
@@ -327,6 +381,7 @@ function ItemEffectState.tick(eff: State): StepResult
 		explosionRot = nil,
 		finishedExplosion = false,
 		bubblegumTorqueY = torqueY,
+		externalPullAccel = pullAccel,
 	}
 end
 
@@ -350,6 +405,10 @@ function ItemEffectState.captureNet(eff: State): NetEffectState
 		addRollRate = eff.addRollRate,
 		torqueSign = eff.torqueSign,
 		slowdownFraction = eff.slowdownFraction,
+		parachuteDragActive = eff.parachuteDragActive,
+		plungerFaceTicks = eff.plungerFaceTicks,
+		externalPullAccel = { eff.externalPullAccel.x, eff.externalPullAccel.y, eff.externalPullAccel.z },
+		externalPullTicks = eff.externalPullTicks,
 	}
 end
 
@@ -372,6 +431,18 @@ function ItemEffectState.applyNet(eff: State, snap: NetEffectState)
 	eff.addRollRate = snap.addRollRate
 	eff.torqueSign = snap.torqueSign
 	eff.slowdownFraction = snap.slowdownFraction
+	eff.parachuteDragActive = snap.parachuteDragActive == true
+	eff.plungerFaceTicks = snap.plungerFaceTicks or 0
+	if snap.externalPullAccel ~= nil then
+		eff.externalPullAccel = {
+			x = snap.externalPullAccel[1] or 0,
+			y = snap.externalPullAccel[2] or 0,
+			z = snap.externalPullAccel[3] or 0,
+		}
+	else
+		eff.externalPullAccel = { x = 0, y = 0, z = 0 }
+	end
+	eff.externalPullTicks = snap.externalPullTicks or 0
 end
 
 return table.freeze(ItemEffectState)

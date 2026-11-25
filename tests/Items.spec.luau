@@ -5,6 +5,7 @@
 local FixedStep = require("../src/shared/sim/FixedStep")
 local GreyboxArenaData = require("../src/shared/track/GreyboxArenaData")
 local GreyboxProtocol = require("../src/shared/net/GreyboxProtocol")
+local ItemEffectState = require("../src/shared/sim/ItemEffectState")
 local ItemTuning = require("../src/shared/ItemTuning")
 local ItemWorld = require("../src/shared/items/ItemWorld")
 local KartSolver = require("../src/shared/sim/KartSolver")
@@ -113,30 +114,26 @@ return {
 		end,
 	},
 	{
-		name = "PowerupManager gated to IMPLEMENTED_POWERUPS rolls BUBBLEGUM and ZIPPER proportionally",
+		name = "PowerupManager gated to IMPLEMENTED_POWERUPS matches upstream solo rank 1 weights (9/10 gate)",
 		fn = function()
 			local gated = PowerupManager.new("NORMAL_RACE", 1, ItemTuning.IMPLEMENTED_POWERUPS)
 			local weights = gated:getRankWeights(1)
-			assertEqual(weights.total, 240, "gated total equals BUBBLEGUM(140) + ZIPPER(100)")
+			assertEqual(
+				weights.total,
+				1000,
+				"gated total equals BUBBLEGUM(140)+BOWLING(300)+ZIPPER(100)+PLUNGER(225)+SWITCH(75)+SWATTER(160)"
+			)
 			assertEqual(weights.single[ItemTuning.POWERUP_BUBBLEGUM], 140, "bubblegum weight preserved")
+			assertEqual(weights.single[ItemTuning.POWERUP_BOWLING], 300, "bowling weight preserved")
 			assertEqual(weights.single[ItemTuning.POWERUP_ZIPPER], 100, "zipper weight preserved")
-			assertEqual(weights.single[ItemTuning.POWERUP_BOWLING], 0, "unimplemented bowling zeroed")
-			local sawBubble = false
-			local sawZipper = false
-			for seed = 0, 239 do
-				local pid, cnt = gated:getRandomPowerup(1, seed, 0.0)
-				assert(
-					pid == ItemTuning.POWERUP_BUBBLEGUM or pid == ItemTuning.POWERUP_ZIPPER,
-					"gated roll yields only implemented powerups"
-				)
-				assertEqual(cnt, 1, "gated roll count=1")
-				if pid == ItemTuning.POWERUP_BUBBLEGUM then
-					sawBubble = true
-				elseif pid == ItemTuning.POWERUP_ZIPPER then
-					sawZipper = true
-				end
+			assertEqual(weights.single[ItemTuning.POWERUP_PLUNGER], 225, "plunger weight preserved")
+			assertEqual(weights.single[ItemTuning.POWERUP_SWITCH], 75, "switch weight preserved")
+			assertEqual(weights.single[ItemTuning.POWERUP_SWATTER], 160, "swatter weight preserved")
+			assertEqual(weights.single[ItemTuning.POWERUP_ANVIL], 0, "unimplemented anvil zeroed")
+			for seed = 0, 999 do
+				local pid, _ = gated:getRandomPowerup(1, seed, 20.0)
+				assert(ItemTuning.IMPLEMENTED_POWERUPS[pid] == true, "gated roll yields only implemented powerups")
 			end
-			assert(sawBubble and sawZipper, "gated table rolls both bubblegum and zipper")
 		end,
 	},
 	{
@@ -354,7 +351,11 @@ return {
 			assertEqual(#shieldHits, 0, "shielded kart bypasses floor gum")
 			assertEqual(#itemWorld.items, 1, "floor gum stays on track after shielded kart passes")
 			assertEqual(KartSolver.isShielded(shieldedKart), true, "floor gum does NOT pop shield")
-			assertEqual(shieldedKart.bubblegumTicks, 0, "shielded kart receives zero bubblegum ticks")
+			assertEqual(
+				shieldedKart.itemEffect.effectType,
+				ItemEffectState.EFFECT_NONE,
+				"shielded kart receives zero effect"
+			)
 
 			-- Unshielded kart drives over floor gum -> 1.0s (120t) BUBBLE 0.3x slowdown, engine cut, disappearCounter=0
 			local unshielded = KartSolver.createState(profile, { x = gum.pos.x, y = 0.291, z = gum.pos.z }, 0)
@@ -370,11 +371,52 @@ return {
 			assertEqual(hits[1].isBubblegum, true, "event flagged isBubblegum")
 			assertEqual(hits[1].isBanana, false, "event is NOT banana")
 			assertEqual(#itemWorld.items, 0, "disappear-counter=1 removes floor gum")
-			assert(unshielded.bubblegumTicks >= 119, "bubblegumTicks ~120 (1.0s)")
+			assertEqual(
+				unshielded.itemEffect.effectType,
+				ItemEffectState.EFFECT_BUBBLEGUM_SLOW,
+				"bubblegum routed through ItemEffectState"
+			)
+			assertEqual(KartSolver.getTelemetry(unshielded).bubblegumTicks, 120, "bubblegumTicks = 120 (1.0s)")
+			assertEqual(
+				ItemEffectState.isThrottleSuppressed(unshielded.itemEffect),
+				true,
+				"floor gum suppresses throttle"
+			)
+			-- Re-trigger blocked while active
+			assertEqual(
+				KartSolver.applyBubblegumHit(unshielded, 100),
+				false,
+				"re-trigger blocked while floor gum active"
+			)
 			local bubble = unshielded.maxSpeedState.decreases["BUBBLE"]
 			assert(bubble ~= nil, "BUBBLE slowdown active")
 			assertNear((bubble :: any).targetFraction, 0.3, 1e-6, "BUBBLE slows to 0.3x")
 			assertEqual(unshielded.maxSpeedState.decreases["SQUASH"], nil, "floor gum does NOT set SQUASH")
+			-- Verify throttle suppression ends after exact 120 ticks & speed stays clamped near 0.3 * maxSpeed
+			for t = 1, 119 do
+				KartSolver.stepWithItems(unshielded, {
+					accel = 1.0,
+					brake = false,
+					steer = 0,
+					drift = false,
+				}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 9, advanceItemWorld = false })
+				assert(
+					ItemEffectState.isThrottleSuppressed(unshielded.itemEffect),
+					"throttle suppressed through tick " .. tostring(t)
+				)
+			end
+			KartSolver.stepWithItems(unshielded, {
+				accel = 1.0,
+				brake = false,
+				steer = 0,
+				drift = false,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 9, advanceItemWorld = false })
+			assertEqual(
+				ItemEffectState.isThrottleSuppressed(unshielded.itemEffect),
+				false,
+				"floor gum clears on tick 120"
+			)
+			assert(unshielded.speed <= profile.maxSpeed * 0.3 + 0.5, "floor gum slows speed to <= 0.3 * maxSpeed")
 		end,
 	},
 	{
@@ -494,7 +536,12 @@ return {
 			assertNear(cliState.nitro.energy, srvState.nitro.energy, 1e-6, "reconciled nitro")
 			assertEqual(cliState.attachmentType, srvState.attachmentType, "reconciled attachmentType")
 			assertEqual(cliState.attachmentTicksLeft, srvState.attachmentTicksLeft, "reconciled attachmentTicksLeft")
-			assertEqual(cliState.bubblegumTicks, srvState.bubblegumTicks, "reconciled bubblegumTicks")
+			assertEqual(cliState.itemEffect.effectType, srvState.itemEffect.effectType, "reconciled effectType")
+			assertEqual(
+				cliState.itemEffect.ticksRemaining,
+				srvState.itemEffect.ticksRemaining,
+				"reconciled ticksRemaining"
+			)
 			assertEqual(#cliItemWorld.items, #srvItemWorld.items, "reconciled item count")
 			for i = 1, #srvItemWorld.items do
 				assertEqual(cliItemWorld.items[i].id, srvItemWorld.items[i].id, "item id match")
@@ -510,6 +557,265 @@ return {
 					"item deactiveTicks match"
 				)
 			end
+		end,
+	},
+	{
+		name = "Bomb explosion forces 0 m/s dead stop, suppresses input for exact 180 ticks, & blocks re-trigger for 7s",
+		fn = function()
+			local world = makeFlatPlaneWorld(0.0)
+			local profile = KartTuning.buildProfile("medium", "best")
+			local state = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local itemWorld = ItemWorld.createEmpty("NORMAL_RACE")
+
+			-- Accelerate to >18 m/s first (3.5s = 420 ticks)
+			for _ = 1, 420 do
+				KartSolver.stepWithItems(state, {
+					accel = 1.0,
+					brake = false,
+					steer = 0.0,
+					drift = false,
+				}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 1 })
+			end
+			assert(state.speed > 18.0, "kart accelerated past 18 m/s before bomb detonation")
+
+			-- Detonate bomb via banana-on-bomb (attachment.cpp:L323-L335)
+			state.attachmentType = ItemTuning.ATTACHMENT_BOMB
+			state.attachmentTicksLeft = 100
+			ItemWorld.addTrackItem(itemWorld, 1, "banana", { x = state.pos.x, y = 0.0, z = state.pos.z })
+			KartSolver.stepWithItems(state, {
+				accel = 1.0,
+				brake = false,
+				steer = 1.0,
+				drift = true,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 1 })
+
+			local originPos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
+			assertEqual(state.itemEffect.effectType, ItemEffectState.EFFECT_EXPLOSION, "explosion active")
+			assertEqual(state.itemEffect.ticksRemaining, 180, "1.5s = 180 ticks")
+			assertEqual(state.itemEffect.invulnerableTicks, 840, "7.0s = 840 ticks invulnerability")
+			assertEqual(KartSolver.isDriverInputSuppressed(state), true, "driver input suppressed immediately")
+			assertNear(state.speed, 0.0, 1e-6, "forward speed dropped to 0 m/s immediately")
+			assertEqual(KartSolver.triggerExplosion(state, 500, true), false, "re-trigger blocked during explosion")
+			assertEqual(KartSolver.applySquashHit(state, 5.0, 0.5, 500), false, "squash blocked during explosion")
+
+			local peakY = originPos.y
+			KartSolver.setPowerup(state, ItemTuning.POWERUP_ZIPPER, 1)
+			for tick = 1, 180 do
+				assertEqual(
+					KartSolver.isDriverInputSuppressed(state),
+					true,
+					"suppressed before tick " .. tostring(tick)
+				)
+				KartSolver.stepWithItems(state, {
+					accel = 1.0,
+					brake = false,
+					steer = 1.0,
+					drift = true,
+					fire = true,
+				}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 1 })
+				assertNear(state.speed, 0.0, 1e-6, "speed stays 0 on explosion tick " .. tostring(tick))
+				assertNear(state.pos.x, originPos.x, 1e-4, "zero X translation during explosion")
+				assertNear(state.pos.z, originPos.z, 1e-4, "zero Z translation during explosion")
+				if state.pos.y > peakY then
+					peakY = state.pos.y
+				end
+			end
+
+			assert(peakY > originPos.y + 2.0, "explosion tossed kart vertically in parabolic arc")
+			assertNear(state.pos.y, originPos.y, 1e-4, "landed cleanly back at origin Y at tick 180")
+			assertEqual(KartSolver.isDriverInputSuppressed(state), false, "input unlocked after exact 180 ticks")
+			assertEqual(state.heldPowerupCount, 1, "PA_FIRE was blocked during explosion")
+			assertEqual(
+				state.itemEffect.invulnerableTicks,
+				660,
+				"840 - 180 = 660 ticks post-explosion invulnerability remaining"
+			)
+			assertEqual(
+				KartSolver.triggerExplosion(state, 700, true),
+				false,
+				"re-trigger blocked during 7s invulnerability"
+			)
+
+			-- Tick 181+ accepts throttle again from 0 m/s
+			for _ = 1, 5 do
+				KartSolver.stepWithItems(state, {
+					accel = 1.0,
+					brake = false,
+					steer = 0.0,
+					drift = false,
+				}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 1 })
+			end
+			assert(state.speed > 0.1, "kart accelerates cleanly from 0 m/s after explosion ends")
+		end,
+	},
+	{
+		name = "POWERUP_SWATTER removes bomb, squashes nearby kart (600t @ 0.5x), & POWERUP_SWITCH swaps items (600t)",
+		fn = function()
+			local world = makeFlatPlaneWorld(0.0)
+			local profile = KartTuning.buildProfile("medium", "best")
+			local itemWorld = ItemWorld.createEmpty("NORMAL_RACE")
+			ItemWorld.addTrackItem(itemWorld, 1, "item", { x = 0, y = 0.2, z = 30 })
+			ItemWorld.addTrackItem(itemWorld, 2, "banana", { x = 0, y = 0.2, z = 40 })
+			ItemWorld.addTrackItem(itemWorld, 3, "big-nitro", { x = 0, y = 0.2, z = 50 })
+
+			-- Swatter removes active bomb in 192 ticks (40/25s) and does not explode
+			local sBombSwat = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			sBombSwat.attachmentType = ItemTuning.ATTACHMENT_BOMB
+			sBombSwat.attachmentTicksLeft = 100
+			KartSolver.setPowerup(sBombSwat, ItemTuning.POWERUP_SWATTER, 1)
+			KartSolver.stepWithItems(sBombSwat, {
+				accel = 1.0,
+				brake = false,
+				steer = 0.0,
+				drift = false,
+				fire = true,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 1 })
+			assertEqual(sBombSwat.attachmentType, ItemTuning.ATTACHMENT_SWATTER, "SWATTER replaced active BOMB")
+			assertEqual(sBombSwat.attachmentTicksLeft, 192, "bomb-removal swing is 192 ticks (40/25s)")
+
+			-- Fresh Swatter lasts 1200 ticks & squashes nearby kart within 3m (r^2 <= 9) for 600 ticks @ 0.5x
+			local attacker = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local victim = KartSolver.createState(profile, { x = 0, y = 0.291, z = 2.5 }, 0)
+			victim.linVel = { x = 0, y = 0, z = 22.0 }
+			victim.speed = 22.0
+			KartSolver.setPowerup(attacker, ItemTuning.POWERUP_SWATTER, 1)
+			KartSolver.stepWithItems(attacker, {
+				accel = 1.0,
+				brake = false,
+				steer = 0.0,
+				drift = false,
+				fire = true,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 2 })
+			assertEqual(attacker.attachmentType, ItemTuning.ATTACHMENT_SWATTER, "SWATTER attached")
+			assertEqual(attacker.attachmentTicksLeft, 1200, "SWATTER duration is 1200 ticks (10s)")
+
+			local hitCount = KartSolver.checkSwatterHits(attacker, { attacker, victim }, 10)
+			assertEqual(hitCount, 1, "swatter squashed nearby victim")
+			assertEqual(victim.itemEffect.effectType, ItemEffectState.EFFECT_SQUASH, "victim has EFFECT_SQUASH")
+			assertEqual(victim.itemEffect.ticksRemaining, 600, "swatter squash duration = 600 ticks (5s)")
+			assertEqual(KartSolver.isDriverInputSuppressed(victim), false, "squash leaves steering enabled")
+			assertEqual(
+				KartSolver.checkSwatterHits(attacker, { attacker, victim }, 11),
+				0,
+				"no squash re-trigger while active"
+			)
+
+			-- Release PA_FIRE for 1 tick before firing POWERUP_SWITCH
+			KartSolver.stepWithItems(attacker, {
+				accel = 1.0,
+				brake = false,
+				steer = 0.0,
+				drift = false,
+				fire = false,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 2 })
+
+			-- POWERUP_SWITCH swaps items globally for 600 ticks (5s) then restores
+			KartSolver.setPowerup(attacker, ItemTuning.POWERUP_SWITCH, 1)
+			KartSolver.stepWithItems(attacker, {
+				accel = 1.0,
+				brake = false,
+				steer = 0.0,
+				drift = false,
+				fire = true,
+			}, world, FixedStep.FIXED_DT, itemWorld, { isServer = true, kartId = 2 })
+			assertEqual(itemWorld.switchTicks, 600, "SWITCH sets 600-tick (5s) global timer")
+			assertEqual(itemWorld.items[1].itemType, "banana", "gift-box swapped to banana")
+			assertEqual(itemWorld.items[2].itemType, "item", "banana swapped to gift-box")
+			assertEqual(itemWorld.items[3].itemType, "bubblegum", "big-nitro swapped to bubblegum")
+
+			for _ = 1, 600 do
+				ItemWorld.tick(itemWorld)
+			end
+			assertEqual(itemWorld.switchTicks, 0, "tick 600 reaches 0")
+			ItemWorld.tick(itemWorld)
+			assertEqual(itemWorld.switchTicks, -1, "tick 601 expires switch")
+			assertEqual(itemWorld.items[1].itemType, "item", "gift-box restored")
+			assertEqual(itemWorld.items[2].itemType, "banana", "banana restored")
+			assertEqual(itemWorld.items[3].itemType, "big-nitro", "big-nitro restored")
+		end,
+	},
+	{
+		name = "Mid-explosion & mid-switch state survives captureNetState/GreyboxProtocol/applyNetState + replay identically",
+		fn = function()
+			local world = makeFlatPlaneWorld(0.0)
+			local profile = KartTuning.buildProfile("medium", "best")
+			local srvItems = ItemWorld.createEmpty("NORMAL_RACE")
+			ItemWorld.addTrackItem(srvItems, 1, "item", { x = 0, y = 0.2, z = 30 })
+			ItemWorld.addTrackItem(srvItems, 2, "banana", { x = 0, y = 0.2, z = 5 })
+
+			local cliItems = ItemWorld.createEmpty("NORMAL_RACE")
+			ItemWorld.addTrackItem(cliItems, 1, "item", { x = 0, y = 0.2, z = 30 })
+			ItemWorld.addTrackItem(cliItems, 2, "banana", { x = 0, y = 0.2, z = 5 })
+
+			local srv = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local cli = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			srv.linVel = { x = 0, y = 0, z = 20.0 }
+			srv.speed = 20.0
+			cli.linVel = { x = 0, y = 0, z = 20.0 }
+			cli.speed = 20.0
+			srv.attachmentType = ItemTuning.ATTACHMENT_BOMB
+			srv.attachmentTicksLeft = 5
+			cli.attachmentType = ItemTuning.ATTACHMENT_BOMB
+			cli.attachmentTicksLeft = 5
+			KartSolver.setPowerup(srv, ItemTuning.POWERUP_SWITCH, 1)
+			KartSolver.setPowerup(cli, ItemTuning.POWERUP_SWITCH, 1)
+
+			-- Fire SWITCH at tick 1, bomb timer expires/detonates at tick 5, snapshot at tick 40 mid-explosion, replay to tick 210
+			local history: { { seq: number, input: KartSolver.KartInput } } = {}
+			local ackPayload: buffer? = nil
+			local ackNotice: string? = nil
+			for tick = 1, 210 do
+				local inp: KartSolver.KartInput = {
+					accel = 1.0,
+					brake = false,
+					steer = 0.5,
+					drift = false,
+					fire = (tick == 1),
+				}
+				table.insert(history, { seq = tick, input = inp })
+				KartSolver.stepWithItems(srv, inp, world, FixedStep.FIXED_DT, srvItems, { isServer = true, kartId = 5 })
+				KartSolver.stepWithItems(
+					cli,
+					inp,
+					world,
+					FixedStep.FIXED_DT,
+					cliItems,
+					{ isServer = false, kartId = 5 }
+				)
+				if tick == 40 then
+					ackPayload, ackNotice =
+						GreyboxProtocol.packSnapshot(40, 40, 1, KartSolver.captureNetState(srv, srvItems), "")
+				end
+			end
+
+			local pkt = GreyboxProtocol.unpackSnapshot(ackPayload, ackNotice)
+			assert(pkt ~= nil, "mid-explosion snapshot unpacked")
+			KartSolver.applyNetState(cli, (pkt :: GreyboxProtocol.TelemetryPacket).netState, cliItems)
+			for _, entry in history do
+				if entry.seq > 40 then
+					KartSolver.stepWithItems(
+						cli,
+						entry.input,
+						world,
+						FixedStep.FIXED_DT,
+						cliItems,
+						{ isServer = false, kartId = 5 }
+					)
+				end
+			end
+
+			assertNear(cli.pos.x, srv.pos.x, 1e-6, "reconciled pos.x after explosion")
+			assertNear(cli.pos.y, srv.pos.y, 1e-6, "reconciled pos.y after explosion")
+			assertNear(cli.pos.z, srv.pos.z, 1e-6, "reconciled pos.z after explosion")
+			assertNear(cli.speed, srv.speed, 1e-6, "reconciled speed after explosion")
+			assertEqual(cli.itemEffect.effectType, srv.itemEffect.effectType, "reconciled effectType")
+			assertEqual(
+				cli.itemEffect.invulnerableTicks,
+				srv.itemEffect.invulnerableTicks,
+				"reconciled invulnerableTicks"
+			)
+			assertEqual(cliItems.switchTicks, srvItems.switchTicks, "reconciled switchTicks")
+			assertEqual(cliItems.items[1].itemType, srvItems.items[1].itemType, "reconciled switched itemType")
 		end,
 	},
 }

@@ -7,6 +7,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RaceHudMath = require(Shared.hud.RaceHudMath)
+local Standings = require(Shared.race.Standings)
 
 export type InterpolatedHudState = {
 	ready: boolean,
@@ -19,6 +20,8 @@ export type InterpolatedHudState = {
 	nitroGateOpen: boolean,
 	heldPowerup: number,
 	heldPowerupCount: number,
+	plungerFaceTicks: number,
+	standingsEntries: { Standings.StandingsEntry }?,
 	raceMode: RaceHudMath.RaceMode,
 	raceStartServerTime: number,
 	lap: number,
@@ -37,6 +40,8 @@ local currentState: InterpolatedHudState = {
 	nitroGateOpen = true,
 	heldPowerup = 0,
 	heldPowerupCount = 0,
+	plungerFaceTicks = 0,
+	standingsEntries = nil,
 	raceMode = "TIME_TRIAL",
 	raceStartServerTime = 0.0,
 	lap = 0,
@@ -61,7 +66,9 @@ function HudState.publish(
 	distance: number,
 	heldPowerup: number?,
 	heldPowerupCount: number?,
-	nitroGateOpen: boolean?
+	nitroGateOpen: boolean?,
+	plungerFaceTicks: number?,
+	standingsEntries: { Standings.StandingsEntry }?
 )
 	currentState.ready = true
 	currentState.pos.x = posX
@@ -74,6 +81,8 @@ function HudState.publish(
 	currentState.nitroGateOpen = if nitroGateOpen ~= nil then nitroGateOpen else true
 	currentState.heldPowerup = heldPowerup or 0
 	currentState.heldPowerupCount = heldPowerupCount or 0
+	currentState.plungerFaceTicks = plungerFaceTicks or 0
+	currentState.standingsEntries = standingsEntries
 	currentState.raceMode = raceMode
 	currentState.raceStartServerTime = raceStartServerTime
 	currentState.lap = lap

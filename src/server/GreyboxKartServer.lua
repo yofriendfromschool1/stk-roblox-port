@@ -12,6 +12,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local FixedStep = require(Shared.sim.FixedStep)
+local Flyable = require(Shared.sim.Flyable)
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local ItemTuning = require(Shared.ItemTuning)
@@ -22,6 +23,8 @@ local KartTuning = require(Shared.KartTuning)
 local PowerupManager = require(Shared.items.PowerupManager)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
+local Standings = require(Shared.race.Standings)
+local TestDummyKart = require(Shared.race.TestDummyKart)
 
 type PlayerKartEntry = {
 	player: Player,
@@ -274,17 +277,20 @@ local function fireSnapshotPacket(
 	entry: PlayerKartEntry,
 	currentTick: number,
 	now: number,
-	itemWorld: ItemWorld.ItemWorldState
+	itemWorld: ItemWorld.ItemWorldState,
+	flyableWorld: Flyable.FlyableWorldState,
+	remoteKarts: { GreyboxProtocol.RemoteKartState }
 )
 	local notice = if now < entry.resetNoticeExpirySec then entry.resetNoticeText else ""
-	local nums, incs, noticeArg, itemsArg = GreyboxProtocol.packSnapshot(
+	local payload, noticeArg = GreyboxProtocol.packSnapshot(
 		currentTick,
 		entry.lastInputSeq,
 		entry.resetSeq,
-		KartSolver.captureNetState(entry.state, itemWorld),
-		notice
+		KartSolver.captureNetState(entry.state, itemWorld, flyableWorld),
+		notice,
+		remoteKarts
 	)
-	telemetryRemote:FireClient(entry.player, nums, incs, noticeArg, itemsArg)
+	telemetryRemote:FireClient(entry.player, payload, noticeArg)
 end
 
 function GreyboxKartServer.start()
@@ -309,7 +315,9 @@ function GreyboxKartServer.start()
 
 	local profile = KartTuning.buildProfile("medium", "best")
 	local itemWorld = ItemWorld.fromArenaSpec(GreyboxArenaData, "NORMAL_RACE")
-	local powerupMgr = PowerupManager.new("NORMAL_RACE", 1, ItemTuning.IMPLEMENTED_POWERUPS)
+	local flyableWorld = Flyable.createWorld()
+	local dummyState = TestDummyKart.create(profile)
+	local powerupMgr = PowerupManager.new("NORMAL_RACE", 2, ItemTuning.IMPLEMENTED_POWERUPS)
 	local rollCounter = 0
 	local entries: { [Player]: PlayerKartEntry } = {}
 	local totalDroppedDebt = 0.0
@@ -382,10 +390,64 @@ function GreyboxKartServer.start()
 		end
 	end)
 
+	local function computeStandingsAndProxies(): ({ [string]: number }, { Flyable.KartProxy })
+		local racers: { TestDummyKart.RacerProgress } = {
+			{ id = TestDummyKart.DUMMY_STRING_ID, state = dummyState, initialPosition = 1 },
+		}
+		local idx = 1
+		for _, entry in entries do
+			idx += 1
+			local sid = tostring(if entry.player.UserId ~= 0 then entry.player.UserId else idx)
+			table.insert(racers, { id = sid, state = entry.state, initialPosition = idx })
+		end
+		local ranked = Standings.compute(TestDummyKart.buildStandingsEntries(racers))
+		local rankById: { [string]: number } = {}
+		for _, r in ranked do
+			rankById[r.id] = r.rank
+		end
+		local proxies: { Flyable.KartProxy } = {
+			KartSolver.makeFlyableProxy(
+				TestDummyKart.DUMMY_KART_ID,
+				dummyState,
+				rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
+				"best"
+			),
+		}
+		local pIdx = 1
+		for _, entry in entries do
+			pIdx += 1
+			local numId = if entry.player.UserId ~= 0 then entry.player.UserId else pIdx
+			local sid = tostring(numId)
+			table.insert(proxies, KartSolver.makeFlyableProxy(numId, entry.state, rankById[sid] or 2, "best"))
+		end
+		return rankById, proxies
+	end
+
 	RunService.Heartbeat:Connect(function(dt: number)
 		debug.profilebegin("OpenKart_ServerSim")
 		local _, _ = stepper:advance(dt, function(fixedDt: number)
 			ItemWorld.tick(itemWorld)
+			TestDummyKart.loopIfPastEnd(dummyState)
+			local rankById, preProxies = computeStandingsAndProxies()
+
+			KartSolver.stepWithItems(
+				dummyState,
+				TestDummyKart.computeCruiseInput(dummyState),
+				worldQuery,
+				fixedDt,
+				itemWorld,
+				{
+					isServer = true,
+					advanceItemWorld = false,
+					kartId = TestDummyKart.DUMMY_KART_ID,
+					flyableWorld = flyableWorld,
+					allKartProxies = preProxies,
+					drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+					rank = rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
+					difficulty = "best",
+				}
+			)
+
 			for _, entry in entries do
 				if entry.resetRequested or entry.state.pos.y < VOID_RESET_Y_METERS or entry.state.resetTriggered then
 					if entry.state.resetTriggered then
@@ -398,17 +460,23 @@ function GreyboxKartServer.start()
 					entry.forceSnapshot = true
 				else
 					local kartId = if entry.player.UserId ~= 0 then entry.player.UserId else 1
+					local myRank = rankById[tostring(kartId)] or 2
 					local events = KartSolver.stepWithItems(entry.state, entry.input, worldQuery, fixedDt, itemWorld, {
 						isServer = true,
 						advanceItemWorld = false,
 						kartId = kartId,
+						flyableWorld = flyableWorld,
+						allKartProxies = preProxies,
+						drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+						rank = myRank,
+						difficulty = "best",
 						rollPowerup = function(_s, ev)
 							rollCounter += 1
 							local seed = math.floor(os.clock() * 1000)
 								+ rollCounter * 7919
 								+ ev.id * 101
 								+ itemWorld.elapsedTicks * 31
-							return powerupMgr:getRandomPowerup(1, seed, itemWorld.elapsedTicks * fixedDt)
+							return powerupMgr:getRandomPowerup(myRank, seed, itemWorld.elapsedTicks * fixedDt)
 						end,
 					})
 					if #events > 0 then
@@ -417,23 +485,29 @@ function GreyboxKartServer.start()
 				end
 			end
 
-			local activeStates: { KartSolver.KartState } = {}
+			local activeStates: { KartSolver.KartState } = { dummyState }
 			for _, entry in entries do
 				table.insert(activeStates, entry.state)
 			end
-			if #activeStates > 1 then
-				for _, entry in entries do
-					if entry.state.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
-						if KartSolver.checkSwatterHits(entry.state, activeStates, itemWorld.elapsedTicks) > 0 then
-							for _, other in entries do
-								if other ~= entry then
-									other.forceSnapshot = true
-								end
-							end
+			for _, attackerState in activeStates do
+				if attackerState.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
+					if KartSolver.checkSwatterHits(attackerState, activeStates, itemWorld.elapsedTicks) > 0 then
+						for _, other in entries do
+							other.forceSnapshot = true
 						end
 					end
 				end
 			end
+
+			local _, postProxies = computeStandingsAndProxies()
+			Flyable.step(
+				flyableWorld,
+				postProxies,
+				worldQuery,
+				fixedDt,
+				GreyboxArenaData.drivelineQuadCenters,
+				itemWorld.elapsedTicks
+			)
 		end)
 		debug.profileend()
 
@@ -444,6 +518,20 @@ function GreyboxKartServer.start()
 		if periodicDue then
 			snapshotAccum %= SNAPSHOT_INTERVAL_SEC
 		end
+
+		local latestRanks, _ = computeStandingsAndProxies()
+		local dummyTel = KartSolver.getTelemetry(dummyState)
+		local dummyRemoteState: GreyboxProtocol.RemoteKartState = {
+			id = TestDummyKart.DUMMY_STRING_ID,
+			pos = { dummyState.pos.x, dummyState.pos.y, dummyState.pos.z },
+			rot = { dummyState.rot.w, dummyState.rot.x, dummyState.rot.y, dummyState.rot.z },
+			speed = dummyState.speed,
+			steer = dummyState.steer,
+			attachmentType = dummyTel.attachmentType,
+			plungerFaceTicks = dummyTel.plungerFaceTicks,
+			isSquashed = dummyTel.isSquashed,
+			rank = latestRanks[TestDummyKart.DUMMY_STRING_ID] or 1,
+		}
 
 		for _, entry in entries do
 			local curr = entry.state
@@ -472,7 +560,25 @@ function GreyboxKartServer.start()
 
 			if periodicDue or entry.forceSnapshot then
 				entry.forceSnapshot = false
-				fireSnapshotPacket(telemetryRemote, entry, currentTick, now, itemWorld)
+				local remotesForPlayer: { GreyboxProtocol.RemoteKartState } = { dummyRemoteState }
+				for _, other in entries do
+					if other ~= entry then
+						local sid = tostring(if other.player.UserId ~= 0 then other.player.UserId else 1)
+						local oTel = KartSolver.getTelemetry(other.state)
+						table.insert(remotesForPlayer, {
+							id = sid,
+							pos = { other.state.pos.x, other.state.pos.y, other.state.pos.z },
+							rot = { other.state.rot.w, other.state.rot.x, other.state.rot.y, other.state.rot.z },
+							speed = other.state.speed,
+							steer = other.state.steer,
+							attachmentType = oTel.attachmentType,
+							plungerFaceTicks = oTel.plungerFaceTicks,
+							isSquashed = oTel.isSquashed,
+							rank = latestRanks[sid] or 1,
+						})
+					end
+				end
+				fireSnapshotPacket(telemetryRemote, entry, currentTick, now, itemWorld, flyableWorld, remotesForPlayer)
 			end
 		end
 	end)

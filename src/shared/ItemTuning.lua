@@ -52,9 +52,14 @@ ItemTuning.POWERUP_NAMES = table.freeze({
 -- Note: ITEM_BANANA is a track hazard in data/items.xml (never in powerup.xml).
 ItemTuning.IMPLEMENTED_POWERUPS = table.freeze({
 	[ItemTuning.POWERUP_BUBBLEGUM] = true,
+	[ItemTuning.POWERUP_CAKE] = true,
+	[ItemTuning.POWERUP_BOWLING] = true,
 	[ItemTuning.POWERUP_ZIPPER] = true,
+	[ItemTuning.POWERUP_PLUNGER] = true,
 	[ItemTuning.POWERUP_SWITCH] = true,
 	[ItemTuning.POWERUP_SWATTER] = true,
+	[ItemTuning.POWERUP_RUBBERBALL] = true,
+	[ItemTuning.POWERUP_PARACHUTE] = true,
 }) :: { [number]: boolean }
 
 -- Item / powerup timing and geometry constants (120 Hz fixed-step).
@@ -118,10 +123,13 @@ ItemTuning.bubblegum = table.freeze({
 	RESTRICT_WEAPONS = false, -- data/stk_config.xml:L248 restrict-weapons="false"
 })
 
--- Banana-triggered attachment constants (data/kart_characteristics.xml:L211, L229-L231, L301, stk_config.xml:L221)
+-- Banana-triggered & item-triggered attachment constants (kart_characteristics.xml:L211, L229-L231, L301)
 ItemTuning.parachute = table.freeze({
 	FRICTION = 5.0, -- data/kart_characteristics.xml:L229 friction="5.0"
-	DURATION_SEC = 3.0, -- data/kart_characteristics.xml:L229 duration="3"
+	DURATION_SEC = 3.0, -- data/kart_characteristics.xml:L229 duration="3" (banana)
+	DURATION_OTHER_SEC = 2.5, -- data/kart_characteristics.xml:L229 duration-other="2.5" (powerup)
+	DURATION_RANK_MULT = 1.5, -- data/kart_characteristics.xml:L230 duration-rank-mult="1.5"
+	DURATION_SPEED_MULT = 1.35, -- data/kart_characteristics.xml:L230 duration-speed-mult="1.35"
 	LBOUND_FRACTION = 0.5, -- data/kart_characteristics.xml:L231 lbound-fraction="0.5"
 	UBOUND_FRACTION = 0.3, -- data/kart_characteristics.xml:L231 ubound-fraction="0.3"
 	MAX_SPEED = 30.0, -- data/kart_characteristics.xml:L231 max-speed="30"
@@ -154,11 +162,84 @@ ItemTuning.swatter = table.freeze({
 	BOMB_REMOVE_SEC = 40.0 / 25.0,
 })
 
--- Deprecated alias preserved only for squash constants referenced by rubber-ball/swatter tuning
+-- Flyable base constants (src/items/flyable.cpp:L537-L542)
+ItemTuning.flyable = table.freeze({
+	OWNER_IMMUNITY_SEC = 2.0,
+	HIT_RADIUS_KART = 0.85,
+})
+
+-- Cake projectile constants (data/powerup.xml:L10-L13, src/items/cake.cpp:L48, L96-L106, flyable.cpp:L291, L305)
+ItemTuning.cake = table.freeze({
+	SPEED = 50.0,
+	MAX_DISTANCE = 90.0,
+	CONE_MAX_DIST = 50.0,
+	CONE_COS_MIN = 0.54,
+	GRAVITY = 9.8,
+	BASE_SPEED_ADD = 16.0,
+	OWNER_SPEED_REF = 23.0,
+	REVERSE_SPEED_DIV = 3.6,
+	UP_VEL_DIV = 7.0,
+	MIN_HEIGHT = 0.2,
+	MAX_HEIGHT = 1.0,
+	RESTITUTION = 0.5,
+	RADIUS = 0.34,
+})
+
+-- Bowling ball constants (data/powerup.xml:L4-L8, src/items/bowling.cpp:L37, L63-L70, L96, L209-L238)
+ItemTuning.bowling = table.freeze({
+	SPEED = 4.0,
+	MASS = 50.0,
+	FORCE_TO_TARGET = 40.0,
+	MAX_DISTANCE = 25.0,
+	MAX_ATTRACTION_ANGLE_RAD = 1.3,
+	LIFESPAN_SEC = 20.0,
+	GRAVITY = 70.0,
+	RESTITUTION = 0.4,
+	MIN_SPEED_MULT = 4.0,
+	MIN_HEIGHT = 0.2,
+	MAX_HEIGHT = 1.0,
+	RADIUS = 0.44,
+})
+
+-- Plunger + rubber band constants (data/powerup.xml:L92-L96, data/kart_characteristics.xml:L269-L271, L350, L354)
+ItemTuning.plunger = table.freeze({
+	SPEED = 35.0,
+	SPEED_MULT = 2.0,
+	AIM_MAX_DISTANCE = 30.0,
+	MAX_DISTANCE = 25.0,
+	BAND_MAX_LENGTH = 50.0,
+	BAND_FORCE = 1500.0,
+	BAND_DURATION_SEC = 1.0,
+	BAND_SPEED_INCREASE = 7.0,
+	BAND_FADE_OUT_SEC = 3.0,
+	BAND_TRACK_SNAP_DIST = 10.0,
+	IN_FACE_TIME_BY_DIFF = table.freeze({
+		easy = 3.0,
+		medium = 4.0,
+		hard = 4.5,
+		best = 4.5,
+	}),
+	RADIUS = 0.35,
+})
+
+-- Basketball (rubber-ball) constants (data/powerup.xml:L75-L89, src/items/rubber_ball.cpp:L294-L364)
 ItemTuning.rubberBall = table.freeze({
+	SPEED = 40.0,
+	MIN_SPEED_OFFSET = 10.0, -- rubber_ball.cpp:L355-L356 clamps XML 9.0 -> 10.0
+	MAX_SPEED_OFFSET = 29.0,
+	MIN_OFFSET_DISTANCE = 50.0,
+	MAX_OFFSET_DISTANCE = 250.0,
+	INTERVAL_SEC = 1.0,
+	MIN_HEIGHT = 0.0,
+	MAX_HEIGHT = 4.0,
+	FAST_PING_DISTANCE = 50.0,
+	TARGET_DISTANCE = 15.0,
+	TARGET_MAX_ANGLE_RAD = math.rad(90.0),
+	DELETE_TIME_SEC = 5.0,
 	SQUASH_SLOWDOWN = 0.5, -- data/powerup.xml:L88 squash-slowdown="0.5"
 	SQUASH_DURATION_SEC = 2.0, -- data/powerup.xml:L88 squash-duration="2"
 	SQUASH_FADE_IN_SEC = 0.1, -- src/karts/kart.cpp:L1879 time2Ticks(0.1f)
+	RADIUS = 0.92,
 })
 
 -- StandardRace::haveBonusBoxes (src/modes/standard_race.cpp:L64-L68) and

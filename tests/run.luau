@@ -10,6 +10,7 @@ local suites = {
 	{ name = "RaceHudMath", tests = require("./RaceHudMath.spec") },
 	{ name = "Standings", tests = require("./Standings.spec") },
 	{ name = "Items", tests = require("./Items.spec") },
+	{ name = "Flyable", tests = require("./Flyable.spec") },
 	{ name = "Reconciliation", tests = require("./Reconciliation.spec") },
 }
 
