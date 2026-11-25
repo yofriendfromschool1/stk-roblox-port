@@ -1,0 +1,218 @@
+{
+  "version": 1,
+  "units": "meters",
+  "coordinate_system": "STK (+X right, +Y up, +Z forward; Roblox uses x, y, -z at 1 stud = 1.0 m)",
+  "track_id": "openkart_arena",
+  "track_name": "OpenKart Test Arena",
+  "plane_size_m": 512.0,
+  "plane_thickness_m": 2.0,
+  "grid_spacing_m": 32.0,
+  "spawn": {
+    "pos": [0.0, 0.3, 0.0],
+    "heading_deg": 0.0
+  },
+  "materials": [
+    {
+      "name": "oasis-water.png",
+      "ignore": true,
+      "shader": "displace"
+    },
+    {
+      "name": "pyramidwall.jpg",
+      "high_adhesion": true
+    },
+    {
+      "name": "road.jpg"
+    },
+    {
+      "name": "sand.png",
+      "slowdown_time": 1.5,
+      "max_speed": 0.5
+    },
+    {
+      "name": "seabed.jpg",
+      "reset": true
+    },
+    {
+      "name": "transparence2.png",
+      "collision_detect": true,
+      "collision_reaction": "reset"
+    },
+    {
+      "name": "water_light.png",
+      "surface": true,
+      "falling_effect": true,
+      "water_splash": true
+    }
+  ],
+  "boxes": [
+    {
+      "name": "GreyboxPlane",
+      "is_primary": true,
+      "pos": [116.0, -1.0, 0.0],
+      "size": [280.0, 2.0, 512.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "road.jpg",
+      "color_rgb": [132, 136, 144],
+      "rbx_material": "Concrete",
+      "can_collide": true,
+      "transparency": 0.0
+    },
+    {
+      "name": "RoadFloorWest",
+      "pos": [-152.0, -1.0, 0.0],
+      "size": [208.0, 2.0, 512.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "road.jpg",
+      "color_rgb": [132, 136, 144],
+      "rbx_material": "Concrete",
+      "can_collide": true,
+      "transparency": 0.0
+    },
+    {
+      "name": "RoadFloorNorthPit",
+      "pos": [-36.0, -1.0, 173.0],
+      "size": [24.0, 2.0, 166.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "road.jpg",
+      "color_rgb": [132, 136, 144],
+      "rbx_material": "Concrete",
+      "can_collide": true,
+      "transparency": 0.0
+    },
+    {
+      "name": "RoadFloorSouthPit",
+      "pos": [-36.0, -1.0, -103.0],
+      "size": [24.0, 2.0, 306.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "road.jpg",
+      "color_rgb": [132, 136, 144],
+      "rbx_material": "Concrete",
+      "can_collide": true,
+      "transparency": 0.0
+    },
+    {
+      "name": "SandPatch",
+      "pos": [0.0, -0.098, 72.5],
+      "size": [20.0, 0.2, 95.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "sand.png",
+      "color_rgb": [224, 192, 112],
+      "rbx_material": "Sand",
+      "can_collide": true,
+      "transparency": 0.0,
+      "label": "SAND.PNG (0.5x CAP / 12.5 m/s)",
+      "label_y": 3.5,
+      "label_color_rgb": [255, 225, 130]
+    },
+    {
+      "name": "SeabedFloor",
+      "pos": [-36.0, -3.0, 70.0],
+      "size": [26.0, 1.0, 42.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "seabed.jpg",
+      "color_rgb": [95, 82, 58],
+      "rbx_material": "Slate",
+      "can_collide": true,
+      "transparency": 0.0,
+      "label": "SEABED.JPG (RESET)",
+      "label_y": 2.0,
+      "label_color_rgb": [255, 140, 120]
+    },
+    {
+      "name": "OasisWaterSheet",
+      "pos": [-36.0, -0.04, 70.0],
+      "size": [24.0, 0.08, 40.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "oasis-water.png",
+      "color_rgb": [45, 165, 235],
+      "rbx_material": "Glass",
+      "can_collide": false,
+      "transparency": 0.45,
+      "label": "OASIS-WATER (IGNORE) -> SEABED (RESET)",
+      "label_y": 3.5,
+      "label_color_rgb": [115, 215, 255]
+    },
+    {
+      "name": "PyramidWallRamp",
+      "pos": [28.0, 4.179035, 45.0],
+      "size": [16.0, 1.0, 36.0],
+      "rot_deg": [0.0, 0.0, 35.0],
+      "material": "pyramidwall.jpg",
+      "color_rgb": [198, 152, 92],
+      "rbx_material": "Sandstone",
+      "can_collide": true,
+      "transparency": 0.0,
+      "label": "PYRAMIDWALL.JPG (35 deg HIGH ADHESION)",
+      "label_y": 5.0,
+      "label_color_rgb": [255, 215, 130]
+    },
+    {
+      "name": "RoadControlRamp",
+      "pos": [28.0, 4.179035, 95.0],
+      "size": [16.0, 1.0, 36.0],
+      "rot_deg": [0.0, 0.0, 35.0],
+      "material": "road.jpg",
+      "color_rgb": [108, 112, 122],
+      "rbx_material": "Concrete",
+      "can_collide": true,
+      "transparency": 0.0,
+      "label": "ROAD.JPG (35 deg CONTROL / SLIDES)",
+      "label_y": 5.0,
+      "label_color_rgb": [220, 225, 235]
+    },
+    {
+      "name": "SteepWall60",
+      "pos": [52.0, 4.946152, 70.0],
+      "size": [12.0, 1.0, 36.0],
+      "rot_deg": [0.0, 0.0, 60.0],
+      "material": "road.jpg",
+      "color_rgb": [165, 130, 90],
+      "rbx_material": "Slate",
+      "can_collide": true,
+      "transparency": 0.0,
+      "label": "60 deg WALL SLIDE TEST",
+      "label_y": 5.5,
+      "label_color_rgb": [255, 200, 140]
+    },
+    {
+      "name": "CornerWallNorth",
+      "pos": [-6.0, 2.0, 142.0],
+      "size": [20.0, 4.0, 2.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "road.jpg",
+      "color_rgb": [145, 160, 180],
+      "rbx_material": "Concrete",
+      "can_collide": true,
+      "transparency": 0.0,
+      "label": "90 deg INSIDE CORNER TEST",
+      "label_y": 4.0,
+      "label_color_rgb": [175, 220, 255]
+    },
+    {
+      "name": "CornerWallWest",
+      "pos": [-17.0, 2.0, 133.0],
+      "size": [2.0, 4.0, 20.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "road.jpg",
+      "color_rgb": [145, 160, 180],
+      "rbx_material": "Concrete",
+      "can_collide": true,
+      "transparency": 0.0
+    },
+    {
+      "name": "ResetStrip",
+      "pos": [26.0, -0.121, 135.0],
+      "size": [24.0, 0.25, 10.0],
+      "rot_deg": [0.0, 0.0, 0.0],
+      "material": "transparence2.png",
+      "color_rgb": [235, 60, 60],
+      "rbx_material": "Neon",
+      "can_collide": true,
+      "transparency": 0.25,
+      "label": "TRANSPARENCE2.PNG (COLLISION RESET)",
+      "label_y": 3.5,
+      "label_color_rgb": [255, 120, 120]
+    }
+  ]
+}

@@ -250,9 +250,15 @@ KartTuning.nitro = {
 	minConsumptionTicks = 64, -- src/karts/kart_properties.cpp:L102 (64 ticks at 120 Hz)
 }
 
--- Swept chassis, overlap manifold, & wheel depenetration constants (OpenKart Bullet contact replacement)
+-- Swept chassis, overlap manifold, & wheel depenetration constants
 KartTuning.collision = {
-	wallRestitution = 0.20, -- docs/physics-spec.md §8
+	-- Upstream STK speed-dependent kart restitution curve (data/stk_config.xml:L480, src/karts/kart.cpp:L742, L1454)
+	wallRestitution = {
+		{ 0.0, 1.0 },
+		{ 5.0, 1.0 },
+		{ 20.0, 0.2 },
+	},
+	-- OpenKart solver-internal contact heuristics (not upstream STK constants; see docs/divergences.md)
 	drivableNormalMinY = 0.5, -- normals steeper than 60 deg bounce/slide as walls
 	wheelRayOriginBias = 0.30, -- m above hardpoint so compressed wheels still detect surface
 	sweepSkinWidth = 0.01, -- m clearance kept outside swept hit surface
@@ -260,10 +266,13 @@ KartTuning.collision = {
 	overlapCoreRatio = 0.5, -- core box shrink along probed axis for overlap normal recovery
 	overlapPerpRatio = 0.6, -- core box shrink perpendicular to probed axis (clears 90 deg inside corners)
 	maxContactResolvePasses = 3, -- positional/velocity manifold resolution iterations per tick
-	restContactBounceVel = 2.0, -- m/s threshold below which wall contact has 0 restitution (prevents chatter)
+	-- Replaces Bullet's m_restingContactRestitutionThreshold = 2 ticks (btContactSolverInfo.h:L82)
+	-- because OpenKart's stateless swept/overlap manifold does not track persistent contact lifetimes.
+	restContactBounceVel = 2.0, -- m/s normal-speed threshold below which wall contact has 0 restitution
 }
 
--- Follow camera & vertical FOV constants (data/stk_config.xml:L269, src/graphics/camera/camera_normal.cpp:L102-L120)
+-- Follow camera, look-back & vertical FOV constants
+-- (data/stk_config.xml:L269, src/graphics/camera/camera_normal.cpp:L102-L144, L226-L230, camera.cpp:L203, user_config.hpp:L1046-L1066)
 KartTuning.camera = {
 	fovDeg = 80.0, -- vertical FOV in degrees (stk_config.xml:L269, user_config.hpp:L1066, matrix4.h:L1536)
 	distanceBase = 2.8, -- camera_normal.cpp:L107
@@ -272,8 +281,14 @@ KartTuning.camera = {
 	minDistance = 2.0, -- camera_normal.cpp:L109 (distance=1 -> min_distance=2)
 	heightBase = 0.85, -- camera_normal.cpp:L118
 	heightSpeedDivisor = 2.5, -- camera_normal.cpp:L118
+	lookTargetY = 0.5, -- camera_normal.cpp:L144
 	smoothPosition = 0.2, -- user_config.hpp:L1046
 	smoothRotation = 0.125, -- user_config.hpp:L1051
+	backwardDistance = 2.0, -- user_config.hpp:L1056, camera_normal.cpp:L229
+	backwardUpAngleDeg = 5.0, -- user_config.hpp:L1061, camera_normal.cpp:L227
+	backwardAboveKart = 0.75, -- camera_normal.cpp:L226
+	reverseReturnBack = 3.0, -- camera.cpp:L203 (abs(-3) offset on CM_REVERSE -> CM_NORMAL)
+	reverseReturnUp = 1.6, -- camera.cpp:L203
 }
 
 -- Difficulty multipliers (data/kart_characteristics.xml:L347-L362, L418)

@@ -804,6 +804,10 @@ local function gatherChassisOverlapContacts(
 	return true
 end
 
+local function evalWallRestitution(speedMps: number): number
+	return Math3D.evalPiecewiseLinear(KartTuning.collision.wallRestitution, math.abs(speedMps))
+end
+
 local function resolveContacts(state: KartState, contacts: { Contact })
 	local colCfg = KartTuning.collision
 	for _, c in contacts do
@@ -819,7 +823,7 @@ local function resolveContacts(state: KartState, contacts: { Contact })
 			local noBounce = c.isWheel
 				or (c.normal.y > colCfg.drivableNormalMinY)
 				or (math.abs(vn) < colCfg.restContactBounceVel)
-			local restitution = if noBounce then 0.0 else colCfg.wallRestitution
+			local restitution = if noBounce then 0.0 else evalWallRestitution(state.speed)
 			state.linVel = Math3D.sub(state.linVel, Math3D.scale(c.normal, (1.0 + restitution) * vn))
 		end
 		local relC = Math3D.sub(c.point, state.pos)
@@ -1320,7 +1324,7 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 			if vn < 0 then
 				local noBounce = (hitNormal.y > colCfg.drivableNormalMinY)
 					or (math.abs(vn) < colCfg.restContactBounceVel)
-				local restitution = if noBounce then 0.0 else colCfg.wallRestitution
+				local restitution = if noBounce then 0.0 else evalWallRestitution(state.speed)
 				state.linVel = Math3D.sub(state.linVel, Math3D.scale(hitNormal, (1.0 + restitution) * vn))
 			end
 			remainingDt *= math.max(0.0, 1.0 - safeFrac)
@@ -1380,6 +1384,8 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 	local signedAfter = Math3D.dot(state.linVel, newFwd)
 	state.speed = if math.abs(signedAfter) < KartTuning.physics.SPEED_DEADBAND then 0.0 else signedAfter
 end
+
+KartSolver.evalWallRestitution = evalWallRestitution
 
 function KartSolver.getTelemetry(state: KartState): KartTelemetry
 	return {

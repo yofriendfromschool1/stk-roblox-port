@@ -524,6 +524,72 @@ class TestStk2Rbx(unittest.TestCase):
                 self.assertTrue(props["CanQuery"])
                 self.assertEqual(props["Transparency"], 1.0)
 
+    def test_spm_writer_roundtrip_and_winding(self) -> None:
+        from tools.stk2rbx.road_probe import _read_spm_submesh
+        from tools.stk2rbx.spm_writer import SpmSubmesh, build_box_geometry, write_spmn
+
+        v1, i1 = build_box_geometry((0.0, -1.0, 0.0), (20.0, 2.0, 40.0), (0.0, 0.0, 0.0))
+        v2, i2 = build_box_geometry((28.0, 4.18, 45.0), (16.0, 1.0, 36.0), (0.0, 0.0, 35.0))
+        self.assertEqual(len(v1), 24)
+        self.assertEqual(len(i1), 36)
+        self.assertEqual(len(v2), 24)
+        self.assertEqual(len(i2), 36)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spm_path = Path(tmp) / "test_arena.spm"
+            write_spmn(
+                spm_path,
+                [
+                    SpmSubmesh(texture_1="road.jpg", vertices=v1, indices=i1),
+                    SpmSubmesh(texture_1="pyramidwall.jpg", vertices=v2, indices=i2),
+                ],
+            )
+            audit = audit_mesh(spm_path)
+            self.assertEqual(audit.mesh_format, "SPMN")
+            self.assertEqual(audit.vertex_count, 48)
+            self.assertEqual(audit.triangle_count, 24)
+            self.assertEqual(audit.submesh_count, 2)
+
+            for tex in ("road.jpg", "pyramidwall.jpg"):
+                vs, ns, idxs = _read_spm_submesh(spm_path, target_texture=tex)
+                for k in range(0, len(idxs), 3):
+                    a, b, c = vs[idxs[k]], vs[idxs[k + 1]], vs[idxs[k + 2]]
+                    e1 = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+                    e2 = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+                    cr = (
+                        e1[1] * e2[2] - e1[2] * e2[1],
+                        e1[2] * e2[0] - e1[0] * e2[2],
+                        e1[0] * e2[1] - e1[1] * e2[0],
+                    )
+                    n = ns[idxs[k]]
+                    self.assertGreater(cr[0] * n[0] + cr[1] * n[1] + cr[2] * n[2], 0.0)
+
+    def test_arena_spec_dual_emit_parity(self) -> None:
+        from tools.stk2rbx.arena_emit import DEFAULT_SPEC_PATH, emit_roblox_luau, emit_stk_track, load_arena_spec
+
+        spec = load_arena_spec(DEFAULT_SPEC_PATH)
+        self.assertEqual(len(spec["boxes"]), 13)
+        self.assertEqual(len(spec["materials"]), 7)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            luau_out = Path(tmp) / "GreyboxArenaData.lua"
+            stk_out = Path(tmp) / "openkart_arena"
+            emit_roblox_luau(spec, luau_out)
+            emit_stk_track(spec, stk_out)
+
+            luau_src = luau_out.read_text(encoding="utf-8")
+            for box in spec["boxes"]:
+                self.assertIn(f'name = "{box["name"]}"', luau_src)
+            # Check STK +Z=72.5 -> Roblox -Z=-72.5 on SandPatch
+            self.assertIn("pos = { 0.0, -0.098, -72.5 }", luau_src)
+
+            spm_path = stk_out / "openkart_arena_track.spm"
+            audit = audit_mesh(spm_path)
+            self.assertEqual(audit.mesh_format, "SPMN")
+            self.assertEqual(audit.triangle_count, 13 * 12)
+            for fname in ("track.xml", "materials.xml", "quads.xml", "graph.xml", "scene.xml", "sand.png", "road.jpg"):
+                self.assertTrue((stk_out / fname).exists(), f"Missing {fname}")
+
 
 if __name__ == "__main__":
     unittest.main()
