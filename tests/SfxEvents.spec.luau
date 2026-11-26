@@ -160,16 +160,17 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "countdown, start boost, penalty, final lap, and finish SFX transitions fire for local player",
+	name = "countdown, start boost, penalty, final lap, and finish SFX transitions fire and reset cleanly",
 	fn = function()
 		local tr = SfxEvents.createTracker()
-		-- Init on COUNTDOWN_3
-		SfxEvents.step(tr, makeSnap({ racePhase = "COUNTDOWN_3", lap = -1, totalLaps = 5 }), 1 / 60, true)
-
 		local rReady =
 			SfxEvents.step(tr, makeSnap({ racePhase = "READY_PHASE", lap = -1, totalLaps = 5 }), 1 / 60, true)
 		assertEqual(#rReady.oneShots, 1, "READY_PHASE fires pre_start_race")
 		assertEqual(rReady.oneShots[1].id, "pre_start_race", "READY_PHASE id")
+
+		local rSet = SfxEvents.step(tr, makeSnap({ racePhase = "SET_PHASE", lap = -1, totalLaps = 5 }), 1 / 60, true)
+		assertEqual(#rSet.oneShots, 1, "SET_PHASE fires pre_start_race")
+		assertEqual(rSet.oneShots[1].id, "pre_start_race", "SET_PHASE id")
 
 		local rGo = SfxEvents.step(
 			tr,
@@ -218,6 +219,13 @@ table.insert(tests, {
 		)
 		assertEqual(#rWin.oneShots, 1, "finish rank 1 fires victory")
 		assertEqual(rWin.oneShots[1].id, "race_finish_victory", "victory id")
+
+		-- Reset tracker between matches
+		SfxEvents.resetTracker(tr)
+		local rRestart =
+			SfxEvents.step(tr, makeSnap({ racePhase = "READY_PHASE", lap = -1, totalLaps = 5 }), 1 / 60, true)
+		assertEqual(#rRestart.oneShots, 1, "resetTracker re-arms READY_PHASE pre_start_race")
+		assertEqual(#rRestart.loopTransitions, 1, "resetTracker re-arms engine_large loop start")
 	end,
 })
 

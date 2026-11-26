@@ -34,22 +34,31 @@ function TestDummyKart.create(
 	profile: KartTuning.KartProfile?,
 	spawnZ: number?,
 	spawnPos: Math3D.Vec3?,
-	spawnYawRad: number?
+	spawnYawRad: number?,
+	rngSeed: number?
 ): KartSolver.KartState
 	local prof = profile or KartTuning.buildProfile("medium", "best")
 	if spawnPos ~= nil then
-		return KartSolver.createState(prof, spawnPos, spawnYawRad or 0.0)
+		return KartSolver.createState(prof, spawnPos, spawnYawRad or 0.0, rngSeed)
 	end
 	local z = if spawnZ ~= nil then spawnZ else TestDummyKart.DEFAULT_SPAWN_Z_METERS
 	local yaw = if spawnZ ~= nil then 0.0 else TestDummyKart.DEFAULT_SPAWN_YAW_RAD
-	return KartSolver.createState(prof, { x = TestDummyKart.DEFAULT_SPAWN_X_METERS, y = 0.35, z = z }, yaw)
+	return KartSolver.createState(prof, { x = TestDummyKart.DEFAULT_SPAWN_X_METERS, y = 0.35, z = z }, yaw, rngSeed)
 end
 
 function TestDummyKart.createAIState(
 	initialState: KartSolver.KartState,
-	drivelineCenters: { { x: number, z: number } }?
+	drivelineCenters: { { x: number, z: number } }?,
+	branches: { TrackRegistry.DrivelineBranch }?,
+	difficulty: string?
 ): AIController.AIState
-	return AIController.createState(drivelineCenters or GreyboxArenaData.drivelineQuadCenters, initialState.pos)
+	return AIController.createState(
+		drivelineCenters or GreyboxArenaData.drivelineQuadCenters,
+		initialState.pos,
+		initialState.rngState,
+		branches :: any,
+		difficulty or initialState.profile.difficulty
+	)
 end
 
 -- Lookahead steering along the closed driveline via ported STK AIController (ai_base_controller.cpp, skidding_ai.cpp).
@@ -59,11 +68,12 @@ function TestDummyKart.computeCruiseInput(
 	dt: number?,
 	targetSpeedMps: number?,
 	drivelineCenters: { { x: number, z: number } }?,
-	context: AIController.AIContext?
+	context: AIController.AIContext?,
+	branches: { TrackRegistry.DrivelineBranch }?
 ): KartSolver.KartInput
 	local pts = drivelineCenters or GreyboxArenaData.drivelineQuadCenters
-	local ai = aiState or AIController.createState(pts, state.pos)
-	return AIController.computeInput(ai, state, pts, dt or (1.0 / 120.0), targetSpeedMps, context)
+	local ai = aiState or AIController.createState(pts, state.pos, state.rngState, branches :: any)
+	return AIController.computeInput(ai, state, pts, dt or (1.0 / 120.0), targetSpeedMps, context, branches :: any)
 end
 
 function TestDummyKart.buildStandingsEntries(

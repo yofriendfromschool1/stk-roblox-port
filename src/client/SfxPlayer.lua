@@ -104,6 +104,9 @@ local function getOrCreateLoopSound(
 	end
 	local existing = kartLoops[entry.id]
 	if existing then
+		local group = player.groups[entry.group] or player.groups.sfx
+		existing.Volume = entry.volume
+		existing.SoundGroup = group
 		if existing.Parent ~= kartPart then
 			existing.Parent = kartPart
 		end
@@ -216,12 +219,45 @@ function SfxPlayer.stopAllLoops(player: Player)
 	end
 	for _, kartLoops in player.loopsByKart do
 		for _, snd in kartLoops do
-			snd.Volume = 0
 			if snd.IsPlaying then
 				snd:Stop()
 			end
 		end
 	end
+end
+
+function SfxPlayer.removeKartLoops(player: Player, kartKey: string)
+	if player.destroyed then
+		return
+	end
+	local kartLoops = player.loopsByKart[kartKey]
+	if kartLoops then
+		for _, snd in kartLoops do
+			snd:Stop()
+			snd:Destroy()
+		end
+		player.loopsByKart[kartKey] = nil
+	end
+end
+
+function SfxPlayer.clearMatchSounds(player: Player)
+	if player.destroyed then
+		return
+	end
+	for _, kartLoops in player.loopsByKart do
+		for _, snd in kartLoops do
+			snd:Stop()
+			snd:Destroy()
+		end
+	end
+	table.clear(player.loopsByKart)
+	for _, pool in player.oneShotPools do
+		for _, snd in pool do
+			snd:Stop()
+			snd:Destroy()
+		end
+	end
+	table.clear(player.oneShotPools)
 end
 
 function SfxPlayer.destroy(player: Player)

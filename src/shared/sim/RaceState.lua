@@ -12,8 +12,7 @@ local FixedStep = require("./FixedStep")
 local KartTuning = require("../KartTuning")
 
 export type RacePhase =
-	"COUNTDOWN_3"
-	| "READY_PHASE"
+	"READY_PHASE"
 	| "SET_PHASE"
 	| "GO_PHASE"
 	| "MUSIC_PHASE"
@@ -42,8 +41,8 @@ export type RaceKartInputLike = {
 
 local RaceState = {}
 
-local READY_START_TICK = KartTuning.race.COUNTDOWN_3_TICKS
-local SET_START_TICK = READY_START_TICK + KartTuning.race.READY_TICKS
+local READY_START_TICK = 0
+local SET_START_TICK = KartTuning.race.READY_TICKS
 local GO_TICK = SET_START_TICK + KartTuning.race.SET_TICKS
 local MUSIC_START_TICK = GO_TICK + KartTuning.race.GO_TICKS
 local RACE_START_TICK = GO_TICK + KartTuning.race.MUSIC_END_TICKS
@@ -57,18 +56,16 @@ RaceState.RACE_START_TICK = RACE_START_TICK
 RaceState.DELAY_FINISH_TICKS = DELAY_FINISH_TICKS
 
 local PHASE_TO_ID: { [RacePhase]: number } = {
-	COUNTDOWN_3 = 1,
-	READY_PHASE = 2,
-	SET_PHASE = 3,
-	GO_PHASE = 4,
-	MUSIC_PHASE = 5,
-	RACE_PHASE = 6,
-	DELAY_FINISH_PHASE = 7,
-	RESULT_DISPLAY_PHASE = 8,
+	READY_PHASE = 1,
+	SET_PHASE = 2,
+	GO_PHASE = 3,
+	MUSIC_PHASE = 4,
+	RACE_PHASE = 5,
+	DELAY_FINISH_PHASE = 6,
+	RESULT_DISPLAY_PHASE = 7,
 }
 
 local ID_TO_PHASE: { RacePhase } = {
-	"COUNTDOWN_3" :: RacePhase,
 	"READY_PHASE" :: RacePhase,
 	"SET_PHASE" :: RacePhase,
 	"GO_PHASE" :: RacePhase,
@@ -88,9 +85,7 @@ function RaceState.phaseAtTick(raceTick: number, delayFinishStartTick: number?):
 		end
 		return "DELAY_FINISH_PHASE" :: RacePhase
 	end
-	if raceTick < READY_START_TICK then
-		return "COUNTDOWN_3" :: RacePhase
-	elseif raceTick < SET_START_TICK then
+	if raceTick < SET_START_TICK then
 		return "READY_PHASE" :: RacePhase
 	elseif raceTick < GO_TICK then
 		return "SET_PHASE" :: RacePhase
@@ -106,7 +101,7 @@ end
 function RaceState.create(totalLaps: number?): RaceClock
 	return {
 		raceTick = 0,
-		phase = "COUNTDOWN_3" :: RacePhase,
+		phase = "READY_PHASE" :: RacePhase,
 		totalLaps = totalLaps or KartTuning.race.DEFAULT_LAPS,
 		delayFinishStartTick = -1,
 	}
@@ -127,7 +122,7 @@ end
 
 -- WorldStatus::isStartPhase (world_status.hpp:L170)
 function RaceState.isStartPhase(phase: RacePhase): boolean
-	return phase == "COUNTDOWN_3" or phase == "READY_PHASE" or phase == "SET_PHASE"
+	return phase == "READY_PHASE" or phase == "SET_PHASE"
 end
 
 -- WorldStatus::isRacePhase (world_status.hpp:L172-L173)
@@ -149,9 +144,7 @@ function RaceState.isSteeringAllowed(phase: RacePhase): boolean
 end
 
 function RaceState.getCountdownValue(phase: RacePhase): number?
-	if phase == "COUNTDOWN_3" then
-		return 3
-	elseif phase == "READY_PHASE" then
+	if phase == "READY_PHASE" then
 		return 2
 	elseif phase == "SET_PHASE" then
 		return 1
@@ -162,14 +155,12 @@ function RaceState.getCountdownValue(phase: RacePhase): number?
 end
 
 function RaceState.getCountdownText(phase: RacePhase): string?
-	if phase == "COUNTDOWN_3" then
-		return "3"
-	elseif phase == "READY_PHASE" then
-		return "2"
+	if phase == "READY_PHASE" then
+		return "Ready!"
 	elseif phase == "SET_PHASE" then
-		return "1"
+		return "Set!"
 	elseif phase == "GO_PHASE" then
-		return "GO!"
+		return "Go!"
 	end
 	return nil
 end

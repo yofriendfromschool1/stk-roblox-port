@@ -53,43 +53,37 @@ table.insert(tests, {
 	fn = function()
 		local clock = RaceState.create()
 		assertTrue(clock.totalLaps == 5, "default laps should be 5")
-		assertTrue(clock.phase == "COUNTDOWN_3", "tick 0 is COUNTDOWN_3")
-		assertTrue(RaceState.getCountdownText(clock.phase) == "3", "tick 0 text is 3")
-		assertTrue(not RaceState.isThrottleAllowed(clock.phase), "throttle blocked in COUNTDOWN_3")
-		assertTrue(not RaceState.isSteeringAllowed(clock.phase), "steering blocked in COUNTDOWN_3")
+		assertTrue(clock.phase == "READY_PHASE", "tick 0 is READY_PHASE")
+		assertTrue(RaceState.getCountdownText(clock.phase) == "Ready!", "tick 0 text is Ready!")
+		assertTrue(not RaceState.isThrottleAllowed(clock.phase), "throttle blocked in READY_PHASE")
+		assertTrue(not RaceState.isSteeringAllowed(clock.phase), "steering blocked in READY_PHASE")
 
 		for _ = 1, 119 do
 			RaceState.step(clock)
 		end
-		assertTrue(clock.raceTick == 119 and clock.phase == "COUNTDOWN_3", "tick 119 still COUNTDOWN_3")
+		assertTrue(clock.raceTick == 119 and clock.phase == "READY_PHASE", "tick 119 still READY_PHASE")
 
 		RaceState.step(clock)
-		assertTrue(clock.raceTick == 120 and clock.phase == "READY_PHASE", "tick 120 enters READY_PHASE")
-		assertTrue(RaceState.getCountdownText(clock.phase) == "2", "READY_PHASE text is 2")
+		assertTrue(clock.raceTick == 120 and clock.phase == "SET_PHASE", "tick 120 enters SET_PHASE")
+		assertTrue(RaceState.getCountdownText(clock.phase) == "Set!", "SET_PHASE text is Set!")
 
 		for _ = 1, 120 do
 			RaceState.step(clock)
 		end
-		assertTrue(clock.raceTick == 240 and clock.phase == "SET_PHASE", "tick 240 enters SET_PHASE")
-		assertTrue(RaceState.getCountdownText(clock.phase) == "1", "SET_PHASE text is 1")
-
-		for _ = 1, 120 do
-			RaceState.step(clock)
-		end
-		assertTrue(clock.raceTick == 360 and clock.phase == "GO_PHASE", "tick 360 enters GO_PHASE")
-		assertTrue(RaceState.getCountdownText(clock.phase) == "GO!", "GO_PHASE text is GO!")
+		assertTrue(clock.raceTick == 240 and clock.phase == "GO_PHASE", "tick 240 enters GO_PHASE")
+		assertTrue(RaceState.getCountdownText(clock.phase) == "Go!", "GO_PHASE text is Go!")
 		assertTrue(RaceState.isThrottleAllowed(clock.phase), "throttle allowed at GO")
 		assertTrue(RaceState.isSteeringAllowed(clock.phase), "steering allowed at GO")
 
 		for _ = 1, 120 do
 			RaceState.step(clock)
 		end
-		assertTrue(clock.raceTick == 480 and clock.phase == "MUSIC_PHASE", "tick 480 enters MUSIC_PHASE")
+		assertTrue(clock.raceTick == 360 and clock.phase == "MUSIC_PHASE", "tick 360 enters MUSIC_PHASE")
 
 		for _ = 1, 840 do
 			RaceState.step(clock)
 		end
-		assertTrue(clock.raceTick == 1320 and clock.phase == "RACE_PHASE", "tick 1320 enters RACE_PHASE")
+		assertTrue(clock.raceTick == 1200 and clock.phase == "RACE_PHASE", "tick 1200 enters RACE_PHASE")
 
 		RaceState.enterDelayFinish(clock)
 		assertTrue(clock.phase == "DELAY_FINISH_PHASE", "enterDelayFinish switches to DELAY_FINISH_PHASE")
@@ -116,7 +110,7 @@ table.insert(tests, {
 			fire = false,
 		}
 
-		for _ = 1, 359 do
+		for _ = 1, 239 do
 			local phase = RaceState.step(clock)
 			local filtered = KartSolver.stepRaceInput(state, fullInput, clock.raceTick, phase)
 			assertNear(filtered.accel, 0.0, 1e-6, "countdown accel must be 0")
@@ -129,7 +123,7 @@ table.insert(tests, {
 		local yBeforeGo = state.pos.y
 
 		local goPhase = RaceState.step(clock)
-		assertTrue(goPhase == "GO_PHASE", "tick 360 is GO_PHASE")
+		assertTrue(goPhase == "GO_PHASE", "tick 240 is GO_PHASE")
 		local goFiltered = KartSolver.stepRaceInput(state, fullInput, clock.raceTick, goPhase)
 		KartSolver.step(state, goFiltered, wq, FixedStep.FIXED_DT)
 		assertNear(state.pos.y, yBeforeGo, 0.02, "no vertical sink/snap on GO transition")
@@ -137,62 +131,75 @@ table.insert(tests, {
 })
 
 table.insert(tests, {
-	name = "Start bonus granted inside SET_PHASE window and denied outside / penalized on early press",
+	name = "Start bonus requires sustained Set hold, forfeits on release, & Ready hold penalizes",
 	fn = function()
 		local prof = KartTuning.buildProfile("medium", "best")
 		local wq = makeFlatWorldQuery(0.0)
 
-		-- Tier 1: press at SET_PHASE tick 240 (0.0s) and tick 276 (0.3s)
-		local ok0, boost0 = RaceState.isInStartBonusWindow(240, prof)
-		assertTrue(ok0, "tick 240 in window")
+		-- Tier 1: press at SET_PHASE tick 120 (0.0s) and tick 156 (0.3s)
+		local ok0, boost0 = RaceState.isInStartBonusWindow(120, prof)
+		assertTrue(ok0, "tick 120 in window")
 		assertNear(boost0, 8.0 * 0.8, 1e-4, "medium tier 1 boost")
 
-		local ok30, boost30 = RaceState.isInStartBonusWindow(276, prof)
-		assertTrue(ok30, "tick 276 (0.3s) in tier 1 window")
+		local ok30, boost30 = RaceState.isInStartBonusWindow(156, prof)
+		assertTrue(ok30, "tick 156 (0.3s) in tier 1 window")
 		assertNear(boost30, 8.0 * 0.8, 1e-4, "medium tier 1 boundary boost")
 
-		-- Tier 2: press at tick 277 (0.308s) and tick 300 (0.5s)
-		local ok31, boost31 = RaceState.isInStartBonusWindow(277, prof)
-		assertTrue(ok31, "tick 277 in tier 2 window")
+		-- Tier 2: press at tick 157 (0.308s) and tick 180 (0.5s)
+		local ok31, boost31 = RaceState.isInStartBonusWindow(157, prof)
+		assertTrue(ok31, "tick 157 in tier 2 window")
 		assertNear(boost31, 4.0 * 0.8, 1e-4, "medium tier 2 boost")
 
-		local ok50, boost50 = RaceState.isInStartBonusWindow(300, prof)
-		assertTrue(ok50, "tick 300 (0.5s) in tier 2 window")
+		local ok50, boost50 = RaceState.isInStartBonusWindow(180, prof)
+		assertTrue(ok50, "tick 180 (0.5s) in tier 2 window")
 		assertNear(boost50, 4.0 * 0.8, 1e-4, "medium tier 2 boundary boost")
 
-		-- Outside window: tick 301 (> 0.5s) and tick 360 (at GO)
-		local okLate, boostLate = RaceState.isInStartBonusWindow(301, prof)
-		assertTrue(not okLate and boostLate == 0.0, "tick 301 denied start boost")
-		local okGo, boostGo = RaceState.isInStartBonusWindow(360, prof)
-		assertTrue(not okGo and boostGo == 0.0, "tick 360 denied start boost")
+		-- Outside window: tick 181 (> 0.5s) and tick 240 (at GO)
+		local okLate, boostLate = RaceState.isInStartBonusWindow(181, prof)
+		assertTrue(not okLate and boostLate == 0.0, "tick 181 denied start boost")
+		local okGo, boostGo = RaceState.isInStartBonusWindow(240, prof)
+		assertTrue(not okGo and boostGo == 0.0, "tick 240 denied start boost")
 
-		-- Full solver check: tier 1 press fires ZIPPER boost on GO tick 360
+		-- Sustained Set hold fires ZIPPER boost on GO tick 240
 		local sGood = KartSolver.createState(prof, { x = 0, y = 0.35, z = 0 }, 0)
 		local idle: KartSolver.KartInput = { accel = 0, brake = false, steer = 0, drift = false }
 		local goInput: KartSolver.KartInput = { accel = 1, brake = false, steer = 0, drift = false }
-		for t = 1, 359 do
+		for t = 1, 239 do
 			local p = RaceState.phaseAtTick(t, nil)
-			local inp = if t >= 250 then goInput else idle
+			local inp = if t >= 130 then goInput else idle
 			local f = KartSolver.stepRaceInput(sGood, inp, t, p)
 			KartSolver.step(sGood, f, wq, FixedStep.FIXED_DT)
 		end
-		local fGo = KartSolver.stepRaceInput(sGood, goInput, 360, "GO_PHASE")
+		local fGo = KartSolver.stepRaceInput(sGood, goInput, 240, "GO_PHASE")
 		KartSolver.step(sGood, fGo, wq, FixedStep.FIXED_DT)
-		assertTrue(sGood.race.startupBoostFired, "startupBoostFired set on GO")
+		assertTrue(sGood.race.startupBoostFired, "startupBoostFired set on sustained Set->Go hold")
 		assertTrue(sGood.maxSpeedState.increases["ZIPPER"].active, "ZIPPER MaxSpeed active on GO")
 		assertTrue(sGood.speed >= 5.5, "kart receives immediate speed surge on GO")
 
-		-- Early press in READY_PHASE (tick 150) triggers 120-tick penalty after GO
-		local sEarly = KartSolver.createState(prof, { x = 0, y = 0.35, z = 0 }, 0)
-		for t = 1, 359 do
+		-- Tap in Set then release before Go: boost forfeited
+		local sRel = KartSolver.createState(prof, { x = 0, y = 0.35, z = 0 }, 0)
+		for t = 1, 239 do
 			local p = RaceState.phaseAtTick(t, nil)
-			local inp = if t == 150 then goInput else idle
+			local inp = if t >= 130 and t <= 200 then goInput else idle
+			local f = KartSolver.stepRaceInput(sRel, inp, t, p)
+			KartSolver.step(sRel, f, wq, FixedStep.FIXED_DT)
+		end
+		local fRelGo = KartSolver.stepRaceInput(sRel, goInput, 240, "GO_PHASE")
+		KartSolver.step(sRel, fRelGo, wq, FixedStep.FIXED_DT)
+		assertTrue(not sRel.race.startupBoostFired, "releasing before Go forfeits start boost")
+		assertTrue(not sRel.maxSpeedState.increases["ZIPPER"].active, "ZIPPER must not fire after release")
+
+		-- Early press in READY_PHASE (tick 60) triggers 120-tick penalty after GO
+		local sEarly = KartSolver.createState(prof, { x = 0, y = 0.35, z = 0 }, 0)
+		for t = 1, 239 do
+			local p = RaceState.phaseAtTick(t, nil)
+			local inp = if t == 60 then goInput else idle
 			local f = KartSolver.stepRaceInput(sEarly, inp, t, p)
 			KartSolver.step(sEarly, f, wq, FixedStep.FIXED_DT)
 		end
 		assertTrue(sEarly.race.startupBoostMps == 0.0, "early press gets 0 boost")
 		assertTrue(sEarly.race.startupPenaltyTicks == 120, "early press gets 120-tick penalty")
-		local fPen = KartSolver.stepRaceInput(sEarly, goInput, 360, "GO_PHASE")
+		local fPen = KartSolver.stepRaceInput(sEarly, goInput, 240, "GO_PHASE")
 		assertNear(fPen.accel, 0.0, 1e-6, "early-press penalty zeroes throttle on GO")
 	end,
 })

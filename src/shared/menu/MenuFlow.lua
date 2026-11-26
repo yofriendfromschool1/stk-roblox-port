@@ -4,7 +4,17 @@
 
 local CatalogData = require("./CatalogData")
 
-export type Screen = "MENU" | "MODE" | "TRACK" | "KART" | "CONFIG" | "LOADING" | "RACING" | "OPTIONS" | "ABOUT"
+export type Screen =
+	"MENU"
+	| "MODE"
+	| "TRACK"
+	| "KART"
+	| "CONFIG"
+	| "LOBBY"
+	| "LOADING"
+	| "RACING"
+	| "OPTIONS"
+	| "ABOUT"
 
 export type PlayMode = "SINGLEPLAYER" | "LOCAL_2P" | "ONLINE"
 export type RaceType = "NORMAL_RACE" | "TIME_TRIAL"
@@ -210,12 +220,20 @@ function MenuFlow.openAbout(state: MenuState): ()
 	state.screen = "ABOUT"
 end
 
+function MenuFlow.openLobby(state: MenuState): ()
+	state.config.playMode = "ONLINE"
+	if state.screen ~= "LOBBY" then
+		state.previousScreen = state.screen
+	end
+	state.screen = "LOBBY"
+end
+
 function MenuFlow.back(state: MenuState): ()
 	if state.screen == "OPTIONS" or state.screen == "ABOUT" then
 		state.screen = if state.previousScreen == "OPTIONS" or state.previousScreen == "ABOUT"
 			then "MENU"
 			else state.previousScreen
-	elseif state.screen == "MODE" then
+	elseif state.screen == "LOBBY" or state.screen == "MODE" then
 		state.screen = "MENU"
 	elseif state.screen == "TRACK" then
 		state.screen = "MODE"

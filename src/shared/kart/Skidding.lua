@@ -141,6 +141,20 @@ local function updateSteering(s: SkidState, steer: number, dt: number): number
 	return steerResult
 end
 
+-- Inverse steering remap during active skid (src/karts/skidding.cpp:L231-L249)
+function Skidding.getSteeringWhenSkidding(s: SkidState, steer: number): number
+	local cfg = KartTuning.skid
+	local delta = cfg.reduceTurnMax - cfg.reduceTurnMin
+	if s.state == "SKID_ACCUMULATE_RIGHT" then
+		local f = (steer - cfg.reduceTurnMin) / delta
+		return math.clamp(f * 2.0 - 1.0, -1.0, 1.0)
+	elseif s.state == "SKID_ACCUMULATE_LEFT" then
+		local f = (steer + cfg.reduceTurnMin) / delta
+		return math.clamp(f * 2.0 + 1.0, -1.0, 1.0)
+	end
+	return steer
+end
+
 -- Advances the STK 6-state skidding machine by 1 fixed tick (src/karts/skidding.cpp:L353-L595)
 function Skidding.update(
 	s: SkidState,

@@ -386,7 +386,7 @@ if sessionStateRemote then
 		if type(payload) ~= "table" then
 			return
 		end
-		local phase = if payload.phase == "RACING" then "RACING" else "MENU"
+		local phase = if payload.phase == "RACING" then "RACING" elseif payload.phase == "LOBBY" then "LOBBY" else "MENU"
 		local cfg = payload.config
 		ClientSessionState.set({
 			phase = phase :: any,
@@ -396,17 +396,23 @@ if sessionStateRemote then
 		inputMapper.setSuppressed(phase ~= "RACING")
 		inputMapper.setLocalTwoPlayer(cfg ~= nil and cfg.playMode == "LOCAL_2P")
 		if phase ~= "RACING" then
-			SfxPlayer.stopAllLoops(sfxPlayer)
+			SfxPlayer.clearMatchSounds(sfxPlayer)
+			SfxEvents.resetTracker(localAudioTracker)
+			table.clear(remoteAudioTrackers)
 			visuals.model.Parent = nil
 			for _, rv in remoteKartVisuals do
-				rv.model.Parent = nil
+				rv.model:Destroy()
 			end
+			table.clear(remoteKartVisuals)
+			table.clear(remoteInterpBuffers)
+			table.clear(remoteKartStates)
 			HudState.get().ready = false
 		else
+			SfxPlayer.clearMatchSounds(sfxPlayer)
+			SfxEvents.resetTracker(localAudioTracker)
+			table.clear(remoteAudioTrackers)
+			SfxPlayer.applyAudioSettings(sfxPlayer, ClientSettingsState.get().audio)
 			visuals.model.Parent = Workspace
-			for _, rv in remoteKartVisuals do
-				rv.model.Parent = Workspace
-			end
 			localTotalLaps = if cfg and type(cfg.laps) == "number" then cfg.laps else KartTuning.race.DEFAULT_LAPS
 			profile =
 				KartTuning.buildProfile("medium", if cfg and cfg.difficulty then cfg.difficulty else "intermediate")
@@ -977,6 +983,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	end
 	for id, rv in remoteKartVisuals do
 		if not seenRemotes[id] then
+			SfxPlayer.removeKartLoops(sfxPlayer, id)
 			rv.model:Destroy()
 			remoteKartVisuals[id] = nil
 			remoteAudioTrackers[id] = nil

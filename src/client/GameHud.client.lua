@@ -1133,12 +1133,12 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 	if cdText ~= nil then
 		countdownLabel.Visible = true
 		countdownLabel.Text = cdText
-		if cdText == "GO!" then
+		if cdText == "Go!" then
 			countdownLabel.TextColor3 = Color3.fromRGB(95, 255, 130)
-		elseif cdText == "1" then
+		elseif cdText == "Set!" then
 			countdownLabel.TextColor3 = Color3.fromRGB(255, 225, 80)
 		else
-			countdownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			countdownLabel.TextColor3 = Color3.fromRGB(255, 100, 80)
 		end
 	elseif nowSec < lapToastExpirySec and lapToastText ~= "" then
 		countdownLabel.Visible = true

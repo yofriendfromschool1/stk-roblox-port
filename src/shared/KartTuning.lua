@@ -323,10 +323,9 @@ KartTuning.startup = {
 -- Race phase durations & lap count (src/modes/world_status.cpp:L83-L84, L322, L347, L374, L437-L438; data/stk_config.xml:L214, L217)
 KartTuning.race = {
 	DEFAULT_LAPS = 5, -- OpenKart divergence from STK 3 laps (docs/divergences.md)
-	COUNTDOWN_3_TICKS = 120, -- 1.0 s ("3" lead-in)
-	READY_TICKS = 120, -- 1.0 s ("2", world_status.cpp:L322)
-	SET_TICKS = 120, -- 1.0 s ("1", world_status.cpp:L347)
-	GO_TICKS = 120, -- 1.0 s ("GO!", world_status.cpp:L374)
+	READY_TICKS = 120, -- 1.0 s ("Ready!", world_status.cpp:L322)
+	SET_TICKS = 120, -- 1.0 s ("Set!", world_status.cpp:L347)
+	GO_TICKS = 120, -- 1.0 s ("Go!", world_status.cpp:L374)
 	MUSIC_END_TICKS = 960, -- 8.0 s after GO (stk_config.xml:L217)
 	DELAY_FINISH_TICKS = 120, -- 1.0 s after finish (stk_config.xml:L214)
 }
@@ -371,6 +370,8 @@ KartTuning.ai = {
 	lookaheadMinM = 6.0, -- m
 	lookaheadMaxM = 28.0, -- m
 	defaultCruiseSpeedMps = 25.0, -- m/s (AI speed is governed by KartProfile + MS_DECREASE_AI, not throttle cap)
+	maxMainLateralOffsetM = 1.8, -- m (bounded within sandtrack main road min width 7.33 m -> +-3.66 m)
+	maxBranchLateralOffsetM = 1.1, -- m (bounded within temple shortcut min width 6.05 m -> +-3.02 m)
 }
 
 export type AIPropsPreset = {
@@ -378,6 +379,7 @@ export type AIPropsPreset = {
 	skiddingThreshold: number,
 	itemSkill: number,
 	nitroUsage: number,
+	shortcutProb: number,
 	rbSkidProb: { TablePoint },
 	firstSpeedCap: { TablePoint },
 	lastSpeedCap: { TablePoint },
@@ -394,6 +396,7 @@ KartTuning.aiByDifficulty = {
 		skiddingThreshold = 4.0,
 		itemSkill = 1,
 		nitroUsage = 0,
+		shortcutProb = 0.15,
 		rbSkidProb = { { 0, 0.0 } },
 		firstSpeedCap = { { -100, 1.0 }, { -50, 0.9 }, { 0, 0.85 }, { 100, 0.65 } },
 		lastSpeedCap = { { -150, 0.92 }, { -50, 0.75 }, { 50, 0.6 } },
@@ -407,6 +410,7 @@ KartTuning.aiByDifficulty = {
 		skiddingThreshold = 3.0,
 		itemSkill = 2,
 		nitroUsage = 1,
+		shortcutProb = 0.40,
 		rbSkidProb = { { 0, 0.0 } },
 		firstSpeedCap = { { 20, 1.0 }, { 60, 0.9 }, { 100, 0.85 } },
 		lastSpeedCap = { { -50, 0.94 }, { 0, 0.85 }, { 100, 0.75 } },
@@ -420,6 +424,7 @@ KartTuning.aiByDifficulty = {
 		skiddingThreshold = 2.0,
 		itemSkill = 3,
 		nitroUsage = 2,
+		shortcutProb = 0.65,
 		rbSkidProb = { { -50, 1.0 }, { -20, 0.7 }, { 20, 0.2 }, { 50, 0.0 } },
 		firstSpeedCap = { { 50, 1.0 }, { 150, 0.9 } },
 		lastSpeedCap = { { 0, 0.96 }, { 80, 0.8 } },
@@ -433,6 +438,7 @@ KartTuning.aiByDifficulty = {
 		skiddingThreshold = 2.0,
 		itemSkill = 4,
 		nitroUsage = 3,
+		shortcutProb = 0.85,
 		rbSkidProb = { { 0, 1.0 } },
 		firstSpeedCap = { { 0, 1.0 } },
 		lastSpeedCap = { { 0, 1.0 } },

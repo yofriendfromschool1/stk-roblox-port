@@ -22,10 +22,12 @@ local ItemWorld = require(Shared.items.ItemWorld)
 local KartAssetHydrator = require("./KartAssetHydrator")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
+local LobbyState = require(Shared.net.LobbyState)
 local Math3D = require(Shared.sim.Math3D)
 local MenuFlow = require(Shared.menu.MenuFlow)
 local PowerupManager = require(Shared.items.PowerupManager)
 local RaceState = require(Shared.sim.RaceState)
+local ReservedLobbyService = require("./ReservedLobbyService")
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SandtrackCollisionData = require(Shared.track.SandtrackCollisionData)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
@@ -488,6 +490,14 @@ function GreyboxKartServer.start()
 	localP2InputRemote.Name = "LocalP2Input"
 	localP2InputRemote.Parent = remotesFolder
 
+	local lobbyCommandRemote = Instance.new("RemoteEvent")
+	lobbyCommandRemote.Name = "LobbyCommand"
+	lobbyCommandRemote.Parent = remotesFolder
+
+	local lobbyStateRemote = Instance.new("RemoteEvent")
+	lobbyStateRemote.Name = "LobbyState"
+	lobbyStateRemote.Parent = remotesFolder
+
 	local DIFFICULTY_INDEX: { [string]: number } = {
 		novice = 0,
 		intermediate = 1,
@@ -495,7 +505,18 @@ function GreyboxKartServer.start()
 		best = 3,
 	}
 
-	local sessionPhase: "MENU" | "RACING" = "MENU"
+	local sessionPhase: "MENU" | "LOBBY" | "RACING" = "MENU"
+	local inLobbySession = false
+	local lobbyFinishReturnAt: number? = nil
+	local lobby = LobbyState.create({
+		serverName = "OpenKart Lobby",
+		trackId = activeTrack.trackId,
+		laps = 5,
+		difficulty = "intermediate",
+		raceType = "NORMAL_RACE",
+		maxPlayers = 8,
+		aiCount = 3,
+	})
 	local sessionConfig: MenuFlow.SessionConfig = MenuFlow.sanitizeSessionConfig(nil)
 	local profile = KartTuning.buildProfile("medium", sessionConfig.difficulty)
 	local raceClock = RaceState.create(sessionConfig.laps)
@@ -516,9 +537,15 @@ function GreyboxKartServer.start()
 	local itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, sessionConfig.raceType)
 	local flyableWorld = Flyable.createWorld()
 	local dummyEnabled = true
-	local dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
+	local dummyState =
+		TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad, 10007)
 	initRaceProgress(dummyState, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
-	local dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
+	local dummyAI = TestDummyKart.createAIState(
+		dummyState,
+		activeTrack.drivelineQuadCenters,
+		activeTrack.drivelineBranches,
+		sessionConfig.difficulty
+	)
 	local extraAIs: { { id: number, sid: string, state: KartSolver.KartState, ai: AIController.AIState } } = {}
 	local localP2State: KartSolver.KartState? = nil
 	local localP2AI: AIController.AIState? = nil
@@ -574,7 +601,21 @@ function GreyboxKartServer.start()
 		end
 	end
 
-	local function applySessionStart(rawConfig: any, requestingPlayer: Player?)
+	local function broadcastLobbyState(targetPlayer: Player?)
+		local payload = {
+			type = "SNAPSHOT",
+			snapshot = LobbyState.getPublicSnapshot(lobby),
+		}
+		if targetPlayer ~= nil then
+			lobbyStateRemote:FireClient(targetPlayer, payload)
+		else
+			lobbyStateRemote:FireAllClients(payload)
+		end
+	end
+
+	local function applySessionStart(rawConfig: any, requestingPlayer: Player?, fromLobby: boolean?)
+		inLobbySession = (fromLobby == true)
+		lobbyFinishReturnAt = nil
 		sessionConfig = MenuFlow.sanitizeSessionConfig(rawConfig)
 		profile = KartTuning.buildProfile("medium", sessionConfig.difficulty)
 		raceClock = RaceState.create(sessionConfig.laps)
@@ -597,23 +638,36 @@ function GreyboxKartServer.start()
 			sessionConfig.difficulty
 		)
 		dummyEnabled = (sessionConfig.raceType == "NORMAL_RACE" and sessionConfig.aiCount >= 1)
-		dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
+		dummyState =
+			TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad, 10007 + 7919)
 		initRaceProgress(dummyState, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
-		dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
+		dummyAI = TestDummyKart.createAIState(
+			dummyState,
+			activeTrack.drivelineQuadCenters,
+			activeTrack.drivelineBranches,
+			sessionConfig.difficulty
+		)
 
 		extraAIs = {}
 		if sessionConfig.raceType == "NORMAL_RACE" and sessionConfig.aiCount >= 2 then
 			for i = 2, sessionConfig.aiCount do
-				local row = math.floor(i / 2)
-				local side = if (i % 2) == 0 then -2.4 else 2.4
+				local row = math.floor((i + playerTotal - 1) / 2)
+				local side = if ((i + playerTotal) % 2) == 0 then -2.4 else 2.4
 				local spawnPos = gridOffsetPos(activeTrack.startPos, activeTrack.startYawRad, side, row * 3.5)
-				local aiState = KartSolver.createState(profile, spawnPos, activeTrack.startYawRad)
+				local seed = 10007 + i * 7919
+				local aiState = KartSolver.createState(profile, spawnPos, activeTrack.startYawRad, seed)
 				initRaceProgress(aiState, spawnPos, activeTrack.startYawRad)
 				table.insert(extraAIs, {
 					id = -100 - i,
 					sid = "ai_" .. tostring(i),
 					state = aiState,
-					ai = AIController.createState(activeTrack.drivelineQuadCenters, aiState.pos),
+					ai = AIController.createState(
+						activeTrack.drivelineQuadCenters,
+						aiState.pos,
+						seed,
+						activeTrack.drivelineBranches :: any,
+						sessionConfig.difficulty
+					),
 				})
 			end
 		end
@@ -623,7 +677,13 @@ function GreyboxKartServer.start()
 			local p2 = KartSolver.createState(profile, p2Pos, activeTrack.startYawRad)
 			initRaceProgress(p2, p2Pos, activeTrack.startYawRad)
 			localP2State = p2
-			localP2AI = AIController.createState(activeTrack.drivelineQuadCenters, p2.pos)
+			localP2AI = AIController.createState(
+				activeTrack.drivelineQuadCenters,
+				p2.pos,
+				nil,
+				activeTrack.drivelineBranches :: any,
+				sessionConfig.difficulty
+			)
 			localP2Owner = requestingPlayer
 			localP2Input = {
 				accel = 0,
@@ -641,10 +701,18 @@ function GreyboxKartServer.start()
 		end
 
 		Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
+		local slotIdx = 0
 		for _, entry in entries do
+			slotIdx += 1
+			local pRow = math.floor((slotIdx - 1) / 2)
+			local pSide = if slotIdx == 1 then 0.0 elseif (slotIdx % 2) == 0 then 2.4 else -2.4
+			local pSpawn = if slotIdx == 1
+				then activeTrack.startPos
+				else gridOffsetPos(activeTrack.startPos, activeTrack.startYawRad, pSide, pRow * 3.5)
 			entry.player.ReplicationFocus = arenaPrimaryPart
-			entry.state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
-			initRaceProgress(entry.state, activeTrack.startPos, activeTrack.startYawRad)
+			entry.state =
+				KartSolver.createState(profile, pSpawn, activeTrack.startYawRad, 10007 + math.abs(entry.player.UserId))
+			initRaceProgress(entry.state, pSpawn, activeTrack.startYawRad)
 			entry.progress = AIController.createState(activeTrack.drivelineQuadCenters, entry.state.pos)
 			entry.input = {
 				accel = 0,
@@ -663,15 +731,17 @@ function GreyboxKartServer.start()
 	end
 
 	local function resetFullRace()
-		applySessionStart(sessionConfig, localP2Owner)
+		applySessionStart(sessionConfig, localP2Owner, inLobbySession)
 	end
 
 	sessionCommandRemote.OnServerEvent:Connect(function(player: Player, cmd: any, payload: any)
 		if cmd == "REQUEST_STATE" then
 			broadcastSessionState(player)
 		elseif cmd == "START_RACE" then
-			applySessionStart(payload, player)
+			applySessionStart(payload, player, false)
 		elseif cmd == "RETURN_TO_MENU" then
+			inLobbySession = false
+			lobbyFinishReturnAt = nil
 			sessionPhase = "MENU"
 			localP2State = nil
 			localP2AI = nil
@@ -680,6 +750,139 @@ function GreyboxKartServer.start()
 			broadcastSessionState(nil)
 		end
 	end)
+
+	local function getLobbyUserId(player: Player): number
+		return if player.UserId ~= 0 then player.UserId else 1
+	end
+
+	local function handleReturnToLobby()
+		LobbyState.returnToLobby(lobby)
+		sessionPhase = "LOBBY"
+		lobbyFinishReturnAt = nil
+		localP2State = nil
+		localP2AI = nil
+		localP2Owner = nil
+		extraAIs = {}
+		broadcastLobbyState(nil)
+		broadcastSessionState(nil)
+	end
+
+	lobbyCommandRemote.OnServerEvent:Connect(function(player: Player, cmd: any, payload: any)
+		local uid = getLobbyUserId(player)
+		if cmd == "REQUEST_LOBBY_STATE" then
+			broadcastLobbyState(player)
+		elseif cmd == "JOIN_LOBBY" then
+			LobbyState.addPlayer(lobby, uid, player.Name)
+			if sessionPhase ~= "RACING" then
+				sessionPhase = "LOBBY"
+			end
+			broadcastLobbyState(nil)
+			broadcastSessionState(player)
+		elseif cmd == "LEAVE_LOBBY" then
+			LobbyState.removePlayer(lobby, uid)
+			if not inLobbySession and sessionPhase == "LOBBY" then
+				sessionPhase = "MENU"
+			end
+			broadcastLobbyState(nil)
+			broadcastSessionState(player)
+		elseif cmd == "SUBMIT_PASSWORD" then
+			local pw = if type(payload) == "table" then payload.password else payload
+			local ok, reason = LobbyState.submitPassword(lobby, uid, pw)
+			lobbyStateRemote:FireClient(player, {
+				type = "PASSWORD_RESULT",
+				ok = ok,
+				reason = reason,
+			})
+			if ok then
+				broadcastLobbyState(nil)
+			end
+		elseif cmd == "UPDATE_SETTINGS" then
+			local ok = LobbyState.updateSettings(lobby, uid, payload)
+			if ok then
+				broadcastLobbyState(nil)
+			end
+		elseif cmd == "SET_KART" then
+			local kartId = if type(payload) == "table" then payload.kartId else payload
+			local ok = LobbyState.setPlayerKart(lobby, uid, kartId)
+			if ok then
+				broadcastLobbyState(nil)
+			end
+		elseif cmd == "SET_READY" then
+			local readyVal = if type(payload) == "table" then payload.ready == true else payload == true
+			local ok = LobbyState.setPlayerReady(lobby, uid, readyVal)
+			if ok then
+				broadcastLobbyState(nil)
+			end
+		elseif cmd == "START_LOBBY_RACE" then
+			local ok, cfg = LobbyState.startRace(lobby, uid)
+			if ok and cfg ~= nil then
+				broadcastLobbyState(nil)
+				applySessionStart(cfg, player, true)
+			end
+		elseif cmd == "RETURN_TO_LOBBY" then
+			if uid == lobby.hostUserId and inLobbySession then
+				handleReturnToLobby()
+			end
+		elseif cmd == "CREATE_RESERVED_SERVER" then
+			if uid == lobby.hostUserId then
+				local res = ReservedLobbyService.createReservedLobby(player, lobby.settings)
+				lobbyStateRemote:FireClient(player, {
+					type = "RESERVED_RESULT",
+					ok = res.ok,
+					reason = res.reason,
+					entry = res.entry,
+				})
+			end
+		elseif cmd == "LIST_RESERVED_SERVERS" then
+			local res = ReservedLobbyService.listReservedLobbies()
+			lobbyStateRemote:FireClient(player, {
+				type = "RESERVED_LIST",
+				ok = res.ok,
+				reason = res.reason,
+				entries = res.entries,
+			})
+		elseif cmd == "JOIN_RESERVED_SERVER" then
+			local lid = if type(payload) == "table" then tostring(payload.lobbyId or "") else tostring(payload or "")
+			local ok, reason = ReservedLobbyService.teleportToReservedLobby(player, lid)
+			lobbyStateRemote:FireClient(player, {
+				type = "RESERVED_JOIN_RESULT",
+				ok = ok,
+				reason = reason,
+			})
+		end
+	end)
+
+	if RunService:IsStudio() then
+		local studioLobbyHook = Instance.new("BindableFunction")
+		studioLobbyHook.Name = "OpenKartStudioLobbyHook"
+		studioLobbyHook.Parent = remotesFolder
+		studioLobbyHook.OnInvoke = function(op: string, a: any, b: any): (any, any)
+			if op == "getSnapshot" then
+				return LobbyState.getPublicSnapshot(lobby), nil
+			elseif op == "addGuest" then
+				local _, admitted = LobbyState.addPlayer(lobby, tonumber(a) or 202, tostring(b or "Guest"))
+				broadcastLobbyState(nil)
+				return admitted, nil
+			elseif op == "submitGuestPassword" then
+				local ok, reason = LobbyState.submitPassword(lobby, tonumber(a) or 202, tostring(b or ""))
+				if ok then
+					broadcastLobbyState(nil)
+				end
+				return ok, reason
+			elseif op == "setGuestReady" then
+				local ok, reason = LobbyState.setPlayerReady(lobby, tonumber(a) or 202, b == true)
+				if ok then
+					broadcastLobbyState(nil)
+				end
+				return ok, reason
+			elseif op == "removeGuest" then
+				LobbyState.removePlayer(lobby, tonumber(a) or 202)
+				broadcastLobbyState(nil)
+				return true, nil
+			end
+			return nil, "UNKNOWN_OP"
+		end
+	end
 
 	localP2InputRemote.OnServerEvent:Connect(function(player: Player, rawPacket: any)
 		if sessionPhase ~= "RACING" or localP2State == nil or player ~= localP2Owner then
@@ -772,6 +975,8 @@ function GreyboxKartServer.start()
 
 	local function removeForPlayer(player: Player)
 		entries[player] = nil
+		LobbyState.removePlayer(lobby, getLobbyUserId(player))
+		broadcastLobbyState(nil)
 	end
 
 	Players.PlayerAdded:Connect(spawnForPlayer)
@@ -960,20 +1165,29 @@ function GreyboxKartServer.start()
 					aheadInvuln = aheadInvuln,
 					behindInvuln = behindInvuln,
 					aheadHasShield = aheadHasShield,
+					itemWorld = itemWorld,
+					lapsRemaining = math.max(1, raceClock.totalLaps - math.max(0, ks.race.lap)),
 				}
 			end
 
 			if dummyEnabled then
 				local dummyRank = rankById[TestDummyKart.DUMMY_STRING_ID] or 1
 				local rawDummyInput = if dummyState.race.raceFinished
-					then AIController.computeCoastInput(dummyAI, dummyState, activeTrack.drivelineQuadCenters, fixedDt)
+					then AIController.computeCoastInput(
+						dummyAI,
+						dummyState,
+						activeTrack.drivelineQuadCenters,
+						fixedDt,
+						activeTrack.drivelineBranches :: any
+					)
 					else TestDummyKart.computeCruiseInput(
 						dummyState,
 						dummyAI,
 						fixedDt,
 						nil,
 						activeTrack.drivelineQuadCenters,
-						buildAIContext(dummyAI, dummyState, 1)
+						buildAIContext(dummyAI, dummyState, 1),
+						activeTrack.drivelineBranches
 					)
 				local dummyInput = KartSolver.stepRaceInput(dummyState, rawDummyInput, raceTick, racePhase)
 				KartSolver.stepWithItems(dummyState, dummyInput, worldQuery, fixedDt, itemWorld, {
@@ -1011,7 +1225,8 @@ function GreyboxKartServer.start()
 						extra.ai,
 						extra.state,
 						activeTrack.drivelineQuadCenters,
-						fixedDt
+						fixedDt,
+						activeTrack.drivelineBranches :: any
 					)
 					else TestDummyKart.computeCruiseInput(
 						extra.state,
@@ -1019,7 +1234,8 @@ function GreyboxKartServer.start()
 						fixedDt,
 						nil,
 						activeTrack.drivelineQuadCenters,
-						buildAIContext(extra.ai, extra.state, aiIdx + 1)
+						buildAIContext(extra.ai, extra.state, aiIdx + 1),
+						activeTrack.drivelineBranches
 					)
 				local extraInput = KartSolver.stepRaceInput(extra.state, rawExtraInput, raceTick, racePhase)
 				KartSolver.stepWithItems(extra.state, extraInput, worldQuery, fixedDt, itemWorld, {
@@ -1251,6 +1467,24 @@ function GreyboxKartServer.start()
 			for player, entry in entries do
 				if flyChanged or entry.state.itemEffect.effectType ~= preEffects[player] then
 					entry.forceSnapshot = true
+				end
+			end
+
+			if inLobbySession and sessionPhase == "RACING" then
+				local pTotal = 0
+				local pFinished = 0
+				for _, entry in entries do
+					pTotal += 1
+					if entry.state.race.raceFinished then
+						pFinished += 1
+					end
+				end
+				if pTotal > 0 and pFinished == pTotal then
+					if lobbyFinishReturnAt == nil then
+						lobbyFinishReturnAt = os.clock() + 6.0
+					elseif os.clock() >= lobbyFinishReturnAt then
+						handleReturnToLobby()
+					end
 				end
 			end
 		end)

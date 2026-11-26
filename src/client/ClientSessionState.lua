@@ -7,7 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MenuFlow = require(Shared.menu.MenuFlow)
 
-export type SessionPhase = "MENU" | "LOADING" | "RACING"
+export type SessionPhase = "MENU" | "LOBBY" | "LOADING" | "RACING"
 
 export type ReplicatedSessionState = {
 	phase: SessionPhase,

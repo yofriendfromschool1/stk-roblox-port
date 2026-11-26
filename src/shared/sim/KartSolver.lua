@@ -144,6 +144,7 @@ export type KartState = {
 	depenetrationCount: number,
 	chassisSweepHitCount: number,
 	gravity: number,
+	rngState: number,
 }
 
 export type NetIncreaseSnapshot = {
@@ -205,6 +206,7 @@ export type NetState = {
 	slipstreamChargeTicks: number?,
 	slipstream: Slipstream.NetSlipstreamState?,
 	race: KartRaceState?,
+	rngState: number?,
 	itemWorldSnapshot: ItemWorld.ItemWorldSnapshot?,
 	flyableSnapshot: Flyable.FlyableSnapshot?,
 }
@@ -261,7 +263,25 @@ export type KartTelemetry = {
 
 local MAX_IGNORE_RAY_PASSES = 4
 local STUCK_ESCAPE_TICKS = 60
+local DEFAULT_RNG_SEED = 135792468
 local KartSolver = {}
+
+local function coerceSeed(seed: number?): number
+	if type(seed) ~= "number" or seed ~= seed then
+		return DEFAULT_RNG_SEED
+	end
+	local s = math.floor(math.abs(seed)) % 4294967296
+	if s == 0 then
+		return DEFAULT_RNG_SEED
+	end
+	return s
+end
+
+-- Deterministic 32-bit LCG PRNG stored per kart (never math.random()).
+function KartSolver.nextRand01(state: KartState): number
+	state.rngState = (state.rngState * 1664525 + 1013904223) % 4294967296
+	return state.rngState / 4294967296
+end
 
 local function newWheelState(): WheelState
 	return {
@@ -282,7 +302,12 @@ local function newWheelState(): WheelState
 	}
 end
 
-function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3?, spawnYawRad: number?): KartState
+function KartSolver.createState(
+	profile: KartTuning.KartProfile?,
+	spawnPos: Vec3?,
+	spawnYawRad: number?,
+	rngSeed: number?
+): KartState
 	local prof = profile or KartTuning.buildProfile("medium", "best")
 	local pos = if spawnPos then { x = spawnPos.x, y = spawnPos.y, z = spawnPos.z } else { x = 0, y = 0.30, z = 0 }
 	local rot = if spawnYawRad and spawnYawRad ~= 0
@@ -309,7 +334,7 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 		slipstream = Slipstream.new(prof.width, prof.length),
 		race = {
 			raceTick = 0,
-			phase = "COUNTDOWN_3",
+			phase = "READY_PHASE",
 			lap = -1,
 			nextCheckpoint = 0,
 			raceFinished = false,
@@ -343,6 +368,7 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 		depenetrationCount = 0,
 		chassisSweepHitCount = 0,
 		gravity = KartTuning.physics.DEFAULT_GRAVITY,
+		rngState = coerceSeed(rngSeed),
 	}
 end
 
@@ -431,6 +457,7 @@ function KartSolver.captureNetState(
 			startupPenaltyTicks = state.race.startupPenaltyTicks,
 			startupBoostFired = state.race.startupBoostFired,
 		},
+		rngState = state.rngState,
 		itemWorldSnapshot = if itemWorld ~= nil then ItemWorld.captureSnapshot(itemWorld) else nil,
 		flyableSnapshot = if flyableWorld ~= nil then Flyable.captureSnapshot(flyableWorld) else nil,
 	}
@@ -495,6 +522,9 @@ function KartSolver.applyNetState(
 	state.timedRotationTicks = snap.timedRotationTicks
 	state.timedRotationRate = snap.timedRotationRate
 	state.bounceBackTicks = snap.bounceBackTicks
+	if snap.rngState ~= nil then
+		state.rngState = coerceSeed(snap.rngState)
+	end
 
 	MaxSpeed.reset(state.maxSpeedState)
 	for _, inc in snap.increases do
@@ -2507,11 +2537,26 @@ function KartSolver.stepRaceInput(
 	r.raceTick = raceTick
 	r.phase = phase
 	if RaceState.isStartPhase(phase) then
-		if (rawInput.accel > 0 or rawInput.brake or rawInput.nitro == true) and not r.startupHasPressed then
-			r.startupHasPressed = true
-			local boost, penalty = RaceState.evaluateStartupAccel(raceTick, state.profile)
-			r.startupBoostMps = boost
-			r.startupPenaltyTicks = penalty
+		if phase == "READY_PHASE" then
+			-- Holding accel/brake/nitro during READY triggers 1.0s penalty & forfeits start boost (player_controller.cpp:L331-L345)
+			if rawInput.accel > 0 or rawInput.brake or rawInput.nitro == true then
+				r.startupHasPressed = true
+				r.startupBoostMps = 0.0
+				if r.startupPenaltyTicks == 0 then
+					r.startupPenaltyTicks = KartTuning.startup.penaltyTicks
+				end
+			end
+		elseif phase == "SET_PHASE" and r.startupPenaltyTicks == 0 then
+			if rawInput.accel > 0 then
+				if not r.startupHasPressed then
+					r.startupHasPressed = true
+					local ok, boost = RaceState.isInStartBonusWindow(raceTick, state.profile)
+					r.startupBoostMps = if ok then boost else 0.0
+				end
+			elseif r.startupHasPressed then
+				-- Releasing throttle before Set->Go forfeits the start boost (kart.cpp:L2612-L2615)
+				r.startupBoostMps = 0.0
+			end
 		end
 	else
 		if

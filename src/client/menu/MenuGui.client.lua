@@ -10,6 +10,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CatalogData = require(Shared.menu.CatalogData)
 local ClassicSkin = require("./ClassicSkin")
 local ClientSessionState = require("../ClientSessionState")
+local LobbyPanel = require("./LobbyPanel")
 local MenuBackdrop = require("./MenuBackdrop")
 local MenuFlow = require(Shared.menu.MenuFlow)
 local MenuIcons = require(Shared.menu.MenuIcons)
@@ -304,6 +305,9 @@ configRightCol.Parent = configScreen
 -- Screen 6: LOADING
 local loadingScreen = makeScreenFrame("Screen_LOADING")
 local loadingLbl = makeHeader(loadingScreen, "Loading...")
+
+-- Screen 6B: ONLINE LOBBY
+local lobbyScreen = makeScreenFrame("Screen_LOBBY")
 loadingLbl.Position = UDim2.fromScale(0.1, 0.44)
 loadingLbl.Size = UDim2.fromScale(0.8, 0.12)
 
@@ -342,6 +346,7 @@ local screens: { [MenuFlow.Screen]: Frame } = {
 	TRACK = trackScreen,
 	KART = kartScreen,
 	CONFIG = configScreen,
+	LOBBY = lobbyScreen,
 	LOADING = loadingScreen,
 	OPTIONS = optionsScreen,
 	ABOUT = aboutScreen,
@@ -407,8 +412,13 @@ makeMainTopCard("Local2PBtn", "Local 2P", MenuIcons.MenuMulti, MenuIcons.MenuMul
 	renderScreen()
 end)
 makeMainTopCard("OnlineBtn", "Online", MenuIcons.MenuOnline, MenuIcons.MenuOnlineFocus, 3, function()
-	MenuFlow.selectPlayMode(menuState, "ONLINE")
+	MenuFlow.openLobby(menuState)
 	renderScreen()
+	local remotes = ReplicatedStorage:FindFirstChild("OpenKartRemotes")
+	local lobbyCmd = if remotes then remotes:FindFirstChild("LobbyCommand") else nil
+	if lobbyCmd and lobbyCmd:IsA("RemoteEvent") then
+		lobbyCmd:FireServer("JOIN_LOBBY")
+	end
 end)
 makeMainBottomBtn("OptionsBtn", "Options", MenuIcons.MainOptions, 1, function()
 	MenuFlow.openOptions(menuState)
@@ -430,6 +440,8 @@ makeBackButton(kartScreen, goBack)
 makeBackButton(configScreen, goBack)
 makeBackButton(optionsScreen, goBack)
 makeBackButton(aboutScreen, goBack)
+
+local _lobbyHandle = LobbyPanel.build(lobbyScreen, trackConn, goBack)
 
 -- Populate race_setup.stkgui Difficulty ribbon (128x128 icons)
 local diffs: { { id: MenuFlow.Difficulty, label: string, icon: string } } = {
@@ -776,6 +788,9 @@ end))
 ClientSessionState.subscribe(function(session)
 	if session.phase == "RACING" then
 		MenuFlow.onRaceLoaded(menuState)
+	elseif session.phase == "LOBBY" then
+		MenuFlow.openLobby(menuState)
+		_lobbyHandle.refresh()
 	elseif session.phase == "MENU" and (menuState.screen == "RACING" or menuState.screen == "LOADING") then
 		MenuFlow.returnToMenu(menuState)
 	end

@@ -104,7 +104,7 @@ for idx, name in FLYABLE_KINDS do
 	FLYABLE_KIND_TO_ID[name :: Flyable.FlyableKind] = idx
 end
 
-local CORE_HEADER_BYTES = 248
+local CORE_HEADER_BYTES = 252
 local ITEM_EFFECT_BASE_BYTES = 12
 local ITEM_EFFECT_EXPLOSION_BYTES = 88
 local ITEM_EFFECT_PULL_BYTES = 16
@@ -398,6 +398,8 @@ function GreyboxProtocol.packSnapshot(
 	buffer.writeu8(buf, off + 15, raceFlags)
 	buffer.writei16(buf, off + 16, clampI16(if race ~= nil then race.startupPenaltyTicks else 0))
 	off += 18
+	buffer.writeu32(buf, off, clampU32(ns.rngState or 135792468))
+	off += 4
 
 	if hasItemEffect and eff ~= nil then
 		local hasExp = (eff.effectType == ItemEffectState.EFFECT_EXPLOSION)
@@ -720,9 +722,11 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 	local raceFlags = buffer.readu8(buf, off + 15)
 	local startupPenaltyTicks = buffer.readi16(buf, off + 16)
 	off += 18
+	local rngState = buffer.readu32(buf, off)
+	off += 4
 	local raceState: KartSolver.KartRaceState = {
 		raceTick = raceTick,
-		phase = RaceState.ID_TO_PHASE[racePhaseId] or "COUNTDOWN_3",
+		phase = RaceState.ID_TO_PHASE[racePhaseId] or "READY_PHASE",
 		lap = raceLap,
 		nextCheckpoint = raceNextCheckpoint,
 		raceFinished = bit32.btest(raceFlags, 1),
@@ -1192,6 +1196,7 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		slipstreamChargeTicks = if slipstream ~= nil then slipstream.chargeTicks else 0,
 		slipstream = slipstream,
 		race = raceState,
+		rngState = rngState,
 		itemWorldSnapshot = itemWorldSnapshot,
 		flyableSnapshot = flyableSnapshot,
 	}

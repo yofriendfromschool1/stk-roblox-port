@@ -122,6 +122,31 @@ function SfxEvents.createTracker(): AudioTracker
 	}
 end
 
+function SfxEvents.resetTracker(tracker: AudioTracker)
+	tracker.initialized = false
+	tracker.lastFactorEngineSound = 0.0
+	tracker.engineLoopActive = false
+	tracker.skidLoopActive = false
+	tracker.nitroLoopActive = false
+	tracker.bombLoopActive = false
+	tracker.crashCycle = 0
+	tracker.prev = {
+		speedMps = 0.0,
+		maxSpeedMps = 23.0,
+		isOnGround = true,
+		skidState = "SKID_NONE",
+		nitroActive = false,
+		nitroEnergy = 0.0,
+		nitroMax = 20.0,
+		heldPowerup = 0,
+		heldPowerupCount = 0,
+		attachmentType = 0,
+		itemEffectType = ItemEffectState.EFFECT_NONE,
+		plungerFaceTicks = 0,
+		bounceBackTicks = 0,
+	}
+end
+
 -- Ported from src/karts/kart.cpp:L2697-L2724 (STK 1.5)
 function SfxEvents.computeEnginePlaybackSpeed(
 	tracker: AudioTracker,
@@ -202,6 +227,9 @@ function SfxEvents.step(tracker: AudioTracker, curr: KartAudioSnapshot, dt: numb
 
 	if not tracker.initialized then
 		tracker.initialized = true
+		if isLocalPlayer and curr.racePhase == "READY_PHASE" then
+			table.insert(oneShots, { id = "pre_start_race", positional = false, volumeScale = 1.0 })
+		end
 		tracker.prev = cloneSnapshot(curr)
 		return {
 			enginePlaybackSpeed = enginePitch,
@@ -287,7 +315,7 @@ function SfxEvents.step(tracker: AudioTracker, curr: KartAudioSnapshot, dt: numb
 
 	if isLocalPlayer then
 		if curr.racePhase ~= nil and curr.racePhase ~= prev.racePhase then
-			if curr.racePhase == "COUNTDOWN_3" or curr.racePhase == "READY_PHASE" or curr.racePhase == "SET_PHASE" then
+			if curr.racePhase == "READY_PHASE" or curr.racePhase == "SET_PHASE" then
 				table.insert(oneShots, { id = "pre_start_race", positional = false, volumeScale = 1.0 })
 			elseif curr.racePhase == "GO_PHASE" then
 				table.insert(oneShots, { id = "start_race", positional = false, volumeScale = 1.0 })
