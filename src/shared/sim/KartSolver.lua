@@ -118,6 +118,7 @@ export type KartState = {
 	-- Last non-overlapping pose for static overlap recovery
 	lastSafePos: Vec3,
 	lastSafeRot: Quat,
+	stuckTicks: number,
 	-- Telemetry
 	maxSlipAngleRad: number,
 	frontSteerAngleRad: number,
@@ -162,6 +163,7 @@ export type NetState = {
 	timedRotationTicks: number,
 	timedRotationRate: number,
 	bounceBackTicks: number,
+	stuckTicks: number?,
 	terrainFraction: number,
 	terrainTargetFraction: number,
 	terrainFadeTicks: number,
@@ -220,7 +222,7 @@ export type KartTelemetry = {
 }
 
 local MAX_IGNORE_RAY_PASSES = 4
-
+local STUCK_ESCAPE_TICKS = 60
 local KartSolver = {}
 
 local function newWheelState(): WheelState
@@ -282,6 +284,7 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 		bounceBackTicks = 0,
 		lastSafePos = { x = pos.x, y = pos.y, z = pos.z },
 		lastSafeRot = { w = rot.w, x = rot.x, y = rot.y, z = rot.z },
+		stuckTicks = 0,
 		maxSlipAngleRad = 0,
 		frontSteerAngleRad = 0,
 		maxCompressionRatio = 0,
@@ -341,6 +344,7 @@ function KartSolver.captureNetState(
 		timedRotationTicks = state.timedRotationTicks,
 		timedRotationRate = state.timedRotationRate,
 		bounceBackTicks = state.bounceBackTicks,
+		stuckTicks = state.stuckTicks,
 		terrainFraction = if terrain then terrain.currentFraction else 1.0,
 		terrainTargetFraction = if terrain then terrain.targetFraction else 1.0,
 		terrainFadeTicks = if terrain then terrain.fadeInTicks else 0,
@@ -377,6 +381,7 @@ function KartSolver.applyNetState(
 	state.angVel = { x = snap.angVel[1], y = snap.angVel[2], z = snap.angVel[3] }
 	state.lastSafePos = { x = snap.pos[1], y = snap.pos[2], z = snap.pos[3] }
 	state.lastSafeRot = { w = snap.rot[1], x = snap.rot[2], y = snap.rot[3], z = snap.rot[4] }
+	state.stuckTicks = snap.stuckTicks or 0
 	state.steer = snap.steer
 	state.latchedSkidControl = snap.latchedSkidControl
 	state.brakeTicks = snap.brakeTicks
@@ -1846,21 +1851,30 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 				break
 			end
 		end
-		if
+				if
 			worldQuery.checkChassisOverlap(computeBoxCenter(state.pos, state.rot, halfExtents), state.rot, halfExtents)
 		then
-			state.rot = {
-				w = state.lastSafeRot.w,
-				x = state.lastSafeRot.x,
-				y = state.lastSafeRot.y,
-				z = state.lastSafeRot.z,
-			}
-			state.pos = { x = state.lastSafePos.x, y = state.lastSafePos.y, z = state.lastSafePos.z }
+			state.stuckTicks += 1
+			if state.stuckTicks >= STUCK_ESCAPE_TICKS then
+				state.lastSafePos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
+				state.lastSafeRot = { w = state.rot.w, x = state.rot.x, y = state.rot.y, z = state.rot.z }
+				state.stuckTicks = 0
+			else
+				state.rot = {
+					w = state.lastSafeRot.w,
+					x = state.lastSafeRot.x,
+					y = state.lastSafeRot.y,
+					z = state.lastSafeRot.z,
+				}
+				state.pos = { x = state.lastSafePos.x, y = state.lastSafePos.y, z = state.lastSafePos.z }
+			end
 		else
+			state.stuckTicks = 0
 			state.lastSafePos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
 			state.lastSafeRot = { w = state.rot.w, x = state.rot.x, y = state.rot.y, z = state.rot.z }
 		end
 	else
+		state.stuckTicks = 0
 		state.lastSafePos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
 		state.lastSafeRot = { w = state.rot.w, x = state.rot.x, y = state.rot.y, z = state.rot.z }
 	end

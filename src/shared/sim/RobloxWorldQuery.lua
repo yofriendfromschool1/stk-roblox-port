@@ -5,12 +5,18 @@
 -- used identically by Server authority and Client 120 Hz prediction.
 
 local Workspace = game:GetService("Workspace")
-
 local KartSolver = require("./KartSolver")
 local Math3D = require("./Math3D")
 local Units = require("../Units")
 
 local RobloxWorldQuery = {}
+
+-- GetPartBoundsInBox is AABB-only. Large track submeshes and collision chunks have
+-- bounding boxes extending far above their real triangles, so an AABB hit is a
+-- CANDIDATE, never proof of overlap. Narrowphase = shrunk-core outward Blockcasts,
+-- which test real collision geometry (same technique as KartSolver's 6-axis probes).
+local OVERLAP_CORE_SCALE = 0.94
+local OVERLAP_PROBE_SKIN = 0.004 -- studs
 
 function RobloxWorldQuery.stkPoseToRobloxCFrame(
 	pos: Math3D.Vec3,
@@ -25,7 +31,6 @@ function RobloxWorldQuery.stkPoseToRobloxCFrame(
 	local rbxRight = Vector3.new(right.x, right.y, -right.z)
 	local rbxUp = Vector3.new(up.x, up.y, -up.z)
 	local rbxBack = Vector3.new(-fwd.x, -fwd.y, fwd.z)
-
 	local baseCFrame = CFrame.fromMatrix(rbxPos, rbxRight, rbxUp, rbxBack)
 	if visualSkidYaw ~= 0 then
 		return baseCFrame * CFrame.Angles(0, -visualSkidYaw, 0)
@@ -100,6 +105,7 @@ function RobloxWorldQuery.create(surfacesFolder: Instance): KartSolver.WorldQuer
 				materialName = matName,
 			}
 		end,
+
 		sweepChassis = function(
 			center: Math3D.Vec3,
 			rot: Math3D.Quat,
@@ -112,7 +118,6 @@ function RobloxWorldQuery.create(surfacesFolder: Instance): KartSolver.WorldQuer
 			if deltaMag < 1e-6 then
 				return nil
 			end
-
 			local rbxCf, rbxSize = toRobloxBoxCFrameAndSize(center, rot, halfExtents)
 			local result = Workspace:Blockcast(rbxCf, rbxSize, rbxDelta, sweepParams)
 			if result == nil then
@@ -135,9 +140,34 @@ function RobloxWorldQuery.create(surfacesFolder: Instance): KartSolver.WorldQuer
 				materialName = matName,
 			}
 		end,
+
 		checkChassisOverlap = function(center: Math3D.Vec3, rot: Math3D.Quat, halfExtents: Math3D.Vec3): boolean
 			local rbxCf, rbxSize = toRobloxBoxCFrameAndSize(center, rot, halfExtents)
-			return #Workspace:GetPartBoundsInBox(rbxCf, rbxSize, overlapParams) > 0
+
+			-- Broadphase: cheap AABB reject only.
+			if #Workspace:GetPartBoundsInBox(rbxCf, rbxSize, overlapParams) == 0 then
+				return false
+			end
+
+			-- Narrowphase: shrunk core swept outward along each local axis. Only real
+			-- geometry within the shrink margin counts as penetration, so track-spanning
+			-- AABBs can no longer pin the kart to lastSafePos.
+			local core = rbxSize * OVERLAP_CORE_SCALE
+			local probes: { { dir: Vector3, dist: number } } = {
+				{ dir = rbxCf.RightVector, dist = (rbxSize.X - core.X) * 0.5 },
+				{ dir = -rbxCf.RightVector, dist = (rbxSize.X - core.X) * 0.5 },
+				{ dir = rbxCf.UpVector, dist = (rbxSize.Y - core.Y) * 0.5 },
+				{ dir = -rbxCf.UpVector, dist = (rbxSize.Y - core.Y) * 0.5 },
+				{ dir = rbxCf.LookVector, dist = (rbxSize.Z - core.Z) * 0.5 },
+				{ dir = -rbxCf.LookVector, dist = (rbxSize.Z - core.Z) * 0.5 },
+			}
+			for _, probe in probes do
+				local dist = probe.dist + OVERLAP_PROBE_SKIN
+				if dist > 1e-5 and Workspace:Blockcast(rbxCf, core, probe.dir * dist, sweepParams) ~= nil then
+					return true
+				end
+			end
+			return false
 		end,
 	}
 end
