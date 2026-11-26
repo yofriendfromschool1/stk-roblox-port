@@ -52,6 +52,7 @@ export type KartClassPreset = {
 	slipstreamLengthMult: number,
 	slipstreamDurationFactorMult: number,
 	slipstreamFadeOutMult: number,
+	startupBoostMult: number,
 	turnRadius: { TablePoint },
 	gearSwitchRatio: { number },
 	gearPowerIncrease: { number },
@@ -88,6 +89,8 @@ export type KartProfile = {
 	turnRadius: { TablePoint },
 	gearSwitchRatio: { number },
 	gearPowerIncrease: { number },
+	startupTimes: { number },
+	startupBoosts: { number },
 	width: number,
 	height: number,
 	collisionHeight: number,
@@ -305,6 +308,29 @@ KartTuning.zipper = {
 	fadeOutTime = 1.0, -- L250 fade-out-time="1.0" (s)
 }
 
+-- Startup boost & early-press penalty (data/kart_characteristics.xml:L281-L282, data/stk_config.xml:L99, src/karts/kart.cpp:L2619-L2623)
+KartTuning.startup = {
+	penaltySec = 1.0, -- data/stk_config.xml:L99 (<startup penalty="1" />)
+	penaltyTicks = 120, -- time2Ticks(1.0f) at 120 Hz
+	times = { 0.3, 0.5 }, -- data/kart_characteristics.xml:L281 (s after SET starts)
+	boosts = { 8.0, 4.0 }, -- data/kart_characteristics.xml:L282 (m/s)
+	minSpeedFraction = 0.9, -- src/karts/kart.cpp:L2620
+	engineForce = 200.0, -- src/karts/kart.cpp:L2621 (N)
+	durationSec = 5.0, -- src/karts/kart.cpp:L2622 (s)
+	fadeOutSec = 5.0, -- src/karts/kart.cpp:L2623 (s)
+}
+
+-- Race phase durations & lap count (src/modes/world_status.cpp:L83-L84, L322, L347, L374, L437-L438; data/stk_config.xml:L214, L217)
+KartTuning.race = {
+	DEFAULT_LAPS = 5, -- OpenKart divergence from STK 3 laps (docs/divergences.md)
+	COUNTDOWN_3_TICKS = 120, -- 1.0 s ("3" lead-in)
+	READY_TICKS = 120, -- 1.0 s ("2", world_status.cpp:L322)
+	SET_TICKS = 120, -- 1.0 s ("1", world_status.cpp:L347)
+	GO_TICKS = 120, -- 1.0 s ("GO!", world_status.cpp:L374)
+	MUSIC_END_TICKS = 960, -- 8.0 s after GO (stk_config.xml:L217)
+	DELAY_FINISH_TICKS = 120, -- 1.0 s after finish (stk_config.xml:L214)
+}
+
 -- Swept chassis, overlap manifold, & wheel depenetration constants
 KartTuning.collision = {
 	-- Upstream STK speed-dependent kart restitution curve (data/stk_config.xml:L480, src/karts/kart.cpp:L742, L1454)
@@ -417,6 +443,7 @@ KartTuning.kartClasses = {
 		slipstreamLengthMult = 0.9, -- L376 (xml_characteristic.cpp:L568 ignores collect-time)
 		slipstreamDurationFactorMult = 1.0, -- L377
 		slipstreamFadeOutMult = 1.0, -- L377
+		startupBoostMult = 1.0, -- L373 (<startup boost="*1 *1" />)
 		turnRadius = { { 0, 2.0 }, { 10, 7.5 }, { 25, 15.0 }, { 45, 30.0 } }, -- L367
 		gearSwitchRatio = { 0.1, 0.25, 0.45, 0.7, 1.0, 4.0 }, -- L370
 		gearPowerIncrease = { 2.8, 2.3, 1.9, 1.5, 1.25, 1.0 }, -- L371
@@ -434,6 +461,7 @@ KartTuning.kartClasses = {
 		slipstreamLengthMult = 1.0, -- base 1.0
 		slipstreamDurationFactorMult = 0.8, -- L389
 		slipstreamFadeOutMult = 1.0, -- L389
+		startupBoostMult = 0.8, -- L386 (<startup boost="*0.8 *0.8" />)
 		turnRadius = { { 0, 2.3 }, { 10, 8.625 }, { 25, 17.25 }, { 45, 34.5 } }, -- L380
 		gearSwitchRatio = { 0.1, 0.25, 0.45, 0.7, 1.0, 4.0 }, -- L383
 		gearPowerIncrease = { 2.4, 2.0, 1.7, 1.4, 1.2, 1.0 }, -- L384
@@ -451,6 +479,7 @@ KartTuning.kartClasses = {
 		slipstreamLengthMult = 1.1, -- L401 (xml_characteristic.cpp:L568 ignores collect-time)
 		slipstreamDurationFactorMult = 0.6, -- L402
 		slipstreamFadeOutMult = 1.0, -- L402
+		startupBoostMult = 0.6, -- L398 (<startup boost="*0.6 *0.6" />)
 		turnRadius = { { 0, 2.6 }, { 10, 9.75 }, { 25, 19.5 }, { 45, 39.0 } }, -- L392
 		gearSwitchRatio = { 0.1, 0.25, 0.45, 0.7, 1.0, 4.0 }, -- L395
 		gearPowerIncrease = { 2.0, 1.7, 1.5, 1.3, 1.15, 1.0 }, -- L396
@@ -517,6 +546,11 @@ function KartTuning.buildProfile(className: string?, difficulty: string?, dims: 
 		turnRadius = cls.turnRadius,
 		gearSwitchRatio = cls.gearSwitchRatio,
 		gearPowerIncrease = cls.gearPowerIncrease,
+		startupTimes = { KartTuning.startup.times[1], KartTuning.startup.times[2] },
+		startupBoosts = {
+			KartTuning.startup.boosts[1] * cls.startupBoostMult,
+			KartTuning.startup.boosts[2] * cls.startupBoostMult,
+		},
 		width = d.width,
 		height = d.height,
 		collisionHeight = collisionHeight,

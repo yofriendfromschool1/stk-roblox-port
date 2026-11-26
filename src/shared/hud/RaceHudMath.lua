@@ -535,4 +535,53 @@ function RaceHudMath.computePowerupLayout(
 	}
 end
 
+-- Countdown center anchor matching RaceGUIBase::drawGlobalReadySetGo (race_gui_base.cpp:L741-L743)
+function RaceHudMath.computeCountdownAnchor(viewportW: number, viewportH: number): HudRect
+	local scale = RaceHudMath.computeScale(viewportW, viewportH)
+	local w = math.floor(320 * scale)
+	local h = math.floor(96 * scale)
+	return {
+		x = math.floor(viewportW * 0.5 - w * 0.5),
+		y = math.floor(viewportH * 0.4 - h * 0.5),
+		width = w,
+		height = h,
+	}
+end
+
+-- Top-right lap counter rect under timer (race_gui.cpp:L1287-L1292)
+function RaceHudMath.computeLapRect(viewportW: number, viewportH: number): HudRect
+	local timerRect = RaceHudMath.computeTimerRect(viewportW, viewportH)
+	local y = math.max(timerRect.y + timerRect.height + 6, math.floor(viewportH * 0.12))
+	local h = math.max(22, math.floor(timerRect.height * 0.9))
+	local w = math.floor(h * 5.2)
+	return {
+		x = math.max(0, viewportW - RaceHudMath.TIMER_MARGIN_RIGHT - w),
+		y = y,
+		width = w,
+		height = h,
+	}
+end
+
+function RaceHudMath.formatLapText(lap: number, totalLaps: number): string
+	local displayLap = math.clamp(lap + 1, 1, totalLaps)
+	return string.format("Lap %d / %d", displayLap, totalLaps)
+end
+
+function RaceHudMath.formatOrdinal(rank: number): string
+	local r = math.max(1, math.floor(rank))
+	local mod100 = r % 100
+	if mod100 >= 11 and mod100 <= 13 then
+		return string.format("%dth", r)
+	end
+	local mod10 = r % 10
+	if mod10 == 1 then
+		return string.format("%dst", r)
+	elseif mod10 == 2 then
+		return string.format("%dnd", r)
+	elseif mod10 == 3 then
+		return string.format("%drd", r)
+	end
+	return string.format("%dth", r)
+end
+
 return table.freeze(RaceHudMath)

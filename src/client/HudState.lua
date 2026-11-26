@@ -7,12 +7,26 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RaceHudMath = require(Shared.hud.RaceHudMath)
+local RaceState = require(Shared.sim.RaceState)
 local Standings = require(Shared.race.Standings)
 
 export type RemoteMinimapPose = {
 	id: string,
 	x: number,
 	z: number,
+}
+
+export type RaceHudPayload = {
+	racePhase: RaceState.RacePhase,
+	raceTick: number,
+	raceElapsedSec: number,
+	totalLaps: number,
+	nextCheckpoint: number,
+	raceFinished: boolean,
+	finishTimeSec: number?,
+	startupBoostMps: number,
+	startupBoostFired: boolean,
+	startupPenaltyTicks: number,
 }
 
 export type InterpolatedHudState = {
@@ -35,6 +49,16 @@ export type InterpolatedHudState = {
 	lap: number,
 	checkpoint: number,
 	distance: number,
+	racePhase: string,
+	raceTick: number,
+	raceElapsedSec: number,
+	totalLaps: number,
+	nextCheckpoint: number,
+	raceFinished: boolean,
+	finishTimeSec: number?,
+	startupBoostMps: number,
+	startupBoostFired: boolean,
+	startupPenaltyTicks: number,
 }
 
 local currentState: InterpolatedHudState = {
@@ -54,9 +78,19 @@ local currentState: InterpolatedHudState = {
 	localKartId = 1,
 	raceMode = "TIME_TRIAL",
 	raceStartServerTime = 0.0,
-	lap = 0,
+	lap = -1,
 	checkpoint = 0,
 	distance = 0.0,
+	racePhase = "COUNTDOWN_3",
+	raceTick = 0,
+	raceElapsedSec = 0.0,
+	totalLaps = 5,
+	nextCheckpoint = 0,
+	raceFinished = false,
+	finishTimeSec = nil,
+	startupBoostMps = 0.0,
+	startupBoostFired = false,
+	startupPenaltyTicks = 0,
 }
 
 local HudState = {}
@@ -80,7 +114,8 @@ function HudState.publish(
 	plungerFaceTicks: number?,
 	standingsEntries: { Standings.StandingsEntry }?,
 	remotePoses: { RemoteMinimapPose }?,
-	localKartId: number?
+	localKartId: number?,
+	raceHud: RaceHudPayload?
 )
 	currentState.ready = true
 	currentState.pos.x = posX
@@ -102,6 +137,18 @@ function HudState.publish(
 	currentState.lap = lap
 	currentState.checkpoint = checkpoint
 	currentState.distance = distance
+	if raceHud ~= nil then
+		currentState.racePhase = raceHud.racePhase
+		currentState.raceTick = raceHud.raceTick
+		currentState.raceElapsedSec = raceHud.raceElapsedSec
+		currentState.totalLaps = raceHud.totalLaps
+		currentState.nextCheckpoint = raceHud.nextCheckpoint
+		currentState.raceFinished = raceHud.raceFinished
+		currentState.finishTimeSec = raceHud.finishTimeSec
+		currentState.startupBoostMps = raceHud.startupBoostMps
+		currentState.startupBoostFired = raceHud.startupBoostFired
+		currentState.startupPenaltyTicks = raceHud.startupPenaltyTicks
+	end
 end
 
 function HudState.get(): InterpolatedHudState

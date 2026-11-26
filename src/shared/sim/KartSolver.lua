@@ -14,6 +14,7 @@ local KartTuning = require("../KartTuning")
 local Math3D = require("./Math3D")
 local MaxSpeed = require("../kart/MaxSpeed")
 local Nitro = require("../kart/Nitro")
+local RaceState = require("./RaceState")
 local Skidding = require("../kart/Skidding")
 local Slipstream = require("./Slipstream")
 local SurfaceMaterials = require("../track/SurfaceMaterials")
@@ -81,6 +82,19 @@ export type WheelState = {
 	materialName: string,
 }
 
+export type KartRaceState = {
+	raceTick: number,
+	phase: RaceState.RacePhase,
+	lap: number,
+	nextCheckpoint: number,
+	raceFinished: boolean,
+	finishTick: number,
+	startupHasPressed: boolean,
+	startupBoostMps: number,
+	startupPenaltyTicks: number,
+	startupBoostFired: boolean,
+}
+
 export type KartState = {
 	profile: KartTuning.KartProfile,
 	pos: Vec3,
@@ -99,6 +113,7 @@ export type KartState = {
 	maxSpeedState: MaxSpeed.MaxSpeedState,
 	nitro: Nitro.NitroState,
 	slipstream: Slipstream.SlipstreamState,
+	race: KartRaceState,
 	-- Powerup inventory & PA_FIRE edge trigger (powerup.hpp:L22, kart.cpp:L1643-L1654)
 	heldPowerup: number,
 	heldPowerupCount: number,
@@ -189,6 +204,7 @@ export type NetState = {
 	increases: { NetIncreaseSnapshot },
 	slipstreamChargeTicks: number?,
 	slipstream: Slipstream.NetSlipstreamState?,
+	race: KartRaceState?,
 	itemWorldSnapshot: ItemWorld.ItemWorldSnapshot?,
 	flyableSnapshot: Flyable.FlyableSnapshot?,
 }
@@ -232,6 +248,15 @@ export type KartTelemetry = {
 	parachuteDragMult: number,
 	maxCompressionRatio: number,
 	chassisSweepHits: number,
+	raceTick: number,
+	racePhase: RaceState.RacePhase,
+	lap: number,
+	nextCheckpoint: number,
+	raceFinished: boolean,
+	finishTick: number,
+	startupBoostMps: number,
+	startupPenaltyTicks: number,
+	startupBoostFired: boolean,
 }
 
 local MAX_IGNORE_RAY_PASSES = 4
@@ -282,6 +307,18 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 		maxSpeedState = MaxSpeed.new(prof.maxSpeed),
 		nitro = Nitro.new(prof.nitro.max),
 		slipstream = Slipstream.new(prof.width, prof.length),
+		race = {
+			raceTick = 0,
+			phase = "COUNTDOWN_3",
+			lap = -1,
+			nextCheckpoint = 0,
+			raceFinished = false,
+			finishTick = -1,
+			startupHasPressed = false,
+			startupBoostMps = 0.0,
+			startupPenaltyTicks = 0,
+			startupBoostFired = false,
+		},
 		heldPowerup = ItemTuning.POWERUP_NONE,
 		heldPowerupCount = 0,
 		fireWasDown = false,
@@ -382,6 +419,18 @@ function KartSolver.captureNetState(
 		increases = increases,
 		slipstreamChargeTicks = state.slipstream.chargeTicks,
 		slipstream = Slipstream.captureNet(state.slipstream),
+		race = {
+			raceTick = state.race.raceTick,
+			phase = state.race.phase,
+			lap = state.race.lap,
+			nextCheckpoint = state.race.nextCheckpoint,
+			raceFinished = state.race.raceFinished,
+			finishTick = state.race.finishTick,
+			startupHasPressed = state.race.startupHasPressed,
+			startupBoostMps = state.race.startupBoostMps,
+			startupPenaltyTicks = state.race.startupPenaltyTicks,
+			startupBoostFired = state.race.startupBoostFired,
+		},
 		itemWorldSnapshot = if itemWorld ~= nil then ItemWorld.captureSnapshot(itemWorld) else nil,
 		flyableSnapshot = if flyableWorld ~= nil then Flyable.captureSnapshot(flyableWorld) else nil,
 	}
@@ -508,6 +557,18 @@ function KartSolver.applyNetState(
 	Slipstream.applyNet(state.slipstream, snap.slipstream, state.profile.width, state.profile.length)
 	if snap.slipstreamChargeTicks ~= nil then
 		state.slipstream.chargeTicks = snap.slipstreamChargeTicks
+	end
+	if snap.race ~= nil then
+		state.race.raceTick = snap.race.raceTick
+		state.race.phase = snap.race.phase
+		state.race.lap = snap.race.lap
+		state.race.nextCheckpoint = snap.race.nextCheckpoint
+		state.race.raceFinished = snap.race.raceFinished
+		state.race.finishTick = snap.race.finishTick
+		state.race.startupHasPressed = snap.race.startupHasPressed
+		state.race.startupBoostMps = snap.race.startupBoostMps
+		state.race.startupPenaltyTicks = snap.race.startupPenaltyTicks
+		state.race.startupBoostFired = snap.race.startupBoostFired
 	end
 
 	local _, _, fwd = Math3D.quatBasis(state.rot)
@@ -2436,6 +2497,55 @@ end
 KartSolver.evalWallRestitution = evalWallRestitution
 KartSolver.getMaxSteerAngle = getMaxSteerAngle
 
+function KartSolver.stepRaceInput(
+	state: KartState,
+	rawInput: KartInput,
+	raceTick: number,
+	phase: RaceState.RacePhase
+): KartInput
+	local r = state.race
+	r.raceTick = raceTick
+	r.phase = phase
+	if RaceState.isStartPhase(phase) then
+		if (rawInput.accel > 0 or rawInput.brake or rawInput.nitro == true) and not r.startupHasPressed then
+			r.startupHasPressed = true
+			local boost, penalty = RaceState.evaluateStartupAccel(raceTick, state.profile)
+			r.startupBoostMps = boost
+			r.startupPenaltyTicks = penalty
+		end
+	else
+		if
+			not r.startupBoostFired
+			and r.startupBoostMps > 0.0
+			and r.startupPenaltyTicks == 0
+			and rawInput.accel > 0
+			and RaceState.getTicksSinceGo(raceTick) <= 1
+		then
+			r.startupBoostFired = true
+			local newMinSpeed = MaxSpeed.instantSpeedIncrease(
+				state.maxSpeedState,
+				"ZIPPER",
+				r.startupBoostMps * KartTuning.startup.minSpeedFraction,
+				r.startupBoostMps,
+				KartTuning.startup.engineForce,
+				FixedStep.timeToTicks(KartTuning.startup.durationSec),
+				FixedStep.timeToTicks(KartTuning.startup.fadeOutSec),
+				state.speed,
+				state.isOnGround
+			)
+			if newMinSpeed > state.speed then
+				local _, _, fwd = Math3D.quatBasis(state.rot)
+				state.linVel = Math3D.add(state.linVel, Math3D.scale(fwd, newMinSpeed - state.speed))
+				state.speed = newMinSpeed
+			end
+		end
+		if r.startupPenaltyTicks > 0 then
+			r.startupPenaltyTicks -= 1
+		end
+	end
+	return RaceState.filterInputForPhase(phase, rawInput, r.startupPenaltyTicks)
+end
+
 function KartSolver.getTelemetry(state: KartState): KartTelemetry
 	local eff = state.itemEffect
 	local bubbleTicks = if eff.effectType == ItemEffectState.EFFECT_BUBBLEGUM_SLOW then eff.ticksRemaining else 0
@@ -2480,6 +2590,15 @@ function KartSolver.getTelemetry(state: KartState): KartTelemetry
 		parachuteDragMult = ItemEffectState.getAirDragMultiplier(eff),
 		maxCompressionRatio = state.maxCompressionRatio,
 		chassisSweepHits = state.chassisSweepHitCount,
+		raceTick = state.race.raceTick,
+		racePhase = state.race.phase,
+		lap = state.race.lap,
+		nextCheckpoint = state.race.nextCheckpoint,
+		raceFinished = state.race.raceFinished,
+		finishTick = state.race.finishTick,
+		startupBoostMps = state.race.startupBoostMps,
+		startupPenaltyTicks = state.race.startupPenaltyTicks,
+		startupBoostFired = state.race.startupBoostFired,
 	}
 end
 

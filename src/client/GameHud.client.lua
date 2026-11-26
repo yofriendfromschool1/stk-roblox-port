@@ -17,6 +17,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local HudState = require("./HudState")
 local ItemTuning = require(Shared.ItemTuning)
 local RaceHudMath = require(Shared.hud.RaceHudMath)
+local RaceState = require(Shared.sim.RaceState)
 local Standings = require(Shared.race.Standings)
 local TrackRegistry = require(Shared.track.TrackRegistry)
 
@@ -268,7 +269,113 @@ timerLabel.TextScaled = true
 timerLabel.Text = "00:00.000"
 timerLabel.ZIndex = 4
 timerLabel.Parent = gui
-createBlockedSlot(timerLabel, "LapSplitsSlot", "Blocked: CheckManager lap splits unbuilt (P0)")
+
+-- Lap Counter (top right under timer, race_gui.cpp:L1287-L1292)
+local lapLabel = Instance.new("TextLabel")
+lapLabel.Name = "LapCounter"
+lapLabel.BackgroundTransparency = 1
+lapLabel.BorderSizePixel = 0
+lapLabel.Font = Enum.Font.GothamBlack
+lapLabel.TextXAlignment = Enum.TextXAlignment.Right
+lapLabel.TextYAlignment = Enum.TextYAlignment.Center
+lapLabel.TextColor3 = Color3.fromRGB(255, 232, 130)
+lapLabel.TextStrokeColor3 = Color3.fromRGB(10, 12, 16)
+lapLabel.TextStrokeTransparency = 0.0
+lapLabel.TextScaled = true
+lapLabel.Text = "Lap 1 / 5"
+lapLabel.Visible = false
+lapLabel.ZIndex = 4
+lapLabel.Parent = gui
+
+-- Ready/Set/Go + Start Boost / Lap Toast Banner (race_gui_base.cpp:L734-L779, linear_world.cpp:L414-L461)
+local countdownLabel = Instance.new("TextLabel")
+countdownLabel.Name = "ReadySetGoBanner"
+countdownLabel.BackgroundTransparency = 1
+countdownLabel.BorderSizePixel = 0
+countdownLabel.Font = Enum.Font.GothamBlack
+countdownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+countdownLabel.TextStrokeColor3 = Color3.fromRGB(10, 12, 18)
+countdownLabel.TextStrokeTransparency = 0.0
+countdownLabel.TextScaled = true
+countdownLabel.Text = ""
+countdownLabel.Visible = false
+countdownLabel.ZIndex = 20
+countdownLabel.Parent = gui
+
+local subBannerLabel = Instance.new("TextLabel")
+subBannerLabel.Name = "RaceSubBanner"
+subBannerLabel.BackgroundTransparency = 1
+subBannerLabel.BorderSizePixel = 0
+subBannerLabel.Font = Enum.Font.GothamBold
+subBannerLabel.TextColor3 = Color3.fromRGB(255, 220, 75)
+subBannerLabel.TextStrokeColor3 = Color3.fromRGB(10, 12, 18)
+subBannerLabel.TextStrokeTransparency = 0.0
+subBannerLabel.TextScaled = true
+subBannerLabel.Text = ""
+subBannerLabel.Visible = false
+subBannerLabel.ZIndex = 20
+subBannerLabel.Parent = gui
+
+-- Finish Results Card
+local finishCard = Instance.new("Frame")
+finishCard.Name = "FinishBanner"
+finishCard.AnchorPoint = Vector2.new(0.5, 0.5)
+finishCard.Position = UDim2.fromScale(0.5, 0.38)
+finishCard.Size = UDim2.fromOffset(380, 200)
+finishCard.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
+finishCard.BackgroundTransparency = 0.2
+finishCard.BorderSizePixel = 0
+finishCard.Visible = false
+finishCard.ZIndex = 25
+finishCard.Parent = gui
+
+local finishCorner = Instance.new("UICorner")
+finishCorner.CornerRadius = UDim.new(0, 12)
+finishCorner.Parent = finishCard
+
+local finishStroke = Instance.new("UIStroke")
+finishStroke.Color = Color3.fromRGB(255, 215, 80)
+finishStroke.Thickness = 2
+finishStroke.Parent = finishCard
+
+local finishTitle = Instance.new("TextLabel")
+finishTitle.Name = "Title"
+finishTitle.BackgroundTransparency = 1
+finishTitle.Position = UDim2.fromOffset(16, 12)
+finishTitle.Size = UDim2.new(1, -32, 0, 42)
+finishTitle.Font = Enum.Font.GothamBlack
+finishTitle.TextColor3 = Color3.fromRGB(255, 225, 90)
+finishTitle.TextStrokeTransparency = 0.2
+finishTitle.TextScaled = true
+finishTitle.Text = "FINISHED!"
+finishTitle.ZIndex = 26
+finishTitle.Parent = finishCard
+
+local finishRankLabel = Instance.new("TextLabel")
+finishRankLabel.Name = "RankSummary"
+finishRankLabel.BackgroundTransparency = 1
+finishRankLabel.Position = UDim2.fromOffset(16, 56)
+finishRankLabel.Size = UDim2.new(1, -32, 0, 32)
+finishRankLabel.Font = Enum.Font.GothamBold
+finishRankLabel.TextColor3 = Color3.fromRGB(240, 244, 252)
+finishRankLabel.TextScaled = true
+finishRankLabel.Text = "1st Place — 00:00.000"
+finishRankLabel.ZIndex = 26
+finishRankLabel.Parent = finishCard
+
+local finishStandingsLabel = Instance.new("TextLabel")
+finishStandingsLabel.Name = "StandingsList"
+finishStandingsLabel.BackgroundTransparency = 1
+finishStandingsLabel.Position = UDim2.fromOffset(20, 94)
+finishStandingsLabel.Size = UDim2.new(1, -40, 0, 94)
+finishStandingsLabel.Font = Enum.Font.Code
+finishStandingsLabel.TextSize = 15
+finishStandingsLabel.TextYAlignment = Enum.TextYAlignment.Top
+finishStandingsLabel.TextXAlignment = Enum.TextXAlignment.Left
+finishStandingsLabel.TextColor3 = Color3.fromRGB(215, 225, 240)
+finishStandingsLabel.Text = ""
+finishStandingsLabel.ZIndex = 26
+finishStandingsLabel.Parent = finishCard
 
 -- Bindable Element #5: Top-Left Player Icon List (race_gui_base.cpp:L785-L1096)
 local playerIconRoot = Instance.new("Frame")
@@ -329,7 +436,6 @@ end
 
 createBlockedSlot(playerIconRoot, "PlungerBadgeSlot", "Blocked: Plunger / Attachment unbuilt (P1)")
 createBlockedSlot(playerIconRoot, "AttachmentBadgeSlot", "Blocked: Attachment unbuilt (P1)")
-createBlockedSlot(playerIconRoot, "FinishedFlagSlot", "Blocked: CheckManager race finish unbuilt (P0)")
 
 -- Bindable Element #9: Top-Center Held Powerup Icons & Count (race_gui_base.cpp:L380-L456)
 local powerupRoot = Instance.new("Frame")
@@ -599,8 +705,6 @@ footer.Parent = gui
 -- Explicitly inactive blocked RaceGUI / RaceGUIBase elements per docs/hud-spec.md & docs/port-map.md
 local blockedSlots = {
 	{ "LiveDifferenceSlot", "Blocked: LinearWorld / GhostReplay unbuilt" },
-	{ "LapCounterSlot", "Blocked: CheckManager lap crossing unbuilt" },
-	{ "ReadySetGoSlot", "Blocked: RacePhase countdown unbuilt" },
 	{ "GoalBannerSlot", "Blocked: SoccerWorld unbuilt" },
 	{ "MessagesSlot", "Blocked: World / Item event feed unbuilt" },
 	{ "MusicDescriptionSlot", "Blocked: MusicManager presentation unbuilt" },
@@ -659,11 +763,19 @@ local lastPowerupCount = -1
 local lastPowerupW = -1
 local lastPowerupH = -1
 local lastVisTimer: boolean? = nil
+local lastVisLaps: boolean? = nil
 local lastVisSpeedEnergy: boolean? = nil
 local lastVisRankDigit: boolean? = nil
 local lastVisPlayerIcons: boolean? = nil
 local lastVisMiniMap: boolean? = nil
 local lastVisPowerups: boolean? = nil
+local lastHudLap = -2
+local lapToastText = ""
+local lapToastExpirySec = 0.0
+local subToastText = ""
+local subToastExpirySec = 0.0
+local wasStartBoostFired = false
+local wasPenaltyShown = false
 
 local function getIsTouchLayout(): boolean
 	if RunService:IsStudio() and localPlayer:GetAttribute("ForceTouchPreview") == true then
@@ -680,6 +792,11 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 	applyRect(speedRoot, cachedSpeedRect)
 	applyRect(energyRoot, RaceHudMath.computeEnergyMeterRect(vw, vh))
 	applyRect(timerLabel, RaceHudMath.computeTimerRect(vw, vh))
+	applyRect(lapLabel, RaceHudMath.computeLapRect(vw, vh))
+	local cdRect = RaceHudMath.computeCountdownAnchor(vw, vh)
+	applyRect(countdownLabel, cdRect)
+	subBannerLabel.Position = UDim2.fromOffset(cdRect.x, cdRect.y + cdRect.height + 6)
+	subBannerLabel.Size = UDim2.fromOffset(cdRect.width, math.max(24, math.floor(cdRect.height * 0.36)))
 
 	local isTouchMode = getIsTouchLayout()
 	lastTouchLayout = isTouchMode
@@ -766,8 +883,9 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			},
 		}
 	local rank, totalKarts = Standings.getRankForId(standingsInput, "local")
+	local inRacePhase = renderHud.ready and RaceState.isRacePhase(renderHud.racePhase :: RaceState.RacePhase)
 	local vis = RaceHudMath.getModeVisibility(renderHud.raceMode, {
-		isRacePhase = renderHud.ready,
+		isRacePhase = inRacePhase,
 		numKarts = totalKarts,
 		hasNavMesh = true,
 	})
@@ -810,6 +928,10 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		lastVisTimer = vis.showTimer
 		timerLabel.Visible = vis.showTimer
 	end
+	if lastVisLaps ~= vis.showLaps then
+		lastVisLaps = vis.showLaps
+		lapLabel.Visible = vis.showLaps
+	end
 	local showRank = showSpeedEnergy and vis.showRankDigit
 	if lastVisRankDigit ~= showRank then
 		lastVisRankDigit = showRank
@@ -838,18 +960,112 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		return
 	end
 
-	-- 1) Elapsed race timer throttled to 10 Hz to avoid per-frame text layout churn
+	-- 1) Elapsed race timer (deterministic from raceTick / finishTimeSec) + Lap Counter + Countdown / Finish Banners
+	local nowSec = os.clock()
 	if vis.showTimer then
 		timerUpdateAccum += dt
-		if timerUpdateAccum >= 0.1 then
-			timerUpdateAccum %= 0.1
-			local elapsedSec = math.max(0.0, Workspace:GetServerTimeNow() - renderHud.raceStartServerTime)
+		if timerUpdateAccum >= 0.05 then
+			timerUpdateAccum %= 0.05
+			local elapsedSec = renderHud.finishTimeSec or renderHud.raceElapsedSec
 			local nextText = RaceHudMath.formatRaceTime(elapsedSec)
 			if nextText ~= lastTimerText then
 				lastTimerText = nextText
 				timerLabel.Text = nextText
 			end
 		end
+	end
+	if vis.showLaps then
+		lapLabel.Text = RaceHudMath.formatLapText(renderHud.lap, renderHud.totalLaps)
+	end
+
+	-- Lap increment toast (linear_world.cpp:L414-L461)
+	if renderHud.lap > lastHudLap then
+		if lastHudLap >= 0 and renderHud.lap > 0 and not renderHud.raceFinished then
+			if renderHud.lap + 1 == renderHud.totalLaps then
+				lapToastText = "FINAL LAP!"
+				lapToastExpirySec = nowSec + 3.0
+			else
+				lapToastText = string.format("LAP %d", renderHud.lap + 1)
+				lapToastExpirySec = nowSec + 2.0
+			end
+		end
+		lastHudLap = renderHud.lap
+	elseif renderHud.lap < lastHudLap then
+		lastHudLap = renderHud.lap
+		lapToastText = ""
+		lapToastExpirySec = 0.0
+	end
+
+	-- Start boost / false-start toast
+	if renderHud.startupBoostFired and renderHud.startupBoostMps > 0 and not wasStartBoostFired then
+		wasStartBoostFired = true
+		subToastText = "START BOOST!"
+		subToastExpirySec = nowSec + 1.5
+	elseif not renderHud.startupBoostFired then
+		wasStartBoostFired = false
+	end
+	if renderHud.startupPenaltyTicks > 0 and not wasPenaltyShown then
+		wasPenaltyShown = true
+		subToastText = "FALSE START!"
+		subToastExpirySec = nowSec + 1.5
+	elseif
+		renderHud.startupPenaltyTicks == 0 and RaceState.isStartPhase(renderHud.racePhase :: RaceState.RacePhase)
+	then
+		wasPenaltyShown = false
+	end
+
+	local cdText = RaceState.getCountdownText(renderHud.racePhase :: RaceState.RacePhase)
+	if cdText ~= nil then
+		countdownLabel.Visible = true
+		countdownLabel.Text = cdText
+		if cdText == "GO!" then
+			countdownLabel.TextColor3 = Color3.fromRGB(95, 255, 130)
+		elseif cdText == "1" then
+			countdownLabel.TextColor3 = Color3.fromRGB(255, 225, 80)
+		else
+			countdownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		end
+	elseif nowSec < lapToastExpirySec and lapToastText ~= "" then
+		countdownLabel.Visible = true
+		countdownLabel.Text = lapToastText
+		countdownLabel.TextColor3 = if lapToastText == "FINAL LAP!"
+			then Color3.fromRGB(255, 120, 95)
+			else Color3.fromRGB(255, 235, 140)
+	else
+		countdownLabel.Visible = false
+	end
+
+	if nowSec < subToastExpirySec and subToastText ~= "" then
+		subBannerLabel.Visible = true
+		subBannerLabel.Text = subToastText
+		subBannerLabel.TextColor3 = if subToastText == "FALSE START!"
+			then Color3.fromRGB(255, 95, 95)
+			else Color3.fromRGB(255, 220, 75)
+	else
+		subBannerLabel.Visible = false
+	end
+
+	if renderHud.raceFinished then
+		finishCard.Visible = true
+		local finSec = renderHud.finishTimeSec or renderHud.raceElapsedSec
+		finishRankLabel.Text =
+			string.format("%s Place — %s", RaceHudMath.formatOrdinal(rank), RaceHudMath.formatRaceTime(finSec))
+		local sortedFinish = Standings.compute(standingsInput)
+		local lines: { string } = {}
+		for _, r in sortedFinish do
+			local label = if r.id == "local" or r.id == tostring(renderHud.localKartId) then "You" else r.id
+			local status = if r.entry.finished == true and r.entry.finishTime ~= nil
+				then RaceHudMath.formatRaceTime(r.entry.finishTime)
+				else string.format(
+					"Lap %d/%d",
+					math.clamp(r.entry.lap + 1, 1, renderHud.totalLaps),
+					renderHud.totalLaps
+				)
+			table.insert(lines, string.format("%s  %-10s  %s", RaceHudMath.formatOrdinal(r.rank), label, status))
+		end
+		finishStandingsLabel.Text = table.concat(lines, "\n")
+	else
+		finishCard.Visible = false
 	end
 
 	-- 2) Speedometer CanvasGroup masks updated only when snapped ratio changes

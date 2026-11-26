@@ -12,6 +12,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AIController = require(Shared.ai.AIController)
+local CheckManager = require(Shared.race.CheckManager)
 local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
@@ -22,6 +23,7 @@ local KartAssetHydrator = require("./KartAssetHydrator")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local PowerupManager = require(Shared.items.PowerupManager)
+local RaceState = require(Shared.sim.RaceState)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SandtrackCollisionData = require(Shared.track.SandtrackCollisionData)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
@@ -470,15 +472,58 @@ function GreyboxKartServer.start()
 	telemetryRemote.Parent = remotesFolder
 
 	local profile = KartTuning.buildProfile("medium", "best")
+	local raceClock = RaceState.create(KartTuning.race.DEFAULT_LAPS)
+	local function initRaceProgress(
+		state: KartSolver.KartState,
+		spawnPos: { x: number, y: number, z: number },
+		yaw: number
+	)
+		local p = CheckManager.initKartProgress(activeTrack.checkpoints, spawnPos, yaw)
+		state.race.raceTick = raceClock.raceTick
+		state.race.phase = raceClock.phase
+		state.race.lap = p.lap
+		state.race.nextCheckpoint = p.nextCheckpoint
+		state.race.raceFinished = p.raceFinished
+		state.race.finishTick = p.finishTick
+	end
+
 	local itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
 	local flyableWorld = Flyable.createWorld()
 	local dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
+	initRaceProgress(dummyState, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
 	local dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
 	local powerupMgr = PowerupManager.new("NORMAL_RACE", 2, ItemTuning.IMPLEMENTED_POWERUPS)
 	local rollCounter = 0
 	local entries: { [Player]: PlayerKartEntry } = {}
 	local totalDroppedDebt = 0.0
 	local snapshotAccum = 0.0
+
+	local function resetFullRace()
+		raceClock = RaceState.create(KartTuning.race.DEFAULT_LAPS)
+		itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
+		flyableWorld = Flyable.createWorld()
+		dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
+		initRaceProgress(dummyState, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
+		dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
+		Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
+		for _, entry in entries do
+			entry.player.ReplicationFocus = arenaPrimaryPart
+			entry.state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+			initRaceProgress(entry.state, activeTrack.startPos, activeTrack.startYawRad)
+			entry.progress = AIController.createState(activeTrack.drivelineQuadCenters, entry.state.pos)
+			entry.input = {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				nitro = false,
+				fire = false,
+				lookBack = false,
+			}
+			entry.resetSeq += 1
+			entry.forceSnapshot = true
+		end
+	end
 
 	if RunService:IsStudio() then
 		local debugItemRemote = Instance.new("RemoteEvent")
@@ -495,6 +540,13 @@ function GreyboxKartServer.start()
 			entry.state.heldPowerupCount = if clampedType == 0 then 0 else math.max(1, count)
 		end)
 
+		local restartRaceRemote = Instance.new("RemoteEvent")
+		restartRaceRemote.Name = "OpenKartDebugRestartRace"
+		restartRaceRemote.Parent = remotesFolder
+		restartRaceRemote.OnServerEvent:Connect(function(_player: Player)
+			resetFullRace()
+		end)
+
 		local switchTrackRemote = Instance.new("RemoteEvent")
 		switchTrackRemote.Name = "OpenKartSwitchTrack"
 		switchTrackRemote.Parent = remotesFolder
@@ -505,19 +557,8 @@ function GreyboxKartServer.start()
 			activeTrack = TrackRegistry.get(nextTrackId)
 			surfacesFolder, arenaPrimaryPart = loadTrackGeometry(activeTrack.trackId)
 			worldQuery = RobloxWorldQuery.create(surfacesFolder)
-			itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
-			flyableWorld = Flyable.createWorld()
-			dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
-			dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
 			Workspace:SetAttribute("OpenKartActiveTrack", activeTrack.trackId)
-			Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
-			for _, entry in entries do
-				entry.player.ReplicationFocus = arenaPrimaryPart
-				entry.state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
-				entry.progress = AIController.createState(activeTrack.drivelineQuadCenters, entry.state.pos)
-				entry.resetSeq += 1
-				entry.forceSnapshot = true
-			end
+			resetFullRace()
 		end)
 	end
 
@@ -535,6 +576,7 @@ function GreyboxKartServer.start()
 		end
 		player.ReplicationFocus = arenaPrimaryPart
 		local state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+		initRaceProgress(state, activeTrack.startPos, activeTrack.startYawRad)
 
 		entries[player] = {
 			player = player,
@@ -609,7 +651,9 @@ function GreyboxKartServer.start()
 				aiState = entry.progress,
 			})
 		end
-		local ranked = Standings.compute(TestDummyKart.buildStandingsEntries(racers, activeTrack.drivelineQuadCenters))
+		local ranked = Standings.compute(
+			TestDummyKart.buildStandingsEntries(racers, activeTrack.drivelineQuadCenters, activeTrack.checkpoints)
+		)
 		local rankById: { [string]: number } = {}
 		for _, r in ranked do
 			rankById[r.id] = r.rank
@@ -635,25 +679,39 @@ function GreyboxKartServer.start()
 	RunService.Heartbeat:Connect(function(dt: number)
 		debug.profilebegin("OpenKart_ServerSim")
 		local _, _ = stepper:advance(dt, function(fixedDt: number)
+			local prevPhase = raceClock.phase
+			local racePhase: RaceState.RacePhase = RaceState.step(raceClock) :: RaceState.RacePhase
+			local raceTick = raceClock.raceTick
 			ItemWorld.tick(itemWorld)
 			local rankById, preProxies = computeStandingsAndProxies()
 
-			KartSolver.stepWithItems(
-				dummyState,
-				TestDummyKart.computeCruiseInput(dummyState, dummyAI, fixedDt, nil, activeTrack.drivelineQuadCenters),
-				worldQuery,
-				fixedDt,
-				itemWorld,
-				{
-					isServer = true,
-					advanceItemWorld = false,
-					kartId = TestDummyKart.DUMMY_KART_ID,
-					flyableWorld = flyableWorld,
-					allKartProxies = preProxies,
-					drivelineCenters = activeTrack.drivelineQuadCenters,
-					rank = rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
-					difficulty = "best",
-				}
+			local rawDummyInput = if dummyState.race.raceFinished
+				then AIController.computeCoastInput(dummyAI, dummyState, activeTrack.drivelineQuadCenters, fixedDt)
+				else TestDummyKart.computeCruiseInput(
+					dummyState,
+					dummyAI,
+					fixedDt,
+					nil,
+					activeTrack.drivelineQuadCenters
+				)
+			local dummyInput = KartSolver.stepRaceInput(dummyState, rawDummyInput, raceTick, racePhase)
+			KartSolver.stepWithItems(dummyState, dummyInput, worldQuery, fixedDt, itemWorld, {
+				isServer = true,
+				advanceItemWorld = false,
+				kartId = TestDummyKart.DUMMY_KART_ID,
+				flyableWorld = flyableWorld,
+				allKartProxies = preProxies,
+				drivelineCenters = activeTrack.drivelineQuadCenters,
+				rank = rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
+				difficulty = "best",
+			})
+			CheckManager.stepKart(
+				dummyState.race,
+				activeTrack.checkpoints,
+				dummyState.prevPos,
+				dummyState.pos,
+				raceTick,
+				raceClock.totalLaps
 			)
 
 			local collisionParticipants: { KartSolver.CollisionParticipant } = {
@@ -661,8 +719,11 @@ function GreyboxKartServer.start()
 			}
 			local activeStates: { KartSolver.KartState } = { dummyState }
 			local playerFallbackIdx = 1
+			local playerCount = 0
+			local finishedPlayerCount = 0
 
 			for _, entry in entries do
+				playerCount += 1
 				playerFallbackIdx += 1
 				if
 					entry.resetRequested
@@ -673,7 +734,20 @@ function GreyboxKartServer.start()
 						entry.resetNoticeText = "RESET (" .. entry.state.activeMaterialName .. ")"
 						entry.resetNoticeExpirySec = os.clock() + 1.5
 					end
+					local savedRace = entry.state.race
 					entry.state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+					entry.state.race = {
+						raceTick = raceTick,
+						phase = racePhase,
+						lap = savedRace.lap,
+						nextCheckpoint = savedRace.nextCheckpoint,
+						raceFinished = savedRace.raceFinished,
+						finishTick = savedRace.finishTick,
+						startupHasPressed = savedRace.startupHasPressed,
+						startupBoostMps = if RaceState.isStartPhase(racePhase) then 0.0 else savedRace.startupBoostMps,
+						startupPenaltyTicks = savedRace.startupPenaltyTicks,
+						startupBoostFired = savedRace.startupBoostFired,
+					}
 					entry.progress = AIController.createState(activeTrack.drivelineQuadCenters, entry.state.pos)
 					entry.resetSeq += 1
 					entry.resetRequested = false
@@ -681,30 +755,59 @@ function GreyboxKartServer.start()
 				else
 					local kartId = if entry.player.UserId ~= 0 then entry.player.UserId else playerFallbackIdx
 					local myRank = rankById[tostring(kartId)] or 2
-					local events = KartSolver.stepWithItems(entry.state, entry.input, worldQuery, fixedDt, itemWorld, {
-						isServer = true,
-						advanceItemWorld = false,
-						kartId = kartId,
-						flyableWorld = flyableWorld,
-						allKartProxies = preProxies,
-						drivelineCenters = activeTrack.drivelineQuadCenters,
-						rank = myRank,
-						difficulty = "best",
-						rollPowerup = function(_s, ev)
-							rollCounter += 1
-							local seed = math.floor(os.clock() * 1000)
-								+ rollCounter * 7919
-								+ ev.id * 101
-								+ itemWorld.elapsedTicks * 31
-							return powerupMgr:getRandomPowerup(myRank, seed, itemWorld.elapsedTicks * fixedDt)
-						end,
-					})
+					local rawPlayerInput = if entry.state.race.raceFinished
+						then AIController.computeCoastInput(
+							entry.progress,
+							entry.state,
+							activeTrack.drivelineQuadCenters,
+							fixedDt
+						)
+						else entry.input
+					local filteredInput = KartSolver.stepRaceInput(entry.state, rawPlayerInput, raceTick, racePhase)
+					local events =
+						KartSolver.stepWithItems(entry.state, filteredInput, worldQuery, fixedDt, itemWorld, {
+							isServer = true,
+							advanceItemWorld = false,
+							kartId = kartId,
+							flyableWorld = flyableWorld,
+							allKartProxies = preProxies,
+							drivelineCenters = activeTrack.drivelineQuadCenters,
+							rank = myRank,
+							difficulty = "best",
+							rollPowerup = function(_s, ev)
+								rollCounter += 1
+								local seed = math.floor(os.clock() * 1000)
+									+ rollCounter * 7919
+									+ ev.id * 101
+									+ itemWorld.elapsedTicks * 31
+								return powerupMgr:getRandomPowerup(myRank, seed, itemWorld.elapsedTicks * fixedDt)
+							end,
+						})
+					local chkChanged = CheckManager.stepKart(
+						entry.state.race,
+						activeTrack.checkpoints,
+						entry.state.prevPos,
+						entry.state.pos,
+						raceTick,
+						raceClock.totalLaps
+					)
 					AIController.updateProgress(entry.progress, entry.state.pos, activeTrack.drivelineQuadCenters)
 					table.insert(collisionParticipants, { id = kartId, state = entry.state })
 					table.insert(activeStates, entry.state)
-					if #events > 0 then
+					if racePhase ~= prevPhase or chkChanged or #events > 0 then
 						entry.forceSnapshot = true
 					end
+				end
+				if entry.state.race.raceFinished then
+					finishedPlayerCount += 1
+				end
+			end
+
+			if playerCount > 0 and finishedPlayerCount == playerCount and raceClock.delayFinishStartTick < 0 then
+				RaceState.enterDelayFinish(raceClock)
+				for _, entry in entries do
+					entry.state.race.phase = raceClock.phase
+					entry.forceSnapshot = true
 				end
 			end
 
@@ -797,7 +900,10 @@ function GreyboxKartServer.start()
 			timedImpulseTicks = dummyState.timedImpulseTicks,
 			isSquashed = dummyTel.isSquashed,
 			rank = latestRanks[TestDummyKart.DUMMY_STRING_ID] or 1,
-			lap = dummyAI.lap,
+			lap = dummyState.race.lap,
+			nextCheckpoint = dummyState.race.nextCheckpoint,
+			raceFinished = dummyState.race.raceFinished,
+			finishTick = dummyState.race.finishTick,
 			trackNodeIdx = dummyAI.trackNodeIdx,
 			slipstreamTime = dummySSTime,
 			slipstreamBonusTime = dummySSBonus,
@@ -859,7 +965,10 @@ function GreyboxKartServer.start()
 							timedImpulseTicks = other.state.timedImpulseTicks,
 							isSquashed = oTel.isSquashed,
 							rank = latestRanks[sid] or 1,
-							lap = other.progress.lap,
+							lap = other.state.race.lap,
+							nextCheckpoint = other.state.race.nextCheckpoint,
+							raceFinished = other.state.race.raceFinished,
+							finishTick = other.state.race.finishTick,
 							trackNodeIdx = other.progress.trackNodeIdx,
 							slipstreamTime = oSSTime,
 							slipstreamBonusTime = oSSBonus,

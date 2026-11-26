@@ -24,6 +24,14 @@ export type KartAudioSnapshot = {
 	itemEffectType: number,
 	plungerFaceTicks: number,
 	bounceBackTicks: number,
+	racePhase: string?,
+	lap: number?,
+	totalLaps: number?,
+	raceFinished: boolean?,
+	rank: number?,
+	startupBoostFired: boolean?,
+	startupBoostMps: number?,
+	startupPenaltyTicks: number?,
 }
 
 export type OneShotEvent = {
@@ -76,6 +84,14 @@ local function cloneSnapshot(s: KartAudioSnapshot): KartAudioSnapshot
 		itemEffectType = s.itemEffectType,
 		plungerFaceTicks = s.plungerFaceTicks,
 		bounceBackTicks = s.bounceBackTicks,
+		racePhase = s.racePhase,
+		lap = s.lap,
+		totalLaps = s.totalLaps,
+		raceFinished = s.raceFinished,
+		rank = s.rank,
+		startupBoostFired = s.startupBoostFired,
+		startupBoostMps = s.startupBoostMps,
+		startupPenaltyTicks = s.startupPenaltyTicks,
 	}
 end
 
@@ -267,6 +283,36 @@ function SfxEvents.step(tracker: AudioTracker, curr: KartAudioSnapshot, dt: numb
 		and curr.itemEffectType ~= ItemEffectState.EFFECT_EXPLOSION
 	then
 		table.insert(oneShots, { id = "bubblegum_explode", positional = true, volumeScale = 1.0 })
+	end
+
+	if isLocalPlayer then
+		if curr.racePhase ~= nil and curr.racePhase ~= prev.racePhase then
+			if curr.racePhase == "COUNTDOWN_3" or curr.racePhase == "READY_PHASE" or curr.racePhase == "SET_PHASE" then
+				table.insert(oneShots, { id = "pre_start_race", positional = false, volumeScale = 1.0 })
+			elseif curr.racePhase == "GO_PHASE" then
+				table.insert(oneShots, { id = "start_race", positional = false, volumeScale = 1.0 })
+			end
+		end
+		if curr.startupBoostFired == true and prev.startupBoostFired ~= true and (curr.startupBoostMps or 0) > 0 then
+			table.insert(oneShots, { id = "wee", positional = false, volumeScale = 1.0 })
+		end
+		if (curr.startupPenaltyTicks or 0) > 0 and (prev.startupPenaltyTicks or 0) == 0 then
+			table.insert(oneShots, { id = "bzzt", positional = false, volumeScale = 1.0 })
+		end
+		local totalLaps = curr.totalLaps or 5
+		if
+			totalLaps > 1
+			and curr.lap ~= nil
+			and prev.lap ~= nil
+			and curr.lap == totalLaps - 1
+			and prev.lap < totalLaps - 1
+		then
+			table.insert(oneShots, { id = "last_lap_fanfare", positional = false, volumeScale = 1.0 })
+		end
+		if curr.raceFinished == true and prev.raceFinished ~= true then
+			local finishId = if (curr.rank or 1) == 1 then "race_finish_victory" else "race_finish"
+			table.insert(oneShots, { id = finishId, positional = false, volumeScale = 1.0 })
+		end
 	end
 
 	tracker.prev = cloneSnapshot(curr)

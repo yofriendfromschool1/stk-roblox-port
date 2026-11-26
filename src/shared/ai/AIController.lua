@@ -316,4 +316,23 @@ function AIController.computeInput(
 	}
 end
 
+-- Post-finish coasting: follow driveline lookahead steering at zero throttle/brake (no freeze/despawn).
+function AIController.computeCoastInput(
+	ai: AIState,
+	kartState: KartSolver.KartState,
+	points: { DrivelinePoint },
+	dt: number
+): KartSolver.KartInput
+	local steered = AIController.computeInput(ai, kartState, points, dt, 0.0)
+	return {
+		accel = 0.0,
+		brake = false,
+		steer = steered.steer,
+		drift = false,
+		nitro = false,
+		fire = false,
+		lookBack = false,
+	}
+end
+
 return table.freeze(AIController)

@@ -159,4 +159,66 @@ table.insert(tests, {
 	end,
 })
 
+table.insert(tests, {
+	name = "countdown, start boost, penalty, final lap, and finish SFX transitions fire for local player",
+	fn = function()
+		local tr = SfxEvents.createTracker()
+		-- Init on COUNTDOWN_3
+		SfxEvents.step(tr, makeSnap({ racePhase = "COUNTDOWN_3", lap = -1, totalLaps = 5 }), 1 / 60, true)
+
+		local rReady =
+			SfxEvents.step(tr, makeSnap({ racePhase = "READY_PHASE", lap = -1, totalLaps = 5 }), 1 / 60, true)
+		assertEqual(#rReady.oneShots, 1, "READY_PHASE fires pre_start_race")
+		assertEqual(rReady.oneShots[1].id, "pre_start_race", "READY_PHASE id")
+
+		local rGo = SfxEvents.step(
+			tr,
+			makeSnap({
+				racePhase = "GO_PHASE",
+				lap = -1,
+				totalLaps = 5,
+				startupBoostFired = true,
+				startupBoostMps = 6.4,
+			}),
+			1 / 60,
+			true
+		)
+		assertEqual(#rGo.oneShots, 2, "GO + start boost fires two oneShots")
+		assertEqual(rGo.oneShots[1].id, "start_race", "GO id")
+		assertEqual(rGo.oneShots[2].id, "wee", "start boost id")
+
+		local rFinal = SfxEvents.step(
+			tr,
+			makeSnap({
+				racePhase = "RACE_PHASE",
+				lap = 4,
+				totalLaps = 5,
+				startupBoostFired = true,
+				startupBoostMps = 6.4,
+			}),
+			1 / 60,
+			true
+		)
+		assertEqual(#rFinal.oneShots, 1, "final lap fires fanfare")
+		assertEqual(rFinal.oneShots[1].id, "last_lap_fanfare", "final lap id")
+
+		local rWin = SfxEvents.step(
+			tr,
+			makeSnap({
+				racePhase = "RACE_PHASE",
+				lap = 5,
+				totalLaps = 5,
+				raceFinished = true,
+				rank = 1,
+				startupBoostFired = true,
+				startupBoostMps = 6.4,
+			}),
+			1 / 60,
+			true
+		)
+		assertEqual(#rWin.oneShots, 1, "finish rank 1 fires victory")
+		assertEqual(rWin.oneShots[1].id, "race_finish_victory", "victory id")
+	end,
+})
+
 return tests

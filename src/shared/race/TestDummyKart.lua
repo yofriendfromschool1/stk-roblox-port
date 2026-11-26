@@ -4,11 +4,14 @@
 -- Simulated second kart participant driven by AIController along the closed-loop arena driveline.
 
 local AIController = require("../ai/AIController")
+local CheckManager = require("./CheckManager")
 local GreyboxArenaData = require("../track/GreyboxArenaData")
 local KartSolver = require("../sim/KartSolver")
 local KartTuning = require("../KartTuning")
 local Math3D = require("../sim/Math3D")
+local RaceState = require("../sim/RaceState")
 local Standings = require("./Standings")
+local TrackRegistry = require("../track/TrackRegistry")
 
 local TestDummyKart = {}
 
@@ -70,30 +73,40 @@ end
 
 function TestDummyKart.buildStandingsEntries(
 	racers: { RacerProgress },
-	drivelineCenters: { { x: number, z: number } }?
+	drivelineCenters: { { x: number, z: number } }?,
+	checkpoints: { TrackRegistry.CheckpointSpec }?
 ): { Standings.StandingsEntry }
 	local pts = drivelineCenters or GreyboxArenaData.drivelineQuadCenters
 	local entries: { Standings.StandingsEntry } = table.create(#racers)
 	for _, r in racers do
-		local lap = 0
+		local lap = r.state.race.lap
 		local checkpoint = 0
 		local distance = 0.0
-		if r.aiState ~= nil then
-			lap = r.aiState.lap
+		if checkpoints ~= nil and #checkpoints > 0 then
+			checkpoint = CheckManager.getMonotonicCheckpoint(lap, r.state.race.nextCheckpoint, checkpoints)
+		elseif r.aiState ~= nil then
 			checkpoint = r.aiState.checkpoint
+		else
+			local nodeIdx, _ = AIController.computeTrackProgress(r.state.pos, pts)
+			checkpoint = math.floor(((nodeIdx - 1) * 4) / math.max(1, #pts))
+		end
+		if r.aiState ~= nil then
 			distance = r.aiState.lapDistance
 		else
-			local nodeIdx, lapDist = AIController.computeTrackProgress(r.state.pos, pts)
-			lap = 0
-			checkpoint = math.floor(((nodeIdx - 1) * 4) / math.max(1, #pts))
+			local _, lapDist = AIController.computeTrackProgress(r.state.pos, pts)
 			distance = lapDist
 		end
+		local finishTime: number? = if r.state.race.raceFinished and r.state.race.finishTick >= 0
+			then RaceState.getRaceElapsedSec(r.state.race.finishTick)
+			else nil
 		table.insert(entries, {
 			id = r.id,
 			lap = lap,
 			checkpoint = checkpoint,
 			distance = distance,
 			initialPosition = r.initialPosition,
+			finished = r.state.race.raceFinished,
+			finishTime = finishTime,
 		})
 	end
 	return entries

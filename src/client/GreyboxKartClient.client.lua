@@ -13,6 +13,7 @@ local Workspace = game:GetService("Workspace")
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AIController = require(Shared.ai.AIController)
+local CheckManager = require(Shared.race.CheckManager)
 local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local FlyablePresentation = require("./items/FlyablePresentation")
@@ -26,6 +27,7 @@ local KartPresentation = require("./kart/KartPresentation")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local Math3D = require(Shared.sim.Math3D)
+local RaceState = require(Shared.sim.RaceState)
 local ReconciliationSmoother = require(Shared.net.ReconciliationSmoother)
 local RemoteInterp = require(Shared.net.RemoteInterp)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
@@ -197,6 +199,13 @@ local remoteAudioTrackers: { [string]: SfxEvents.AudioTracker } = {}
 
 local localStepper = FixedStep.new()
 local localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+local initProgress =
+	CheckManager.initKartProgress(activeTrack.checkpoints, activeTrack.startPos, activeTrack.startYawRad)
+localState.race.lap = initProgress.lap
+localState.race.nextCheckpoint = initProgress.nextCheckpoint
+local localRaceTick = 0
+local localDelayFinishStartTick = -1
+local localTotalLaps = KartTuning.race.DEFAULT_LAPS
 local localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 local prevPose = capturePose(localState)
 local currPose = capturePose(localState)
@@ -305,6 +314,11 @@ Workspace:GetAttributeChangedSignal("OpenKartActiveTrack"):Connect(function()
 	localItemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
 	localFlyableWorld = Flyable.createWorld()
 	localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+	local p = CheckManager.initKartProgress(activeTrack.checkpoints, activeTrack.startPos, activeTrack.startYawRad)
+	localState.race.lap = p.lap
+	localState.race.nextCheckpoint = p.nextCheckpoint
+	localRaceTick = 0
+	localDelayFinishStartTick = -1
 	localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 	table.clear(inputHistory)
 	ReconciliationSmoother.reset(reconciler)
@@ -410,26 +424,38 @@ local function buildClientCollisionParticipants(): { KartSolver.CollisionPartici
 end
 
 local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, number, { Flyable.KartProxy })
-	local nPts = math.max(1, #activeTrack.drivelineQuadCenters)
 	local entries: { Standings.StandingsEntry } = {
 		{
 			id = "local",
-			lap = localProgress.lap,
-			checkpoint = localProgress.checkpoint,
+			lap = localState.race.lap,
+			checkpoint = CheckManager.getMonotonicCheckpoint(
+				localState.race.lap,
+				localState.race.nextCheckpoint,
+				activeTrack.checkpoints
+			),
 			distance = localProgress.lapDistance,
 			initialPosition = 2,
+			finished = localState.race.raceFinished,
+			finishTime = if localState.race.raceFinished and localState.race.finishTick >= 0
+				then RaceState.getRaceElapsedSec(localState.race.finishTick)
+				else nil,
 		},
 	}
 	for idx, rk in latestRemoteKarts do
 		local rPos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
-		local rNode, rDist = AIController.computeTrackProgress(rPos, activeTrack.drivelineQuadCenters)
-		local nIdx = rk.trackNodeIdx or rNode
+		local _, rDist = AIController.computeTrackProgress(rPos, activeTrack.drivelineQuadCenters)
+		local rLap = rk.lap or -1
+		local rNextChk = rk.nextCheckpoint or 0
+		local rFin = rk.raceFinished == true
+		local rFinTick = rk.finishTick or -1
 		table.insert(entries, {
 			id = rk.id,
-			lap = rk.lap or 0,
-			checkpoint = math.floor(((nIdx - 1) * 4) / nPts),
+			lap = rLap,
+			checkpoint = CheckManager.getMonotonicCheckpoint(rLap, rNextChk, activeTrack.checkpoints),
 			distance = rDist,
 			initialPosition = idx,
+			finished = rFin,
+			finishTime = if rFin and rFinTick >= 0 then RaceState.getRaceElapsedSec(rFinTick) else nil,
 		})
 	end
 	local myRank = Standings.getRankForId(entries, "local")
@@ -531,6 +557,17 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			if snapshot.resetSeq > lastResetSeq then
 				lastResetSeq = snapshot.resetSeq
 				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld, localFlyableWorld)
+				localRaceTick = localState.race.raceTick
+				if
+					(localState.race.phase == "DELAY_FINISH_PHASE" or localState.race.phase == "RESULT_DISPLAY_PHASE")
+					and localDelayFinishStartTick < 0
+				then
+					localDelayFinishStartTick = localRaceTick
+				elseif
+					RaceState.isActiveRacePhase(localState.race.phase) or RaceState.isStartPhase(localState.race.phase)
+				then
+					localDelayFinishStartTick = -1
+				end
 				localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 				table.clear(inputHistory)
 				prevPose = capturePose(localState)
@@ -555,16 +592,41 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				inputHistory = retained
 
 				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld, localFlyableWorld)
+				localRaceTick = localState.race.raceTick
+				if
+					(localState.race.phase == "DELAY_FINISH_PHASE" or localState.race.phase == "RESULT_DISPLAY_PHASE")
+					and localDelayFinishStartTick < 0
+				then
+					localDelayFinishStartTick = localRaceTick
+				elseif
+					RaceState.isActiveRacePhase(localState.race.phase) or RaceState.isStartPhase(localState.race.phase)
+				then
+					localDelayFinishStartTick = -1
+				end
 				local replayCount = #inputHistory
 				if replayCount > 0 then
 					for idx, entry in inputHistory do
 						if idx == replayCount then
 							prevPose = capturePose(localState)
 						end
+						localRaceTick += 1
+						local rPhase: RaceState.RacePhase = RaceState.phaseAtTick(
+							localRaceTick,
+							if localDelayFinishStartTick >= 0 then localDelayFinishStartTick else nil
+						) :: RaceState.RacePhase
+						local rRawInput = if localState.race.raceFinished
+							then AIController.computeCoastInput(
+								localProgress,
+								localState,
+								activeTrack.drivelineQuadCenters,
+								FixedStep.FIXED_DT
+							)
+							else entry.input
+						local rFilteredInput = KartSolver.stepRaceInput(localState, rRawInput, localRaceTick, rPhase)
 						local _, myRank, proxies = buildClientStandingsAndProxies()
 						KartSolver.stepWithItems(
 							localState,
-							entry.input,
+							rFilteredInput,
 							worldQuery,
 							FixedStep.FIXED_DT,
 							localItemWorld,
@@ -577,6 +639,14 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 								rank = myRank,
 								difficulty = "best",
 							}
+						)
+						CheckManager.stepKart(
+							localState.race,
+							activeTrack.checkpoints,
+							localState.prevPos,
+							localState.pos,
+							localRaceTick,
+							localTotalLaps
 						)
 						KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
 						AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
@@ -636,23 +706,62 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				prevPose = capturePose(localState)
 				currPose = capturePose(localState)
 			else
+				localRaceTick += 1
+				local lPhase: RaceState.RacePhase = RaceState.phaseAtTick(
+					localRaceTick,
+					if localDelayFinishStartTick >= 0 then localDelayFinishStartTick else nil
+				) :: RaceState.RacePhase
+				if
+					IS_STUDIO
+					and Workspace:GetAttribute("OpenKartAutopilot") == true
+					and not localState.race.raceFinished
+				then
+					if (lPhase :: string) == "SET_PHASE" and localRaceTick >= RaceState.SET_START_TICK + 2 then
+						solverInput = {
+							accel = 1.0,
+							brake = false,
+							steer = 0.0,
+							drift = false,
+							nitro = false,
+							fire = false,
+							lookBack = false,
+						}
+					elseif RaceState.isRacePhase(lPhase) then
+						solverInput = AIController.computeInput(
+							localProgress,
+							localState,
+							activeTrack.drivelineQuadCenters,
+							fixedDt,
+							profile.maxSpeed
+						)
+					end
+				end
+				local rawStepInput = if localState.race.raceFinished
+					then AIController.computeCoastInput(
+						localProgress,
+						localState,
+						activeTrack.drivelineQuadCenters,
+						fixedDt
+					)
+					else solverInput
 				table.insert(inputHistory, {
 					seq = inputSeq,
 					input = {
-						accel = solverInput.accel,
-						brake = solverInput.brake,
-						steer = solverInput.steer,
-						drift = solverInput.drift,
-						nitro = solverInput.nitro,
-						fire = solverInput.fire,
-						lookBack = solverInput.lookBack,
+						accel = rawStepInput.accel,
+						brake = rawStepInput.brake,
+						steer = rawStepInput.steer,
+						drift = rawStepInput.drift,
+						nitro = rawStepInput.nitro,
+						fire = rawStepInput.fire,
+						lookBack = rawStepInput.lookBack,
 					},
 				})
 				if #inputHistory > MAX_INPUT_HISTORY then
 					table.remove(inputHistory, 1)
 				end
+				local filteredInput = KartSolver.stepRaceInput(localState, rawStepInput, localRaceTick, lPhase)
 				local _, myRank, proxies = buildClientStandingsAndProxies()
-				KartSolver.stepWithItems(localState, solverInput, worldQuery, fixedDt, localItemWorld, {
+				KartSolver.stepWithItems(localState, filteredInput, worldQuery, fixedDt, localItemWorld, {
 					isServer = false,
 					kartId = localKartId,
 					flyableWorld = localFlyableWorld,
@@ -661,6 +770,14 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					rank = myRank,
 					difficulty = "best",
 				})
+				CheckManager.stepKart(
+					localState.race,
+					activeTrack.checkpoints,
+					localState.prevPos,
+					localState.pos,
+					localRaceTick,
+					localTotalLaps
+				)
 				KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
 				AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
 				local _, _, postProxies = buildClientStandingsAndProxies()
@@ -851,6 +968,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		end
 		table.clear(localFlyableWorld.cancelEffects)
 	end
+	local standingsEntries, myRank, _ = buildClientStandingsAndProxies()
 	local localAudioStep = SfxEvents.step(localAudioTracker, {
 		speedMps = interpSpeedMps,
 		maxSpeedMps = profile.maxSpeed,
@@ -865,6 +983,14 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		itemEffectType = localState.itemEffect.effectType,
 		plungerFaceTicks = tel.plungerFaceTicks,
 		bounceBackTicks = localState.bounceBackTicks,
+		racePhase = localState.race.phase,
+		lap = localState.race.lap,
+		totalLaps = localTotalLaps,
+		raceFinished = localState.race.raceFinished,
+		rank = myRank,
+		startupBoostFired = localState.race.startupBoostFired,
+		startupBoostMps = localState.race.startupBoostMps,
+		startupPenaltyTicks = localState.race.startupPenaltyTicks,
 	}, dt, true)
 	SfxPlayer.applyStep(sfxPlayer, "local", localAudioStep, visuals.model.PrimaryPart or visuals.sparkLeft)
 	debug.profileend()
@@ -872,7 +998,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	local attrStart = Workspace:GetAttribute("OpenKartRaceStartTime")
 	local raceStartServerTime = if type(attrStart) == "number" then attrStart else Workspace:GetServerTimeNow()
 	local nitroGateOpen = (solverInput.accel > 0 and localState.isOnGround) or tel.nitroActive
-	local standingsEntries, _, _ = buildClientStandingsAndProxies()
+	local finishTimeSec: number? = if localState.race.raceFinished and localState.race.finishTick >= 0
+		then RaceState.getRaceElapsedSec(localState.race.finishTick)
+		else nil
 	HudState.publish(
 		finalPos.x,
 		finalPos.z,
@@ -883,16 +1011,32 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		tel.nitroActive,
 		"NORMAL_RACE",
 		raceStartServerTime,
-		0,
-		0,
-		math.max(0.0, finalPos.z),
+		localState.race.lap,
+		CheckManager.getMonotonicCheckpoint(
+			localState.race.lap,
+			localState.race.nextCheckpoint,
+			activeTrack.checkpoints
+		),
+		localProgress.lapDistance,
 		localState.heldPowerup,
 		localState.heldPowerupCount,
 		nitroGateOpen,
 		tel.plungerFaceTicks,
 		standingsEntries,
 		remoteMinimapPoses,
-		localKartId
+		localKartId,
+		{
+			racePhase = localState.race.phase,
+			raceTick = localState.race.raceTick,
+			raceElapsedSec = RaceState.getRaceElapsedSec(localState.race.raceTick),
+			totalLaps = localTotalLaps,
+			nextCheckpoint = localState.race.nextCheckpoint,
+			raceFinished = localState.race.raceFinished,
+			finishTimeSec = finishTimeSec,
+			startupBoostMps = localState.race.startupBoostMps,
+			startupBoostFired = localState.race.startupBoostFired,
+			startupPenaltyTicks = localState.race.startupPenaltyTicks,
+		}
 	)
 
 	-- STK CameraNormal speed-proportional pull-back + skid_angle/2 offset + constant 80 deg vertical FOV

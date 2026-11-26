@@ -8,6 +8,7 @@ local ItemTuning = require("../ItemTuning")
 local ItemWorld = require("../items/ItemWorld")
 local KartSolver = require("../sim/KartSolver")
 local MaxSpeed = require("../kart/MaxSpeed")
+local RaceState = require("../sim/RaceState")
 local Skidding = require("../kart/Skidding")
 local Slipstream = require("../sim/Slipstream")
 
@@ -25,6 +26,9 @@ export type RemoteKartState = {
 	isSquashed: boolean,
 	rank: number,
 	lap: number?,
+	nextCheckpoint: number?,
+	raceFinished: boolean?,
+	finishTick: number?,
 	trackNodeIdx: number?,
 	slipstreamTime: number?,
 	slipstreamBonusTime: number?,
@@ -97,7 +101,7 @@ for idx, name in FLYABLE_KINDS do
 	FLYABLE_KIND_TO_ID[name :: Flyable.FlyableKind] = idx
 end
 
-local CORE_HEADER_BYTES = 230
+local CORE_HEADER_BYTES = 248
 local ITEM_EFFECT_BASE_BYTES = 12
 local ITEM_EFFECT_EXPLOSION_BYTES = 88
 local ITEM_EFFECT_PULL_BYTES = 16
@@ -109,7 +113,7 @@ local FLYABLE_CUSTOM_PHYS_BYTES = 12
 local FLYABLE_TARGET_BYTES = 8
 local FLYABLE_RUBBER_BYTES = 8
 local FLYABLE_PLUNGER_BYTES = 23
-local REMOTE_KART_FIXED_BYTES = 62
+local REMOTE_KART_FIXED_BYTES = 67
 local SLIPSTREAM_BYTES = 65
 
 local function defaultFlyablePhys(kind: Flyable.FlyableKind): (number, number, number)
@@ -181,6 +185,10 @@ GreyboxProtocol.VOID_RESET_Y_METERS = -20.0
 
 local function clampU8(n: number): number
 	return math.clamp(math.round(n), 0, 255)
+end
+
+local function clampI8(n: number): number
+	return math.clamp(math.round(n), -128, 127)
 end
 
 local function clampU16(n: number): number
@@ -369,6 +377,24 @@ function GreyboxProtocol.packSnapshot(
 	buffer.writei16(buf, off + 20, clampI16(ns.bubbleFadeTicks or 0))
 	buffer.writei16(buf, off + 22, clampI16(ns.bubbleDurationTicks or 0))
 	off += 24
+
+	-- 18-byte race & start-bonus state
+	local race = ns.race
+	local racePhaseId = if race ~= nil then (RaceState.PHASE_TO_ID[race.phase] or 1) else 1
+	local raceFlags = if race ~= nil
+		then (if race.raceFinished then 1 else 0) + (if race.startupHasPressed then 2 else 0) + (if race.startupBoostFired
+			then 4
+			else 0)
+		else 0
+	buffer.writeu32(buf, off, clampU32(if race ~= nil then race.raceTick else 0))
+	buffer.writei32(buf, off + 4, clampI32(if race ~= nil then race.finishTick else -1))
+	buffer.writef32(buf, off + 8, if race ~= nil then race.startupBoostMps else 0.0)
+	buffer.writeu8(buf, off + 12, clampU8(racePhaseId))
+	buffer.writei8(buf, off + 13, clampI8(if race ~= nil then race.lap else -1))
+	buffer.writeu8(buf, off + 14, clampU8(if race ~= nil then race.nextCheckpoint else 0))
+	buffer.writeu8(buf, off + 15, raceFlags)
+	buffer.writei16(buf, off + 16, clampI16(if race ~= nil then race.startupPenaltyTicks else 0))
+	off += 18
 
 	if hasItemEffect and eff ~= nil then
 		local hasExp = (eff.effectType == ItemEffectState.EFFECT_EXPLOSION)
@@ -571,13 +597,16 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writeu8(buf, rOff + 48, clampU8(rk.attachmentType))
 			buffer.writei16(buf, rOff + 49, clampI16(rk.plungerFaceTicks))
 			buffer.writei16(buf, rOff + 51, clampI16(rk.timedImpulseTicks or 0))
-			buffer.writeu8(buf, rOff + 53, if rk.isSquashed then 1 else 0)
+			local rkFlags = (if rk.isSquashed then 1 else 0) + (if rk.raceFinished then 2 else 0)
+			buffer.writeu8(buf, rOff + 53, rkFlags)
 			buffer.writeu8(buf, rOff + 54, clampU8(rk.rank))
-			buffer.writeu8(buf, rOff + 55, clampU8(rk.lap or 0))
+			buffer.writei8(buf, rOff + 55, clampI8(rk.lap or -1))
 			buffer.writeu16(buf, rOff + 56, clampU16(rk.trackNodeIdx or 1))
 			buffer.writeu8(buf, rOff + 58, clampU8(math.max(0, rk.slipstreamTime or 0) * (255 / 8.0)))
 			buffer.writeu8(buf, rOff + 59, clampU8(math.max(0, rk.slipstreamBonusTime or 0) * (255 / 8.0)))
 			buffer.writei16(buf, rOff + 60, clampI16(rk.attachmentTicksLeft or 0))
+			buffer.writeu8(buf, rOff + 62, clampU8(rk.nextCheckpoint or 0))
+			buffer.writei32(buf, rOff + 63, clampI32(rk.finishTick or -1))
 			off = rOff + REMOTE_KART_FIXED_BYTES
 		end
 	end
@@ -671,6 +700,28 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 	local bubbleFadeTicks = buffer.readi16(buf, off + 20)
 	local bubbleDurationTicks = buffer.readi16(buf, off + 22)
 	off += 24
+
+	local raceTick = buffer.readu32(buf, off)
+	local finishTick = buffer.readi32(buf, off + 4)
+	local startupBoostMps = buffer.readf32(buf, off + 8)
+	local racePhaseId = buffer.readu8(buf, off + 12)
+	local raceLap = buffer.readi8(buf, off + 13)
+	local raceNextCheckpoint = buffer.readu8(buf, off + 14)
+	local raceFlags = buffer.readu8(buf, off + 15)
+	local startupPenaltyTicks = buffer.readi16(buf, off + 16)
+	off += 18
+	local raceState: KartSolver.KartRaceState = {
+		raceTick = raceTick,
+		phase = RaceState.ID_TO_PHASE[racePhaseId] or "COUNTDOWN_3",
+		lap = raceLap,
+		nextCheckpoint = raceNextCheckpoint,
+		raceFinished = bit32.btest(raceFlags, 1),
+		finishTick = finishTick,
+		startupHasPressed = bit32.btest(raceFlags, 2),
+		startupBoostMps = startupBoostMps,
+		startupPenaltyTicks = startupPenaltyTicks,
+		startupBoostFired = bit32.btest(raceFlags, 4),
+	}
 
 	local itemEffect: ItemEffectState.NetEffectState
 	if hasItemEffect then
@@ -1042,6 +1093,7 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 			end
 			local rid = buffer.readstring(buf, off + 1, idLen)
 			local rOff = off + 1 + idLen
+			local rkFlags = buffer.readu8(buf, rOff + 53)
 			table.insert(rList, {
 				id = rid,
 				pos = { buffer.readf32(buf, rOff), buffer.readf32(buf, rOff + 4), buffer.readf32(buf, rOff + 8) },
@@ -1061,13 +1113,16 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				attachmentType = buffer.readu8(buf, rOff + 48),
 				plungerFaceTicks = buffer.readi16(buf, rOff + 49),
 				timedImpulseTicks = buffer.readi16(buf, rOff + 51),
-				isSquashed = buffer.readu8(buf, rOff + 53) == 1,
+				isSquashed = bit32.btest(rkFlags, 1),
+				raceFinished = bit32.btest(rkFlags, 2),
 				rank = buffer.readu8(buf, rOff + 54),
-				lap = buffer.readu8(buf, rOff + 55),
+				lap = buffer.readi8(buf, rOff + 55),
 				trackNodeIdx = buffer.readu16(buf, rOff + 56),
 				slipstreamTime = buffer.readu8(buf, rOff + 58) * (8.0 / 255),
 				slipstreamBonusTime = buffer.readu8(buf, rOff + 59) * (8.0 / 255),
 				attachmentTicksLeft = buffer.readi16(buf, rOff + 60),
+				nextCheckpoint = buffer.readu8(buf, rOff + 62),
+				finishTick = buffer.readi32(buf, rOff + 63),
 			})
 			off = rOff + REMOTE_KART_FIXED_BYTES
 		end
@@ -1123,6 +1178,7 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		increases = increases,
 		slipstreamChargeTicks = if slipstream ~= nil then slipstream.chargeTicks else 0,
 		slipstream = slipstream,
+		race = raceState,
 		itemWorldSnapshot = itemWorldSnapshot,
 		flyableSnapshot = flyableSnapshot,
 	}
