@@ -1,0 +1,46 @@
+--!strict
+-- SPDX-License-Identifier: GPL-3.0-or-later
+-- Ported from data/gui/screens/main_menu.stkgui, race_setup.stkgui, and options/*.stkgui (STK 1.5).
+
+local MenuIcons = {
+	MenuRace = "rbxassetid://128822035972659",
+	MenuRaceFocus = "rbxassetid://86289472156967",
+	MenuMulti = "rbxassetid://71115678740296",
+	MenuMultiFocus = "rbxassetid://114872165443732",
+	MenuOnline = "rbxassetid://130007552690178",
+	MenuOnlineFocus = "rbxassetid://76205869725132",
+	MainOptions = "rbxassetid://90455345827377",
+	MainAbout = "rbxassetid://120560886618909",
+	OptionsVideo = "rbxassetid://116198066611940",
+	OptionsAudio = "rbxassetid://82651475883470",
+	OptionsUi = "rbxassetid://95794656677552",
+	OptionsInput = "rbxassetid://138743238575769",
+	Back = "rbxassetid://106274513479988",
+	DifficultyEasy = "rbxassetid://124312037963754",
+	DifficultyMedium = "rbxassetid://107338938584696",
+	DifficultyHard = "rbxassetid://122745299381821",
+	DifficultyBest = "rbxassetid://84428181383979",
+	ModeNormal = "rbxassetid://78129347904500",
+	ModeTimeTrial = "rbxassetid://122583436777351",
+	GreenCheck = "rbxassetid://89540791355659",
+	SandtrackScreenshot = "rbxassetid://92416856454068",
+	TuxIcon = "rbxassetid://106784086588016",
+	-- Classic skin assets (data/skins/classic/stkskin.xml, common/)
+	SkinBackground = "rbxassetid://84866299725968",
+	SkinBottomBar = "rbxassetid://124443261362862",
+	SkinGlassSection = "rbxassetid://117168955968235",
+	SkinGlassRSection = "rbxassetid://81959774570466",
+	SkinGlassButton = "rbxassetid://70617283103205",
+	SkinGlassButtonFocused = "rbxassetid://79565143195005",
+	SkinGlassTabVert = "rbxassetid://74882422845315",
+	SkinGlassTabVertFocus = "rbxassetid://138839672976302",
+	SkinGlassCheckbox = "rbxassetid://134322600301249",
+	SkinGlassCheckboxChecked = "rbxassetid://75889787303494",
+	SkinGlassSpinner = "rbxassetid://136014332954048",
+	SkinGlassSpinnerFocus = "rbxassetid://137812189671913",
+	SkinGlassSpinnerHalo = "rbxassetid://106200183265406",
+	SkinGlassGaugeFill = "rbxassetid://90411775199223",
+	SkinGlassIconFocusHalo = "rbxassetid://75723856105060",
+}
+
+return MenuIcons

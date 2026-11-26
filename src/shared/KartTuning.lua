@@ -361,6 +361,7 @@ KartTuning.collision = {
 
 -- AI controller constants (src/karts/controller/ai_base_controller.cpp, skidding_ai.cpp, data/stk_config.xml:L350-L424)
 KartTuning.ai = {
+	acceleration = 1.0, -- src/config/stk_config.cpp:L250, skidding_ai.cpp:L2056
 	timeFullSteer = 0.1, -- s (data/stk_config.xml:L350, L407)
 	skiddingThreshold = 2.0, -- hard/best (data/stk_config.xml:L405, L424)
 	sharpCurveAngleRad = 1.5, -- rad (src/karts/controller/skidding_ai.cpp:L2725)
@@ -369,8 +370,78 @@ KartTuning.ai = {
 	lookaheadTimeSec = 0.65, -- s speed-scaled lookahead multiplier L(v) = clamp(|v|*0.65, 6, 28)
 	lookaheadMinM = 6.0, -- m
 	lookaheadMaxM = 28.0, -- m
-	defaultCruiseSpeedMps = 16.0, -- m/s smooth closed-loop pace
+	defaultCruiseSpeedMps = 25.0, -- m/s (AI speed is governed by KartProfile + MS_DECREASE_AI, not throttle cap)
 }
+
+export type AIPropsPreset = {
+	timeFullSteer: number,
+	skiddingThreshold: number,
+	itemSkill: number,
+	nitroUsage: number,
+	rbSkidProb: { TablePoint },
+	firstSpeedCap: { TablePoint },
+	lastSpeedCap: { TablePoint },
+	disableSlipstreamUsage: boolean,
+	shieldIncomingRadius: number,
+	minStartDelay: number,
+	maxStartDelay: number,
+}
+
+-- Per-difficulty AI parameters (data/stk_config.xml:L349-L426)
+KartTuning.aiByDifficulty = {
+	easy = {
+		timeFullSteer = 0.1,
+		skiddingThreshold = 4.0,
+		itemSkill = 1,
+		nitroUsage = 0,
+		rbSkidProb = { { 0, 0.0 } },
+		firstSpeedCap = { { -100, 1.0 }, { -50, 0.9 }, { 0, 0.85 }, { 100, 0.65 } },
+		lastSpeedCap = { { -150, 0.92 }, { -50, 0.75 }, { 50, 0.6 } },
+		disableSlipstreamUsage = true,
+		shieldIncomingRadius = 0,
+		minStartDelay = 0.3,
+		maxStartDelay = 0.5,
+	},
+	medium = {
+		timeFullSteer = 0.1,
+		skiddingThreshold = 3.0,
+		itemSkill = 2,
+		nitroUsage = 1,
+		rbSkidProb = { { 0, 0.0 } },
+		firstSpeedCap = { { 20, 1.0 }, { 60, 0.9 }, { 100, 0.85 } },
+		lastSpeedCap = { { -50, 0.94 }, { 0, 0.85 }, { 100, 0.75 } },
+		disableSlipstreamUsage = false,
+		shieldIncomingRadius = 10,
+		minStartDelay = 0.25,
+		maxStartDelay = 0.4,
+	},
+	hard = {
+		timeFullSteer = 0.1,
+		skiddingThreshold = 2.0,
+		itemSkill = 3,
+		nitroUsage = 2,
+		rbSkidProb = { { -50, 1.0 }, { -20, 0.7 }, { 20, 0.2 }, { 50, 0.0 } },
+		firstSpeedCap = { { 50, 1.0 }, { 150, 0.9 } },
+		lastSpeedCap = { { 0, 0.96 }, { 80, 0.8 } },
+		disableSlipstreamUsage = false,
+		shieldIncomingRadius = 8,
+		minStartDelay = 0.15,
+		maxStartDelay = 0.28,
+	},
+	best = {
+		timeFullSteer = 0.1,
+		skiddingThreshold = 2.0,
+		itemSkill = 4,
+		nitroUsage = 3,
+		rbSkidProb = { { 0, 1.0 } },
+		firstSpeedCap = { { 0, 1.0 } },
+		lastSpeedCap = { { 0, 1.0 } },
+		disableSlipstreamUsage = false,
+		shieldIncomingRadius = 6,
+		minStartDelay = 0.15,
+		maxStartDelay = 0.2,
+	},
+} :: { [string]: AIPropsPreset }
 
 -- Follow camera, look-back & vertical FOV constants
 -- (data/stk_config.xml:L269, src/graphics/camera/camera_normal.cpp:L102-L144, L226-L230, camera.cpp:L203, user_config.hpp:L1046-L1066)
@@ -392,16 +463,36 @@ KartTuning.camera = {
 	reverseReturnUp = 1.6, -- camera.cpp:L203
 }
 
--- Difficulty multipliers (data/kart_characteristics.xml:L347-L362, L418; data/stk_config.xml:L353, L372, L391, L410)
+local DIFFICULTY_ALIASES: { [string]: "easy" | "medium" | "hard" | "best" } = {
+	novice = "easy",
+	easy = "easy",
+	intermediate = "medium",
+	medium = "medium",
+	expert = "hard",
+	hard = "hard",
+	best = "best",
+}
+
+function KartTuning.normalizeDifficulty(diff: string?): "easy" | "medium" | "hard" | "best"
+	if type(diff) == "string" then
+		local mapped = DIFFICULTY_ALIASES[string.lower(diff)]
+		if mapped ~= nil then
+			return mapped :: "easy" | "medium" | "hard" | "best"
+		end
+	end
+	return "best"
+end
+
+-- Difficulty multipliers (data/kart_characteristics.xml:L347-L362; data/stk_config.xml:L353, L372, L391, L410)
 KartTuning.difficulties = {
 	easy = {
 		enginePowerMult = 0.7,
 		maxSpeedMult = 0.6,
-		nitroEngineForceMult = 0.8,
-		nitroMaxSpeedIncreaseMult = 0.9,
-		nitroMaxMult = 0.8,
+		nitroEngineForceMult = 1.0,
+		nitroMaxSpeedIncreaseMult = 1.0,
+		nitroMaxMult = 1.0,
 		aiDisableSlipstreamUsage = true, -- stk_config.xml:L353
-	}, -- L349, L418
+	}, -- L348-L351 (no nitro override on easy)
 	medium = {
 		enginePowerMult = 0.83,
 		maxSpeedMult = 0.8,
@@ -409,7 +500,7 @@ KartTuning.difficulties = {
 		nitroMaxSpeedIncreaseMult = 1.0,
 		nitroMaxMult = 1.0,
 		aiDisableSlipstreamUsage = false, -- stk_config.xml:L372
-	}, -- L353
+	}, -- L352-L355
 	hard = {
 		enginePowerMult = 0.92,
 		maxSpeedMult = 0.92,
@@ -417,7 +508,7 @@ KartTuning.difficulties = {
 		nitroMaxSpeedIncreaseMult = 1.0,
 		nitroMaxMult = 1.0,
 		aiDisableSlipstreamUsage = false, -- stk_config.xml:L391
-	}, -- L357
+	}, -- L356-L358
 	best = {
 		enginePowerMult = 1.0,
 		maxSpeedMult = 1.0,
@@ -488,7 +579,7 @@ KartTuning.kartClasses = {
 
 function KartTuning.buildProfile(className: string?, difficulty: string?, dims: KartDimensions?): KartProfile
 	local clsName = className or "medium"
-	local diffName = difficulty or "best"
+	local diffName = KartTuning.normalizeDifficulty(difficulty)
 	local cls = KartTuning.kartClasses[clsName] or KartTuning.kartClasses.medium
 	local diff = KartTuning.difficulties[diffName] or KartTuning.difficulties.best
 	local d = dims or KartTuning.chassis.tux

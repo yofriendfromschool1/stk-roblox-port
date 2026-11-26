@@ -1,0 +1,20 @@
+{
+  "sourceRevision": "1.5",
+  "assets": {
+    "background.jpg": "rbxassetid://84866299725968",
+    "bottom_bar.png": "rbxassetid://124443261362862",
+    "glass_section.png": "rbxassetid://117168955968235",
+    "glass_rsection.png": "rbxassetid://81959774570466",
+    "glassbutton.png": "rbxassetid://70617283103205",
+    "glassbutton_focused.png": "rbxassetid://79565143195005",
+    "glasstab_vert.png": "rbxassetid://74882422845315",
+    "glasstab_vert_focus.png": "rbxassetid://138839672976302",
+    "glasscheckbox.png": "rbxassetid://134322600301249",
+    "glasscheckbox_checked.png": "rbxassetid://75889787303494",
+    "glassspinner.png": "rbxassetid://136014332954048",
+    "glassspinner_focus.png": "rbxassetid://137812189671913",
+    "glassspinner_halo.png": "rbxassetid://106200183265406",
+    "glasssgauge_fill.png": "rbxassetid://90411775199223",
+    "glass_iconhighlight_focus.png": "rbxassetid://75723856105060"
+  }
+}

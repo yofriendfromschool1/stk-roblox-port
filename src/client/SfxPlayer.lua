@@ -186,6 +186,44 @@ function SfxPlayer.applyStep(player: Player, kartKey: string, stepOut: SfxEvents
 	end
 end
 
+function SfxPlayer.applyAudioSettings(
+	player: Player,
+	audio: {
+		masterMuted: boolean,
+		sfxVolume: number,
+		engineVolume: number,
+		uiVolume: number,
+	}
+)
+	if player.destroyed then
+		return
+	end
+	local muted = audio.masterMuted == true
+	if player.groups.engine then
+		player.groups.engine.Volume = if muted then 0 else math.clamp(audio.engineVolume, 0, 1)
+	end
+	if player.groups.sfx then
+		player.groups.sfx.Volume = if muted then 0 else math.clamp(audio.sfxVolume, 0, 1)
+	end
+	if player.groups.ui then
+		player.groups.ui.Volume = if muted then 0 else math.clamp(audio.uiVolume, 0, 1)
+	end
+end
+
+function SfxPlayer.stopAllLoops(player: Player)
+	if player.destroyed then
+		return
+	end
+	for _, kartLoops in player.loopsByKart do
+		for _, snd in kartLoops do
+			snd.Volume = 0
+			if snd.IsPlaying then
+				snd:Stop()
+			end
+		end
+	end
+end
+
 function SfxPlayer.destroy(player: Player)
 	if player.destroyed then
 		return

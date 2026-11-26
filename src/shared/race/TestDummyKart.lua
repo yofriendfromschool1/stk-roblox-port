@@ -58,17 +58,12 @@ function TestDummyKart.computeCruiseInput(
 	aiState: AIController.AIState?,
 	dt: number?,
 	targetSpeedMps: number?,
-	drivelineCenters: { { x: number, z: number } }?
+	drivelineCenters: { { x: number, z: number } }?,
+	context: AIController.AIContext?
 ): KartSolver.KartInput
 	local pts = drivelineCenters or GreyboxArenaData.drivelineQuadCenters
 	local ai = aiState or AIController.createState(pts, state.pos)
-	return AIController.computeInput(
-		ai,
-		state,
-		pts,
-		dt or (1.0 / 120.0),
-		targetSpeedMps or TestDummyKart.DEFAULT_CRUISE_SPEED_MPS
-	)
+	return AIController.computeInput(ai, state, pts, dt or (1.0 / 120.0), targetSpeedMps, context)
 end
 
 function TestDummyKart.buildStandingsEntries(

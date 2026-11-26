@@ -21,6 +21,10 @@ local suites = {
 	{ name = "FlyableCollision", tests = require("./FlyableCollision.spec") },
 	{ name = "Slipstream", tests = require("./Slipstream.spec") },
 	{ name = "RaceFlow", tests = require("./RaceFlow.spec") },
+	{ name = "MenuFlow", tests = require("./MenuFlow.spec") },
+	{ name = "Settings", tests = require("./Settings.spec") },
+	{ name = "AIController", tests = require("./AIController.spec") },
+	{ name = "Difficulty", tests = require("./Difficulty.spec") },
 }
 
 local passed = 0

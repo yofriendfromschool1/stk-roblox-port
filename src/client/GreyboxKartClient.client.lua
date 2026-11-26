@@ -14,6 +14,8 @@ local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AIController = require(Shared.ai.AIController)
 local CheckManager = require(Shared.race.CheckManager)
+local ClientSessionState = require("./ClientSessionState")
+local ClientSettingsState = require("./ClientSettingsState")
 local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local FlyablePresentation = require("./items/FlyablePresentation")
@@ -31,6 +33,8 @@ local RaceState = require(Shared.sim.RaceState)
 local ReconciliationSmoother = require(Shared.net.ReconciliationSmoother)
 local RemoteInterp = require(Shared.net.RemoteInterp)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
+local SettingsApplier = require("./SettingsApplier")
+local SettingsSchema = require(Shared.settings.SettingsSchema)
 local SfxEvents = require(Shared.audio.SfxEvents)
 local SfxPlayer = require("./SfxPlayer")
 local SlipstreamVfxMath = require(Shared.kart.SlipstreamVfxMath)
@@ -359,6 +363,74 @@ local function sampleInput(): (KartSolver.KartInput, boolean, boolean, boolean)
 	return inputMapper.sample()
 end
 
+local activeCameraPreset: SettingsSchema.CameraPreset = "Normal"
+local sessionCommandRemote = remotesFolder:WaitForChild("SessionCommand", 10) :: RemoteEvent?
+local sessionStateRemote = remotesFolder:WaitForChild("SessionState", 10) :: RemoteEvent?
+local localP2InputRemote = remotesFolder:WaitForChild("LocalP2Input", 10) :: RemoteEvent?
+local lastP2SentTime = 0.0
+
+ClientSettingsState.subscribe(function(settings)
+	inputMapper.setBindings(settings.input)
+	SfxPlayer.applyAudioSettings(sfxPlayer, settings.audio)
+	activeCameraPreset = settings.ui.cameraPreset
+	local allVisuals: { [string]: any } = { ["local"] = visuals }
+	for id, rv in remoteKartVisuals do
+		allVisuals[id] = rv
+	end
+	SettingsApplier.applyGraphicsToWorkspace(settings, allVisuals, KartPresentation)
+end)
+ClientSettingsState.loadFromServerAsync()
+
+if sessionStateRemote then
+	sessionStateRemote.OnClientEvent:Connect(function(payload: any)
+		if type(payload) ~= "table" then
+			return
+		end
+		local phase = if payload.phase == "RACING" then "RACING" else "MENU"
+		local cfg = payload.config
+		ClientSessionState.set({
+			phase = phase :: any,
+			config = cfg,
+			localP2Active = payload.localP2Active == true,
+		})
+		inputMapper.setSuppressed(phase ~= "RACING")
+		inputMapper.setLocalTwoPlayer(cfg ~= nil and cfg.playMode == "LOCAL_2P")
+		if phase ~= "RACING" then
+			SfxPlayer.stopAllLoops(sfxPlayer)
+			visuals.model.Parent = nil
+			for _, rv in remoteKartVisuals do
+				rv.model.Parent = nil
+			end
+			HudState.get().ready = false
+		else
+			visuals.model.Parent = Workspace
+			for _, rv in remoteKartVisuals do
+				rv.model.Parent = Workspace
+			end
+			localTotalLaps = if cfg and type(cfg.laps) == "number" then cfg.laps else KartTuning.race.DEFAULT_LAPS
+			profile =
+				KartTuning.buildProfile("medium", if cfg and cfg.difficulty then cfg.difficulty else "intermediate")
+			localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+			localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
+			table.clear(inputHistory)
+			pendingSnapshot = nil
+			lastAppliedServerTick = 0
+			lastReceivedServerTick = 0
+			ReconciliationSmoother.reset(reconciler)
+			prevPose = capturePose(localState)
+			currPose = capturePose(localState)
+		end
+	end)
+end
+
+if sessionCommandRemote then
+	sessionCommandRemote:FireServer("REQUEST_STATE")
+end
+inputMapper.setSuppressed(ClientSessionState.get().phase ~= "RACING")
+if ClientSessionState.get().phase ~= "RACING" then
+	visuals.model.Parent = nil
+end
+
 telemetryRemote.OnClientEvent:Connect(function(rawPayload: any, rawNotice: any)
 	if localOnlyMode then
 		return
@@ -508,8 +580,33 @@ local function signedYawAngleDeg(fromDir: Vector3, toDir: Vector3): number
 end
 
 RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Value + 1, function(dt: number)
+	local sessionState = ClientSessionState.get()
+	if sessionState.phase ~= "RACING" then
+		SfxPlayer.stopAllLoops(sfxPlayer)
+		return
+	end
 	local now = os.clock()
 	local solverInput, wantsReset, wantsGrantNitro, lookBack = sampleInput()
+	if
+		sessionState.config.playMode == "LOCAL_2P"
+		and localP2InputRemote
+		and (now - lastP2SentTime) >= INPUT_HEARTBEAT_SEC
+	then
+		local p2Input, p2Reset = inputMapper.samplePlayer2()
+		lastP2SentTime = now
+		localP2InputRemote:FireServer({
+			seq = inputSeq + 1,
+			accel = p2Input.accel,
+			brake = p2Input.brake,
+			steer = p2Input.steer,
+			drift = p2Input.drift,
+			nitro = p2Input.nitro,
+			fire = p2Input.fire,
+			lookBack = p2Input.lookBack,
+			reset = p2Reset,
+			grantNitro = false,
+		})
+	end
 
 	if wantsGrantNitro then
 		KartSolver.addNitro(localState, profile.nitro.bigContainer)
@@ -814,6 +911,12 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		if rv == nil then
 			rv = KartPresentation.create(rk.id, profile, "tux")
 			remoteKartVisuals[rk.id] = rv
+			local sNow = ClientSettingsState.get()
+			KartPresentation.applyVisualSettings(
+				rv,
+				sNow.graphics.shadows,
+				SettingsSchema.getParticleRateMultiplier(sNow.graphics.particles)
+			)
 		end
 		local ibuf = remoteInterpBuffers[rk.id]
 		local sampled = if ibuf then RemoteInterp.sample(ibuf, remoteRenderTime) else nil
@@ -835,9 +938,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			dt,
 			rSteer,
 			defaultSusp,
-			0,
-			"SKID_NONE",
-			false,
+			rk.skidTier or 0,
+			rk.skidState or "SKID_NONE",
+			rk.nitroActive == true,
 			rk.attachmentType,
 			rk.isSquashed,
 			rk.plungerFaceTicks,
@@ -859,8 +962,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			speedMps = rk.speed,
 			maxSpeedMps = profile.maxSpeed,
 			isOnGround = if rRs then rRs.isOnGround else true,
-			skidState = "SKID_NONE",
-			nitroActive = false,
+			skidState = rk.skidState or "SKID_NONE",
+			nitroActive = rk.nitroActive == true,
 			nitroEnergy = 0.0,
 			nitroMax = profile.nitro.max,
 			heldPowerup = 0,
@@ -1049,12 +1152,13 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		camera.CameraType = Enum.CameraType.Scriptable
 		camera.FieldOfView = camCfg.fovDeg
 
+		local camPresetScale = SettingsSchema.getCameraPresetScale(activeCameraPreset)
 		local ratio = math.max(tel.speedMps / profile.maxSpeed, camCfg.minRatio)
 		local wantedBack = math.max(
 			(camCfg.distanceBase + camCfg.distanceSpeedFactor * ratio) * math.sqrt(camCfg.smoothPosition),
 			camCfg.minDistance
-		)
-		local wantedUp = camCfg.heightBase + ratio / camCfg.heightSpeedDivisor
+		) * camPresetScale.distanceScale
+		local wantedUp = (camCfg.heightBase + ratio / camCfg.heightSpeedDivisor) + camPresetScale.heightOffset
 
 		local skidFactor = math.clamp(interpYaw, -1.0, 1.0)
 		local skidAngle = math.asin(skidFactor)
@@ -1099,12 +1203,27 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				camOffsetZ = -camCfg.reverseReturnBack
 			end
 			local rotOnly = smoothedCamRot :: CFrame
-			local camPos = renderPose.Position
-				+ rotOnly.RightVector * Units.metersToStuds(camOffsetX)
-				+ Vector3.new(0, Units.metersToStuds(camOffsetY), 0)
-				+ rotOnly.LookVector * Units.metersToStuds(camOffsetZ)
-			local lookTarget = renderPose.Position + Vector3.new(0, Units.metersToStuds(camCfg.lookTargetY), 0)
-			camera.CFrame = CFrame.lookAt(camPos, lookTarget)
+			local p2Visual = if sessionState.config.playMode == "LOCAL_2P" then remoteKartVisuals["local_p2"] else nil
+			if p2Visual ~= nil and p2Visual.model.PrimaryPart ~= nil then
+				local p1Pos = renderPose.Position
+				local p2Pos = p2Visual.model.PrimaryPart.Position
+				local midpoint = (p1Pos + p2Pos) * 0.5
+				local sep = (p1Pos - p2Pos).Magnitude
+				local extraPull = math.clamp(sep * 0.75, 0, 32)
+				local camPos = midpoint
+					+ rotOnly.RightVector * Units.metersToStuds(camOffsetX)
+					+ Vector3.new(0, Units.metersToStuds(camOffsetY) + extraPull * 0.35, 0)
+					+ rotOnly.LookVector * (Units.metersToStuds(camOffsetZ) - extraPull)
+				local lookTarget = midpoint + Vector3.new(0, Units.metersToStuds(camCfg.lookTargetY), 0)
+				camera.CFrame = CFrame.lookAt(camPos, lookTarget)
+			else
+				local camPos = renderPose.Position
+					+ rotOnly.RightVector * Units.metersToStuds(camOffsetX)
+					+ Vector3.new(0, Units.metersToStuds(camOffsetY), 0)
+					+ rotOnly.LookVector * Units.metersToStuds(camOffsetZ)
+				local lookTarget = renderPose.Position + Vector3.new(0, Units.metersToStuds(camCfg.lookTargetY), 0)
+				camera.CFrame = CFrame.lookAt(camPos, lookTarget)
+			end
 		end
 		cameraDirFlat = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
 		wasLookingBack = lookBack

@@ -1,0 +1,26 @@
+{
+  "sourceRevision": "18627",
+  "assets": {
+    "menu_race.png": "rbxassetid://128822035972659",
+    "menu_race_focus.png": "rbxassetid://86289472156967",
+    "menu_multi.png": "rbxassetid://71115678740296",
+    "menu_multi_focus.png": "rbxassetid://114872165443732",
+    "menu_online.png": "rbxassetid://130007552690178",
+    "menu_online_focus.png": "rbxassetid://76205869725132",
+    "main_options.png": "rbxassetid://90455345827377",
+    "main_about.png": "rbxassetid://120560886618909",
+    "options_video.png": "rbxassetid://116198066611940",
+    "options_audio.png": "rbxassetid://82651475883470",
+    "options_ui.png": "rbxassetid://95794656677552",
+    "options_input.png": "rbxassetid://138743238575769",
+    "back.png": "rbxassetid://106274513479988",
+    "difficulty_easy.png": "rbxassetid://124312037963754",
+    "difficulty_medium.png": "rbxassetid://107338938584696",
+    "difficulty_hard.png": "rbxassetid://122745299381821",
+    "difficulty_best.png": "rbxassetid://84428181383979",
+    "mode_normal.png": "rbxassetid://78129347904500",
+    "mode_tt.png": "rbxassetid://122583436777351",
+    "green_check.png": "rbxassetid://89540791355659",
+    "sshot-sandtrack.jpg": "rbxassetid://92416856454068"
+  }
+}

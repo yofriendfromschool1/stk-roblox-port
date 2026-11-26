@@ -573,7 +573,9 @@ function KartPresentation.update(
 	visuals.sparkRight.Color = tierColor
 	visuals.sparkLeft.Transparency = sparkTrans
 	visuals.sparkRight.Transparency = sparkTrans
-	local emitSkid = isAccum and skidTier >= 1
+	local particleMultAttr = visuals.model:GetAttribute("OpenKartParticleMult")
+	local particleEnabled = if typeof(particleMultAttr) == "number" then particleMultAttr > 0 else true
+	local emitSkid = isAccum and skidTier >= 1 and particleEnabled
 	visuals.skidEmitterL.Enabled = emitSkid
 	visuals.skidEmitterR.Enabled = emitSkid
 	if emitSkid then
@@ -583,8 +585,9 @@ function KartPresentation.update(
 	end
 
 	-- Nitro exhaust flame emitters + rear point light
-	visuals.nitroEmitterL.Enabled = nitroActive
-	visuals.nitroEmitterR.Enabled = nitroActive
+	local emitNitro = nitroActive and particleEnabled
+	visuals.nitroEmitterL.Enabled = emitNitro
+	visuals.nitroEmitterR.Enabled = emitNitro
 	visuals.nitroLight.Enabled = nitroActive
 
 	-- Active kart attachment visual mesh + expiring shield flash (attachment.cpp:L570-L668)
@@ -613,6 +616,33 @@ function KartPresentation.update(
 	end
 
 	SlipstreamVfx.update(visuals.slipstreamVfx, kartOriginCf, slipstreamVfxInput)
+end
+
+local function applyEmitterSettings(emitter: ParticleEmitter, particleMultiplier: number)
+	local baseRate = emitter:GetAttribute("OpenKartBaseRate")
+	if typeof(baseRate) ~= "number" then
+		baseRate = emitter.Rate
+		emitter:SetAttribute("OpenKartBaseRate", baseRate)
+	end
+	local mult = math.clamp(particleMultiplier, 0, 1)
+	emitter.Rate = (baseRate :: number) * mult
+	if mult <= 0 then
+		emitter.Enabled = false
+	end
+end
+
+function KartPresentation.applyVisualSettings(visual: VisualKart, shadowsEnabled: boolean, particleMultiplier: number)
+	visual.model:SetAttribute("OpenKartParticleMult", math.clamp(particleMultiplier, 0, 1))
+	for _, sub in ipairs(visual.staticParts) do
+		sub.part.CastShadow = shadowsEnabled
+	end
+	for _, wheel in ipairs(visual.wheels) do
+		wheel.part.CastShadow = shadowsEnabled
+	end
+	applyEmitterSettings(visual.skidEmitterL, particleMultiplier)
+	applyEmitterSettings(visual.skidEmitterR, particleMultiplier)
+	applyEmitterSettings(visual.nitroEmitterL, particleMultiplier)
+	applyEmitterSettings(visual.nitroEmitterR, particleMultiplier)
 end
 
 return table.freeze(KartPresentation)

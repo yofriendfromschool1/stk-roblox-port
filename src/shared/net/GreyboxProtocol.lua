@@ -24,6 +24,9 @@ export type RemoteKartState = {
 	plungerFaceTicks: number,
 	timedImpulseTicks: number?,
 	isSquashed: boolean,
+	skidState: Skidding.SkidStateName?,
+	skidTier: number?,
+	nitroActive: boolean?,
 	rank: number,
 	lap: number?,
 	nextCheckpoint: number?,
@@ -597,7 +600,14 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writeu8(buf, rOff + 48, clampU8(rk.attachmentType))
 			buffer.writei16(buf, rOff + 49, clampI16(rk.plungerFaceTicks))
 			buffer.writei16(buf, rOff + 51, clampI16(rk.timedImpulseTicks or 0))
-			local rkFlags = (if rk.isSquashed then 1 else 0) + (if rk.raceFinished then 2 else 0)
+			local skidTierBits = bit32.lshift(math.clamp(rk.skidTier or 0, 0, 3), 3)
+			local skidStateKey: Skidding.SkidStateName = rk.skidState or "SKID_NONE"
+			local skidStateId = SKID_STATE_TO_ID[skidStateKey] or 1
+			local rkFlags = (if rk.isSquashed then 1 else 0)
+				+ (if rk.raceFinished then 2 else 0)
+				+ (if rk.nitroActive then 4 else 0)
+				+ skidTierBits
+				+ bit32.lshift(skidStateId, 5)
 			buffer.writeu8(buf, rOff + 53, rkFlags)
 			buffer.writeu8(buf, rOff + 54, clampU8(rk.rank))
 			buffer.writei8(buf, rOff + 55, clampI8(rk.lap or -1))
@@ -1115,6 +1125,9 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				timedImpulseTicks = buffer.readi16(buf, rOff + 51),
 				isSquashed = bit32.btest(rkFlags, 1),
 				raceFinished = bit32.btest(rkFlags, 2),
+				nitroActive = bit32.btest(rkFlags, 4),
+				skidTier = bit32.band(bit32.rshift(rkFlags, 3), 3),
+				skidState = SKID_STATES[bit32.band(bit32.rshift(rkFlags, 5), 7)] or "SKID_NONE",
 				rank = buffer.readu8(buf, rOff + 54),
 				lap = buffer.readi8(buf, rOff + 55),
 				trackNodeIdx = buffer.readu16(buf, rOff + 56),

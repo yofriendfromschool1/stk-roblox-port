@@ -5,6 +5,36 @@
 -- Server-authoritative powerup weight interpolation and weighted random roll.
 
 local ItemTuning = require("../ItemTuning")
+local KartTuning = require("../KartTuning")
+
+local DIFFICULTY_WEIGHT_MULTS: { [string]: { [number]: number } } = {
+	easy = {
+		[ItemTuning.POWERUP_BUBBLEGUM] = 1.35,
+		[ItemTuning.POWERUP_CAKE] = 0.65,
+		[ItemTuning.POWERUP_BOWLING] = 0.80,
+		[ItemTuning.POWERUP_ZIPPER] = 1.35,
+		[ItemTuning.POWERUP_SWATTER] = 1.15,
+		[ItemTuning.POWERUP_RUBBERBALL] = 0.60,
+		[ItemTuning.POWERUP_PARACHUTE] = 0.50,
+	},
+	medium = {},
+	hard = {
+		[ItemTuning.POWERUP_BUBBLEGUM] = 0.85,
+		[ItemTuning.POWERUP_CAKE] = 1.25,
+		[ItemTuning.POWERUP_BOWLING] = 1.20,
+		[ItemTuning.POWERUP_PLUNGER] = 1.15,
+		[ItemTuning.POWERUP_RUBBERBALL] = 1.25,
+	},
+	best = {
+		[ItemTuning.POWERUP_BUBBLEGUM] = 0.70,
+		[ItemTuning.POWERUP_CAKE] = 1.45,
+		[ItemTuning.POWERUP_BOWLING] = 1.35,
+		[ItemTuning.POWERUP_ZIPPER] = 1.15,
+		[ItemTuning.POWERUP_SWITCH] = 0.70,
+		[ItemTuning.POWERUP_RUBBERBALL] = 1.45,
+		[ItemTuning.POWERUP_PARACHUTE] = 1.35,
+	},
+}
 
 local PowerupManager = {}
 PowerupManager.__index = PowerupManager
@@ -87,7 +117,8 @@ end
 function PowerupManager.new(
 	modeName: string?,
 	numKarts: number?,
-	allowedPowerups: { [number]: boolean }?
+	allowedPowerups: { [number]: boolean }?,
+	difficulty: string?
 ): PowerupManager
 	local resolvedMode = modeName or "NORMAL_RACE"
 	local modeInfo = (ItemTuning.modes :: any)[resolvedMode] or ItemTuning.modes.NORMAL_RACE
@@ -131,6 +162,22 @@ function PowerupManager.new(
 				if allowedPowerups[j] ~= true then
 					sec.single[j] = 0
 					sec.multi[j] = 0
+				end
+			end
+		end
+	end
+
+	if difficulty ~= nil then
+		local normDiff = KartTuning.normalizeDifficulty(difficulty)
+		local diffMults = DIFFICULTY_WEIGHT_MULTS[normDiff]
+		if diffMults ~= nil then
+			for _, sec in sections do
+				for j = 1, ItemTuning.POWERUP_LAST do
+					local m = diffMults[j]
+					if m ~= nil then
+						sec.single[j] = roundHalfUp(sec.single[j] * m)
+						sec.multi[j] = roundHalfUp(sec.multi[j] * m)
+					end
 				end
 			end
 		end

@@ -914,6 +914,16 @@ class TestStk2Rbx(unittest.TestCase):
             report = export_track_glbs(track_dir, Path(tmp), include_aux=True)
             verify_canonical_transforms(report, chunks)
 
+    def test_catalog_emit_only_playable_sandtrack_and_tux(self) -> None:
+        from catalog_emit import build_catalog
+
+        repo_root = Path(__file__).resolve().parents[2]
+        catalog = build_catalog(repo_root)
+        self.assertEqual([t["id"] for t in catalog["tracks"]], ["sandtrack"])
+        self.assertEqual([k["id"] for k in catalog["karts"]], ["tux"])
+        self.assertTrue(catalog["tracks"][0]["playable"])
+        self.assertTrue(catalog["karts"][0]["playable"])
+
 
 if __name__ == "__main__":
     unittest.main()

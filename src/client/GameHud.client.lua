@@ -6,6 +6,7 @@
 -- Faithful mode-conditional STK RaceGUI port bound strictly to interpolated render state (HudState).
 -- Blocked elements/sub-elements per docs/hud-spec.md remain explicitly inactive.
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -14,6 +15,8 @@ local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ClientSessionState = require("./ClientSessionState")
+local ClientSettingsState = require("./ClientSettingsState")
 local HudState = require("./HudState")
 local ItemTuning = require(Shared.ItemTuning)
 local RaceHudMath = require(Shared.hud.RaceHudMath)
@@ -165,6 +168,21 @@ gui.IgnoreGuiInset = true
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = playerGui
 
+-- Global GuiService:GetGuiInset() safe-area container so no HUD element sits under the Roblox topbar.
+local hudSafeRoot = Instance.new("Frame")
+hudSafeRoot.Name = "HudSafeRoot"
+hudSafeRoot.BackgroundTransparency = 1
+hudSafeRoot.BorderSizePixel = 0
+hudSafeRoot.Parent = gui
+
+local function updateSafeRootBounds(): (number, number)
+	local insetTL, insetBR = GuiService:GetGuiInset()
+	hudSafeRoot.Position = UDim2.fromOffset(insetTL.X, insetTL.Y)
+	hudSafeRoot.Size = UDim2.new(1, -(insetTL.X + insetBR.X), 1, -(insetTL.Y + insetBR.Y))
+	return insetTL.X + insetBR.X, insetTL.Y + insetBR.Y
+end
+updateSafeRootBounds()
+
 -- RaceGUIBase::drawPlungerInFace overlay (race_gui_base.cpp:L1263-L1335)
 local plungerFaceOverlay = Instance.new("ImageLabel")
 plungerFaceOverlay.Name = "PlungerInFaceOverlay"
@@ -183,7 +201,7 @@ local speedRoot = Instance.new("Frame")
 speedRoot.Name = "Speedometer"
 speedRoot.BackgroundTransparency = 1
 speedRoot.BorderSizePixel = 0
-speedRoot.Parent = gui
+speedRoot.Parent = hudSafeRoot
 
 local speedBack = Instance.new("ImageLabel")
 speedBack.Name = "Background"
@@ -225,14 +243,14 @@ rankLabel.TextStrokeTransparency = 0.0
 rankLabel.TextScaled = false
 rankLabel.Text = "1"
 rankLabel.ZIndex = 4
-rankLabel.Parent = gui
+rankLabel.Parent = hudSafeRoot
 
 -- Bindable Element #3: Nitro Energy Meter (gauge_empty.png + 5-segment gauge_full[_bright].png, race_gui.cpp:L795-L886)
 local energyRoot = Instance.new("Frame")
 energyRoot.Name = "EnergyMeter"
 energyRoot.BackgroundTransparency = 1
 energyRoot.BorderSizePixel = 0
-energyRoot.Parent = gui
+energyRoot.Parent = hudSafeRoot
 
 local energyBack = Instance.new("ImageLabel")
 energyBack.Name = "Background"
@@ -268,7 +286,7 @@ timerLabel.TextStrokeTransparency = 0.0
 timerLabel.TextScaled = true
 timerLabel.Text = "00:00.000"
 timerLabel.ZIndex = 4
-timerLabel.Parent = gui
+timerLabel.Parent = hudSafeRoot
 
 -- Lap Counter (top right under timer, race_gui.cpp:L1287-L1292)
 local lapLabel = Instance.new("TextLabel")
@@ -285,7 +303,7 @@ lapLabel.TextScaled = true
 lapLabel.Text = "Lap 1 / 5"
 lapLabel.Visible = false
 lapLabel.ZIndex = 4
-lapLabel.Parent = gui
+lapLabel.Parent = hudSafeRoot
 
 -- Ready/Set/Go + Start Boost / Lap Toast Banner (race_gui_base.cpp:L734-L779, linear_world.cpp:L414-L461)
 local countdownLabel = Instance.new("TextLabel")
@@ -300,7 +318,7 @@ countdownLabel.TextScaled = true
 countdownLabel.Text = ""
 countdownLabel.Visible = false
 countdownLabel.ZIndex = 20
-countdownLabel.Parent = gui
+countdownLabel.Parent = hudSafeRoot
 
 local subBannerLabel = Instance.new("TextLabel")
 subBannerLabel.Name = "RaceSubBanner"
@@ -314,7 +332,7 @@ subBannerLabel.TextScaled = true
 subBannerLabel.Text = ""
 subBannerLabel.Visible = false
 subBannerLabel.ZIndex = 20
-subBannerLabel.Parent = gui
+subBannerLabel.Parent = hudSafeRoot
 
 -- Finish Results Card
 local finishCard = Instance.new("Frame")
@@ -327,7 +345,7 @@ finishCard.BackgroundTransparency = 0.2
 finishCard.BorderSizePixel = 0
 finishCard.Visible = false
 finishCard.ZIndex = 25
-finishCard.Parent = gui
+finishCard.Parent = hudSafeRoot
 
 local finishCorner = Instance.new("UICorner")
 finishCorner.CornerRadius = UDim.new(0, 12)
@@ -377,12 +395,79 @@ finishStandingsLabel.Text = ""
 finishStandingsLabel.ZIndex = 26
 finishStandingsLabel.Parent = finishCard
 
+local function sendReturnToMenu()
+	local remotes = ReplicatedStorage:FindFirstChild("OpenKartRemotes")
+	local cmd = if remotes then remotes:FindFirstChild("SessionCommand") else nil
+	if cmd and cmd:IsA("RemoteEvent") then
+		cmd:FireServer("RETURN_TO_MENU")
+	end
+end
+
+local finishMenuBtn = Instance.new("TextButton")
+finishMenuBtn.Name = "FinishBackToMenuBtn"
+finishMenuBtn.Size = UDim2.fromOffset(180, 32)
+finishMenuBtn.AnchorPoint = Vector2.new(0.5, 1)
+finishMenuBtn.Position = UDim2.new(0.5, 0, 1, -10)
+finishMenuBtn.BackgroundColor3 = Color3.fromRGB(36, 98, 178)
+finishMenuBtn.BorderSizePixel = 0
+finishMenuBtn.Font = Enum.Font.GothamBold
+finishMenuBtn.TextSize = 14
+finishMenuBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+finishMenuBtn.Text = "Back to Menu"
+finishMenuBtn.ZIndex = 27
+finishMenuBtn.Parent = finishCard
+
+local finishMenuBtnCorner = Instance.new("UICorner")
+finishMenuBtnCorner.CornerRadius = UDim.new(0, 6)
+finishMenuBtnCorner.Parent = finishMenuBtn
+finishMenuBtn.Activated:Connect(sendReturnToMenu)
+
+local raceMenuBtn = Instance.new("TextButton")
+raceMenuBtn.Name = "RaceBackToMenuBtn"
+raceMenuBtn.Position = UDim2.fromOffset(8, 8)
+raceMenuBtn.Size = UDim2.fromOffset(92, 28)
+raceMenuBtn.BackgroundColor3 = Color3.fromRGB(20, 30, 52)
+raceMenuBtn.BackgroundTransparency = 0.2
+raceMenuBtn.BorderSizePixel = 0
+raceMenuBtn.Font = Enum.Font.GothamBold
+raceMenuBtn.TextSize = 13
+raceMenuBtn.TextColor3 = Color3.fromRGB(240, 244, 252)
+raceMenuBtn.Text = "Menu"
+raceMenuBtn.ZIndex = 12
+raceMenuBtn.Parent = hudSafeRoot
+
+local raceMenuBtnCorner = Instance.new("UICorner")
+raceMenuBtnCorner.CornerRadius = UDim.new(0, 6)
+raceMenuBtnCorner.Parent = raceMenuBtn
+raceMenuBtn.Activated:Connect(sendReturnToMenu)
+
+local fpsLabel = Instance.new("TextLabel")
+fpsLabel.Name = "FpsCounter"
+fpsLabel.BackgroundColor3 = Color3.fromRGB(16, 22, 36)
+fpsLabel.BackgroundTransparency = 0.35
+fpsLabel.BorderSizePixel = 0
+fpsLabel.Position = UDim2.fromOffset(108, 8)
+fpsLabel.Size = UDim2.fromOffset(78, 28)
+fpsLabel.Font = Enum.Font.Code
+fpsLabel.TextSize = 13
+fpsLabel.TextColor3 = Color3.fromRGB(145, 240, 170)
+fpsLabel.Text = "60 FPS"
+fpsLabel.ZIndex = 12
+fpsLabel.Parent = hudSafeRoot
+
+local fpsCorner = Instance.new("UICorner")
+fpsCorner.CornerRadius = UDim.new(0, 6)
+fpsCorner.Parent = fpsLabel
+
+local fpsSampleAccum = 0.0
+local fpsSampleFrames = 0
+
 -- Bindable Element #5: Top-Left Player Icon List (race_gui_base.cpp:L785-L1096)
 local playerIconRoot = Instance.new("Frame")
 playerIconRoot.Name = "PlayerIconsList"
 playerIconRoot.BackgroundTransparency = 1
 playerIconRoot.BorderSizePixel = 0
-playerIconRoot.Parent = gui
+playerIconRoot.Parent = hudSafeRoot
 
 type PlayerIconRow = {
 	rowFrame: Frame,
@@ -445,7 +530,7 @@ powerupRoot.BorderSizePixel = 0
 powerupRoot.Size = UDim2.fromScale(1, 1)
 powerupRoot.Visible = false
 powerupRoot.ZIndex = 4
-powerupRoot.Parent = gui
+powerupRoot.Parent = hudSafeRoot
 
 type PowerupSlotWidget = {
 	frame: Frame,
@@ -523,7 +608,7 @@ minimapRoot.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
 minimapRoot.BackgroundTransparency = 0.55
 minimapRoot.BorderSizePixel = 0
 minimapRoot.ClipsDescendants = false
-minimapRoot.Parent = gui
+minimapRoot.Parent = hudSafeRoot
 
 local minimapBorder = Instance.new("UIStroke")
 minimapBorder.Color = Color3.fromRGB(225, 232, 245)
@@ -700,7 +785,7 @@ footer.TextXAlignment = Enum.TextXAlignment.Left
 footer.TextColor3 = Color3.fromRGB(220, 226, 236)
 footer.TextStrokeTransparency = 0.4
 footer.Text = "OpenKart (unofficial SuperTuxKart 1.5 port) | F3: Telemetry"
-footer.Parent = gui
+footer.Parent = hudSafeRoot
 
 -- Explicitly inactive blocked RaceGUI / RaceGUIBase elements per docs/hud-spec.md & docs/port-map.md
 local blockedSlots = {
@@ -801,6 +886,15 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 	local isTouchMode = getIsTouchLayout()
 	lastTouchLayout = isTouchMode
 	cachedMinimapLayout = RaceHudMath.computeMinimapLayout(vw, vh, 0, isTouchMode)
+	if ClientSettingsState.get().ui.minimapDisplay == 2 then
+		local baseW = cachedMinimapLayout.width
+		local baseH = cachedMinimapLayout.height
+		local newW = math.floor(baseW * 1.35)
+		local newH = math.floor(baseH * 1.35)
+		cachedMinimapLayout.width = newW
+		cachedMinimapLayout.height = newH
+		cachedMinimapLayout.y = math.max(8, cachedMinimapLayout.y - (newH - baseH))
+	end
 	minimapRoot.Position = UDim2.fromOffset(cachedMinimapLayout.x, cachedMinimapLayout.y)
 	minimapRoot.Size = UDim2.fromOffset(cachedMinimapLayout.width, cachedMinimapLayout.height)
 	mmKartMarker.Size = UDim2.fromOffset(cachedMinimapLayout.playerIconSize, cachedMinimapLayout.playerIconSize)
@@ -809,7 +903,7 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 		then (cachedMinimapLayout.height + cachedMinimapLayout.mapBottom)
 		else 0
 	local topRect = RaceHudMath.computePlayerIconRect(vw, vh, totalKarts, bottomMargin, 1, true)
-	playerIconRoot.Position = UDim2.fromOffset(topRect.x, topRect.y)
+	playerIconRoot.Position = UDim2.fromOffset(topRect.x, math.max(topRect.y, 44))
 	playerIconRoot.Size = UDim2.fromOffset(topRect.width, math.max(topRect.height, totalKarts * (topRect.height + 2)))
 
 	-- Project canonical driveline quad centers through RaceHudMath.projectToMinimap
@@ -868,7 +962,26 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 end
 
 RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value + 2, function(dt: number)
+	local inRacing = ClientSessionState.get().phase == "RACING"
+	if gui.Enabled ~= inRacing then
+		gui.Enabled = inRacing
+	end
+	if not inRacing then
+		return
+	end
 	debug.profilebegin("OpenKart_GameHud")
+	local userSettings = ClientSettingsState.get()
+	fpsLabel.Visible = userSettings.ui.showFps
+	if userSettings.ui.showFps and dt > 0 then
+		fpsSampleAccum += dt
+		fpsSampleFrames += 1
+		if fpsSampleAccum >= 0.25 then
+			local fps = math.floor(fpsSampleFrames / fpsSampleAccum + 0.5)
+			fpsLabel.Text = string.format("%d FPS", fps)
+			fpsSampleAccum = 0.0
+			fpsSampleFrames = 0
+		end
+	end
 	local renderHud = HudState.get()
 	local standingsInput: { Standings.StandingsEntry } = if renderHud.standingsEntries ~= nil
 			and #renderHud.standingsEntries > 0
@@ -889,14 +1002,16 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		numKarts = totalKarts,
 		hasNavMesh = true,
 	})
+	vis.showMiniMap = vis.showMiniMap and (userSettings.ui.minimapDisplay ~= 0)
 
 	local currentTouchLayout = getIsTouchLayout()
 	local camera = Workspace.CurrentCamera
 	if camera then
+		local padX, padY = updateSafeRootBounds()
 		local vp = camera.ViewportSize
-		local vw = math.floor(vp.X)
-		local vh = math.floor(vp.Y)
-		local mmFlag = if vis.showMiniMap then 1 else 0
+		local vw = math.max(1, math.floor(vp.X - padX))
+		local vh = math.max(1, math.floor(vp.Y - padY))
+		local mmFlag = if vis.showMiniMap then userSettings.ui.minimapDisplay else 0
 		if
 			vw > 0
 			and vh > 0

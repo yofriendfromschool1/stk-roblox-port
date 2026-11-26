@@ -64,8 +64,39 @@ export type LiveOptions = {
 	onToggleLocalMode: (() -> ())?,
 }
 
+export type KeyboardBindings = {
+	accelerate: string,
+	brake: string,
+	steerLeft: string,
+	steerRight: string,
+	drift: string,
+	fire: string,
+	nitro: string,
+	lookBack: string,
+	rescue: string,
+}
+
+export type GamepadBindings = {
+	accelerate: string,
+	brake: string,
+	drift: string,
+	fire: string,
+	nitro: string,
+	lookBack: string,
+	rescue: string,
+}
+
+export type InputBindings = {
+	keyboard: KeyboardBindings,
+	gamepad: GamepadBindings,
+}
+
 export type LiveMapper = {
 	sample: () -> (KartInput, boolean, boolean, boolean),
+	samplePlayer2: () -> (KartInput, boolean),
+	setBindings: (bindings: InputBindings) -> (),
+	setSuppressed: (suppressed: boolean) -> (),
+	setLocalTwoPlayer: (enabled: boolean) -> (),
 	destroy: () -> (),
 }
 
@@ -125,23 +156,34 @@ end
 function InputMapper.fromKeyboard(
 	keysDown: { [string]: boolean },
 	resetPulse: boolean?,
-	grantNitroPulse: boolean?
+	grantNitroPulse: boolean?,
+	bindings: KeyboardBindings?
 ): MappedInput
-	local accel = if keysDown.W or keysDown.Up then 1.0 else 0.0
-	local brake = (keysDown.S == true) or (keysDown.Down == true)
+	local accelKey = if bindings then bindings.accelerate else "W"
+	local brakeKey = if bindings then bindings.brake else "S"
+	local leftKey = if bindings then bindings.steerLeft else "A"
+	local rightKey = if bindings then bindings.steerRight else "D"
+	local driftKey = if bindings then bindings.drift else "V"
+	local nitroKey = if bindings then bindings.nitro else "N"
+	local fireKey = if bindings then bindings.fire else "Space"
+	local lookBackKey = if bindings then bindings.lookBack else "B"
+
+	local accel = if keysDown[accelKey] or (not bindings and keysDown.Up) then 1.0 else 0.0
+	local brake = (keysDown[brakeKey] == true) or (not bindings and keysDown.Down == true)
 
 	local steer = 0.0
-	if keysDown.A or keysDown.Left then
+	if keysDown[leftKey] or (not bindings and keysDown.Left) then
 		steer -= 1.0
 	end
-	if keysDown.D or keysDown.Right then
+	if keysDown[rightKey] or (not bindings and keysDown.Right) then
 		steer += 1.0
 	end
 
-	local drift = (keysDown.V == true) or (keysDown.LeftShift == true) or (keysDown.RightShift == true)
-	local nitro = (keysDown.N == true)
-	local fire = (keysDown.Space == true)
-	local lookBack = (keysDown.B == true)
+	local drift = (keysDown[driftKey] == true)
+		or (not bindings and ((keysDown.LeftShift == true) or (keysDown.RightShift == true)))
+	local nitro = (keysDown[nitroKey] == true)
+	local fire = (keysDown[fireKey] == true)
+	local lookBack = (keysDown[lookBackKey] == true)
 
 	return {
 		kartInput = {
@@ -165,7 +207,8 @@ end
 function InputMapper.fromGamepad(
 	axes: GamepadAxes,
 	buttonsDown: { [string]: boolean },
-	resetPulse: boolean?
+	resetPulse: boolean?,
+	bindings: GamepadBindings?
 ): MappedInput
 	local steer = InputMapper.applyStickDeadzone(axes.thumbstick1X, InputMapper.GAMEPAD_DEADZONE)
 	if buttonsDown.DPadLeft then
@@ -177,15 +220,23 @@ function InputMapper.fromGamepad(
 	steer = math.clamp(steer, -1.0, 1.0)
 
 	local triggerAccel = if axes.triggerR2 > 0.05 then math.clamp(axes.triggerR2, 0.0, 1.0) else 0.0
-	local buttonAccel = if buttonsDown.ButtonY then 1.0 else 0.0
+	local accelBtn = if bindings then bindings.accelerate else "ButtonY"
+	local buttonAccel = if buttonsDown[accelBtn] then 1.0 else 0.0
 	local accel = math.max(triggerAccel, buttonAccel)
 
-	local brake = (axes.triggerL2 >= InputMapper.TRIGGER_THRESHOLD) or (buttonsDown.ButtonX == true)
-	local drift = (buttonsDown.ButtonR1 == true)
-	local nitro = (buttonsDown.ButtonL1 == true)
-	local fire = (buttonsDown.ButtonB == true)
-	local lookBack = (buttonsDown.ButtonA == true) or (buttonsDown.ButtonR3 == true)
-	local reset = (resetPulse == true) or (buttonsDown.ButtonSelect == true) or (buttonsDown.DPadUp == true)
+	local brakeBtn = if bindings then bindings.brake else "ButtonX"
+	local driftBtn = if bindings then bindings.drift else "ButtonR1"
+	local nitroBtn = if bindings then bindings.nitro else "ButtonL1"
+	local fireBtn = if bindings then bindings.fire else "ButtonB"
+	local lookBackBtn = if bindings then bindings.lookBack else "ButtonA"
+	local rescueBtn = if bindings then bindings.rescue else "DPadUp"
+
+	local brake = (axes.triggerL2 >= InputMapper.TRIGGER_THRESHOLD) or (buttonsDown[brakeBtn] == true)
+	local drift = (buttonsDown[driftBtn] == true)
+	local nitro = (buttonsDown[nitroBtn] == true)
+	local fire = (buttonsDown[fireBtn] == true)
+	local lookBack = (buttonsDown[lookBackBtn] == true) or (not bindings and buttonsDown.ButtonR3 == true)
+	local reset = (resetPulse == true) or (buttonsDown.ButtonSelect == true) or (buttonsDown[rescueBtn] == true)
 
 	return {
 		kartInput = {
@@ -382,12 +433,67 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 		end
 	end)
 
-	local beganConn = UserInputService.InputBegan:Connect(function(inputObj: InputObject, gameProcessed: boolean)
+	local currentBindings: InputBindings = {
+		keyboard = {
+			accelerate = "W",
+			brake = "S",
+			steerLeft = "A",
+			steerRight = "D",
+			drift = "Space",
+			fire = "F",
+			nitro = "LeftShift",
+			lookBack = "B",
+			rescue = "R",
+		},
+		gamepad = {
+			accelerate = "ButtonR2",
+			brake = "ButtonL2",
+			drift = "ButtonR1",
+			fire = "ButtonA",
+			nitro = "ButtonB",
+			lookBack = "ButtonX",
+			rescue = "ButtonY",
+		},
+	}
+	local suppressed = false
+	local localTwoPlayer = false
+
+	local function resolveKeyCode(name: string): Enum.KeyCode?
+		local ok, kc = pcall(function()
+			return (Enum.KeyCode :: any)[name]
+		end)
+		if ok and typeof(kc) == "EnumItem" then
+			return kc :: Enum.KeyCode
+		end
+		return nil
+	end
+
+	local function setBindings(bindings: InputBindings)
+		currentBindings = bindings
+	end
+
+	local function setSuppressed(value: boolean)
+		suppressed = value == true
+	end
+
+	local function setLocalTwoPlayer(enabled: boolean)
+		localTwoPlayer = enabled == true
+	end
+
+	local function beganConnHandler(inputObj: InputObject, gameProcessed: boolean)
 		if isGamepadInputType(inputObj.UserInputType) then
 			GuiService.SelectedObject = nil
 			lastActiveSlot = inputObj.UserInputType
 			setGamepadButton(inputObj.UserInputType, inputObj.KeyCode, true)
-			if inputObj.KeyCode == Enum.KeyCode.ButtonSelect or inputObj.KeyCode == Enum.KeyCode.DPadUp then
+			local rescueBtn = resolveKeyCode(currentBindings.gamepad.rescue)
+			if
+				not suppressed
+				and (
+					inputObj.KeyCode == Enum.KeyCode.ButtonSelect
+					or inputObj.KeyCode == Enum.KeyCode.DPadUp
+					or (rescueBtn ~= nil and inputObj.KeyCode == rescueBtn)
+				)
+			then
 				resetPulse = true
 			end
 			return
@@ -395,20 +501,26 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 		if gameProcessed then
 			return
 		end
-		if inputObj.KeyCode == Enum.KeyCode.R or inputObj.KeyCode == Enum.KeyCode.Backspace then
+		local rescueKey = resolveKeyCode(currentBindings.keyboard.rescue)
+		if
+			not suppressed
+			and ((rescueKey ~= nil and inputObj.KeyCode == rescueKey) or inputObj.KeyCode == Enum.KeyCode.Backspace)
+		then
 			resetPulse = true
 		elseif inputObj.KeyCode == Enum.KeyCode.F3 then
 			if options.onToggleDebugHud then
 				options.onToggleDebugHud()
 			end
-		elseif options.isStudio and inputObj.KeyCode == Enum.KeyCode.G then
+		elseif not suppressed and options.isStudio and inputObj.KeyCode == Enum.KeyCode.G then
 			grantNitroPulse = true
 		elseif options.isStudio and inputObj.KeyCode == Enum.KeyCode.F8 then
 			if options.onToggleLocalMode then
 				options.onToggleLocalMode()
 			end
 		end
-	end)
+	end
+
+	local beganConn = UserInputService.InputBegan:Connect(beganConnHandler)
 
 	local endedConn = UserInputService.InputEnded:Connect(function(inputObj: InputObject)
 		if isGamepadInputType(inputObj.UserInputType) then
@@ -417,29 +529,49 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 	end)
 
 	local function sample(): (KartInput, boolean, boolean, boolean)
-		local keysDown: { [string]: boolean } = {
-			W = UserInputService:IsKeyDown(Enum.KeyCode.W),
-			Up = UserInputService:IsKeyDown(Enum.KeyCode.Up),
-			S = UserInputService:IsKeyDown(Enum.KeyCode.S),
-			Down = UserInputService:IsKeyDown(Enum.KeyCode.Down),
-			A = UserInputService:IsKeyDown(Enum.KeyCode.A),
-			Left = UserInputService:IsKeyDown(Enum.KeyCode.Left),
-			D = UserInputService:IsKeyDown(Enum.KeyCode.D),
-			Right = UserInputService:IsKeyDown(Enum.KeyCode.Right),
-			V = UserInputService:IsKeyDown(Enum.KeyCode.V),
-			LeftShift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift),
-			RightShift = UserInputService:IsKeyDown(Enum.KeyCode.RightShift),
-			N = UserInputService:IsKeyDown(Enum.KeyCode.N),
-			Space = UserInputService:IsKeyDown(Enum.KeyCode.Space),
-			B = UserInputService:IsKeyDown(Enum.KeyCode.B),
-		}
+		if suppressed then
+			resetPulse = false
+			grantNitroPulse = false
+			return {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				nitro = false,
+				fire = false,
+				lookBack = false,
+			},
+				false,
+				false,
+				false
+		end
 
-		local kbMapped = InputMapper.fromKeyboard(keysDown, resetPulse, options.isStudio and grantNitroPulse)
+		local kb = currentBindings.keyboard
+		local keysDown: { [string]: boolean } = {}
+		local keyNames = {
+			kb.accelerate,
+			kb.brake,
+			kb.steerLeft,
+			kb.steerRight,
+			kb.drift,
+			kb.fire,
+			kb.nitro,
+			kb.lookBack,
+			kb.rescue,
+		}
+		for _, keyName in ipairs(keyNames) do
+			local kc = resolveKeyCode(keyName)
+			if kc ~= nil then
+				keysDown[keyName] = UserInputService:IsKeyDown(kc)
+			end
+		end
+
+		local kbMapped = InputMapper.fromKeyboard(keysDown, resetPulse, options.isStudio and grantNitroPulse, kb)
 		resetPulse = false
 		grantNitroPulse = false
 
 		local gpMapped = EMPTY_MAPPED
-		if #connectedGamepads > 0 then
+		if not localTwoPlayer and #connectedGamepads > 0 then
 			local pads: { GamepadSelect.PadEntry<Enum.UserInputType> } = {}
 			local axesBySlot: { [Enum.UserInputType]: GamepadAxes } = {}
 			for _, slot in connectedGamepads do
@@ -455,8 +587,12 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 
 			local selectedSlot = activeSlot or lastActiveSlot
 			if selectedSlot ~= nil and axesBySlot[selectedSlot] ~= nil then
-				gpMapped =
-					InputMapper.fromGamepad(axesBySlot[selectedSlot], gamepadButtonsBySlot[selectedSlot] or {}, false)
+				gpMapped = InputMapper.fromGamepad(
+					axesBySlot[selectedSlot],
+					gamepadButtonsBySlot[selectedSlot] or {},
+					false,
+					currentBindings.gamepad
+				)
 			end
 		end
 
@@ -472,6 +608,40 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 		return combined.kartInput, combined.reset, combined.grantNitro, combined.lookBack
 	end
 
+	local function samplePlayer2(): (KartInput, boolean)
+		if suppressed or not localTwoPlayer or #connectedGamepads == 0 then
+			return {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				nitro = false,
+				fire = false,
+				lookBack = false,
+			},
+				false
+		end
+		-- In Local 2P, P1 uses keyboard (or Gamepad1 if >=2 pads) and P2 uses the dedicated second gamepad (or first gamepad if only 1 connected).
+		local p2Slot: Enum.UserInputType? = if #connectedGamepads >= 2
+			then connectedGamepads[2]
+			else connectedGamepads[1]
+		if p2Slot == nil then
+			return {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				nitro = false,
+				fire = false,
+				lookBack = false,
+			},
+				false
+		end
+		local axes = readGamepadAxes(UserInputService, p2Slot)
+		local mapped = InputMapper.fromGamepad(axes, gamepadButtonsBySlot[p2Slot] or {}, false, currentBindings.gamepad)
+		return mapped.kartInput, mapped.reset
+	end
+
 	local function destroy()
 		connectedConn:Disconnect()
 		disconnectedConn:Disconnect()
@@ -481,6 +651,10 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 
 	return {
 		sample = sample,
+		samplePlayer2 = samplePlayer2,
+		setBindings = setBindings,
+		setSuppressed = setSuppressed,
+		setLocalTwoPlayer = setLocalTwoPlayer,
 		destroy = destroy,
 	}
 end

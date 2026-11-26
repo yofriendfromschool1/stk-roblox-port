@@ -22,11 +22,14 @@ local ItemWorld = require(Shared.items.ItemWorld)
 local KartAssetHydrator = require("./KartAssetHydrator")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
+local Math3D = require(Shared.sim.Math3D)
+local MenuFlow = require(Shared.menu.MenuFlow)
 local PowerupManager = require(Shared.items.PowerupManager)
 local RaceState = require(Shared.sim.RaceState)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SandtrackCollisionData = require(Shared.track.SandtrackCollisionData)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
+local SettingsStore = require("./SettingsStore")
 local Standings = require(Shared.race.Standings)
 local TestDummyKart = require(Shared.race.TestDummyKart)
 local TrackRegistry = require(Shared.track.TrackRegistry)
@@ -471,8 +474,31 @@ function GreyboxKartServer.start()
 	telemetryRemote.Name = GreyboxProtocol.TELEMETRY_REMOTE
 	telemetryRemote.Parent = remotesFolder
 
-	local profile = KartTuning.buildProfile("medium", "best")
-	local raceClock = RaceState.create(KartTuning.race.DEFAULT_LAPS)
+	SettingsStore.bindRemotes(remotesFolder)
+
+	local sessionCommandRemote = Instance.new("RemoteEvent")
+	sessionCommandRemote.Name = "SessionCommand"
+	sessionCommandRemote.Parent = remotesFolder
+
+	local sessionStateRemote = Instance.new("RemoteEvent")
+	sessionStateRemote.Name = "SessionState"
+	sessionStateRemote.Parent = remotesFolder
+
+	local localP2InputRemote = Instance.new("RemoteEvent")
+	localP2InputRemote.Name = "LocalP2Input"
+	localP2InputRemote.Parent = remotesFolder
+
+	local DIFFICULTY_INDEX: { [string]: number } = {
+		novice = 0,
+		intermediate = 1,
+		expert = 2,
+		best = 3,
+	}
+
+	local sessionPhase: "MENU" | "RACING" = "MENU"
+	local sessionConfig: MenuFlow.SessionConfig = MenuFlow.sanitizeSessionConfig(nil)
+	local profile = KartTuning.buildProfile("medium", sessionConfig.difficulty)
+	local raceClock = RaceState.create(sessionConfig.laps)
 	local function initRaceProgress(
 		state: KartSolver.KartState,
 		spawnPos: { x: number, y: number, z: number },
@@ -487,24 +513,133 @@ function GreyboxKartServer.start()
 		state.race.finishTick = p.finishTick
 	end
 
-	local itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
+	local itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, sessionConfig.raceType)
 	local flyableWorld = Flyable.createWorld()
+	local dummyEnabled = true
 	local dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
 	initRaceProgress(dummyState, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
 	local dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
-	local powerupMgr = PowerupManager.new("NORMAL_RACE", 2, ItemTuning.IMPLEMENTED_POWERUPS)
+	local extraAIs: { { id: number, sid: string, state: KartSolver.KartState, ai: AIController.AIState } } = {}
+	local localP2State: KartSolver.KartState? = nil
+	local localP2AI: AIController.AIState? = nil
+	local localP2Owner: Player? = nil
+	local localP2Input: KartSolver.KartInput = {
+		accel = 0,
+		brake = false,
+		steer = 0,
+		drift = false,
+		nitro = false,
+		fire = false,
+		lookBack = false,
+	}
+	local LOCAL_P2_KART_ID = -2
+	local LOCAL_P2_STRING_ID = "local_p2"
+	local powerupMgr = PowerupManager.new(
+		sessionConfig.raceType,
+		DIFFICULTY_INDEX[sessionConfig.difficulty] or 1,
+		ItemTuning.IMPLEMENTED_POWERUPS
+	)
 	local rollCounter = 0
 	local entries: { [Player]: PlayerKartEntry } = {}
 	local totalDroppedDebt = 0.0
 	local snapshotAccum = 0.0
 
-	local function resetFullRace()
-		raceClock = RaceState.create(KartTuning.race.DEFAULT_LAPS)
-		itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
+	local function gridOffsetPos(
+		basePos: { x: number, y: number, z: number },
+		yawRad: number,
+		lateralOffset: number,
+		backOffset: number
+	): { x: number, y: number, z: number }
+		local fwdX = math.sin(yawRad)
+		local fwdZ = math.cos(yawRad)
+		local rightX = math.cos(yawRad)
+		local rightZ = -math.sin(yawRad)
+		return {
+			x = basePos.x + rightX * lateralOffset - fwdX * backOffset,
+			y = basePos.y,
+			z = basePos.z + rightZ * lateralOffset - fwdZ * backOffset,
+		}
+	end
+
+	local function broadcastSessionState(targetPlayer: Player?)
+		local payload = {
+			phase = sessionPhase,
+			config = sessionConfig,
+			localP2Active = localP2State ~= nil,
+		}
+		if targetPlayer ~= nil then
+			sessionStateRemote:FireClient(targetPlayer, payload)
+		else
+			sessionStateRemote:FireAllClients(payload)
+		end
+	end
+
+	local function applySessionStart(rawConfig: any, requestingPlayer: Player?)
+		sessionConfig = MenuFlow.sanitizeSessionConfig(rawConfig)
+		profile = KartTuning.buildProfile("medium", sessionConfig.difficulty)
+		raceClock = RaceState.create(sessionConfig.laps)
+		itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, sessionConfig.raceType)
 		flyableWorld = Flyable.createWorld()
+		local playerTotal = 0
+		for _ in entries do
+			playerTotal += 1
+		end
+		local totalRacers = math.max(
+			1,
+			playerTotal
+				+ (if sessionConfig.raceType == "NORMAL_RACE" then sessionConfig.aiCount else 0)
+				+ (if sessionConfig.playMode == "LOCAL_2P" then 1 else 0)
+		)
+		powerupMgr = PowerupManager.new(
+			sessionConfig.raceType,
+			totalRacers,
+			ItemTuning.IMPLEMENTED_POWERUPS,
+			sessionConfig.difficulty
+		)
+		dummyEnabled = (sessionConfig.raceType == "NORMAL_RACE" and sessionConfig.aiCount >= 1)
 		dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
 		initRaceProgress(dummyState, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
 		dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
+
+		extraAIs = {}
+		if sessionConfig.raceType == "NORMAL_RACE" and sessionConfig.aiCount >= 2 then
+			for i = 2, sessionConfig.aiCount do
+				local row = math.floor(i / 2)
+				local side = if (i % 2) == 0 then -2.4 else 2.4
+				local spawnPos = gridOffsetPos(activeTrack.startPos, activeTrack.startYawRad, side, row * 3.5)
+				local aiState = KartSolver.createState(profile, spawnPos, activeTrack.startYawRad)
+				initRaceProgress(aiState, spawnPos, activeTrack.startYawRad)
+				table.insert(extraAIs, {
+					id = -100 - i,
+					sid = "ai_" .. tostring(i),
+					state = aiState,
+					ai = AIController.createState(activeTrack.drivelineQuadCenters, aiState.pos),
+				})
+			end
+		end
+
+		if sessionConfig.playMode == "LOCAL_2P" then
+			local p2Pos = gridOffsetPos(activeTrack.startPos, activeTrack.startYawRad, 2.8, 0.0)
+			local p2 = KartSolver.createState(profile, p2Pos, activeTrack.startYawRad)
+			initRaceProgress(p2, p2Pos, activeTrack.startYawRad)
+			localP2State = p2
+			localP2AI = AIController.createState(activeTrack.drivelineQuadCenters, p2.pos)
+			localP2Owner = requestingPlayer
+			localP2Input = {
+				accel = 0,
+				brake = false,
+				steer = 0,
+				drift = false,
+				nitro = false,
+				fire = false,
+				lookBack = false,
+			}
+		else
+			localP2State = nil
+			localP2AI = nil
+			localP2Owner = nil
+		end
+
 		Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
 		for _, entry in entries do
 			entry.player.ReplicationFocus = arenaPrimaryPart
@@ -523,7 +658,40 @@ function GreyboxKartServer.start()
 			entry.resetSeq += 1
 			entry.forceSnapshot = true
 		end
+		sessionPhase = "RACING"
+		broadcastSessionState(nil)
 	end
+
+	local function resetFullRace()
+		applySessionStart(sessionConfig, localP2Owner)
+	end
+
+	sessionCommandRemote.OnServerEvent:Connect(function(player: Player, cmd: any, payload: any)
+		if cmd == "REQUEST_STATE" then
+			broadcastSessionState(player)
+		elseif cmd == "START_RACE" then
+			applySessionStart(payload, player)
+		elseif cmd == "RETURN_TO_MENU" then
+			sessionPhase = "MENU"
+			localP2State = nil
+			localP2AI = nil
+			localP2Owner = nil
+			extraAIs = {}
+			broadcastSessionState(nil)
+		end
+	end)
+
+	localP2InputRemote.OnServerEvent:Connect(function(player: Player, rawPacket: any)
+		if sessionPhase ~= "RACING" or localP2State == nil or player ~= localP2Owner then
+			return
+		end
+		local sanitized, _, wantsReset = sanitizeInput(rawPacket)
+		localP2Input = sanitized
+		if wantsReset and localP2State ~= nil then
+			localP2State = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+			initRaceProgress(localP2State :: KartSolver.KartState, activeTrack.startPos, activeTrack.startYawRad)
+		end
+	end)
 
 	if RunService:IsStudio() then
 		local debugItemRemote = Instance.new("RemoteEvent")
@@ -632,15 +800,35 @@ function GreyboxKartServer.start()
 	end)
 
 	local function computeStandingsAndProxies(): ({ [string]: number }, { Flyable.KartProxy })
-		local racers: { TestDummyKart.RacerProgress } = {
-			{
+		local racers: { TestDummyKart.RacerProgress } = {}
+		local idx = 0
+		if dummyEnabled then
+			idx += 1
+			table.insert(racers, {
 				id = TestDummyKart.DUMMY_STRING_ID,
 				state = dummyState,
-				initialPosition = 1,
+				initialPosition = idx,
 				aiState = dummyAI,
-			},
-		}
-		local idx = 1
+			})
+		end
+		for _, extra in extraAIs do
+			idx += 1
+			table.insert(racers, {
+				id = extra.sid,
+				state = extra.state,
+				initialPosition = idx,
+				aiState = extra.ai,
+			})
+		end
+		if localP2State ~= nil and localP2AI ~= nil then
+			idx += 1
+			table.insert(racers, {
+				id = LOCAL_P2_STRING_ID,
+				state = localP2State,
+				initialPosition = idx,
+				aiState = localP2AI,
+			})
+		end
 		for _, entry in entries do
 			idx += 1
 			local sid = tostring(if entry.player.UserId ~= 0 then entry.player.UserId else idx)
@@ -658,25 +846,52 @@ function GreyboxKartServer.start()
 		for _, r in ranked do
 			rankById[r.id] = r.rank
 		end
-		local proxies: { Flyable.KartProxy } = {
-			KartSolver.makeFlyableProxy(
-				TestDummyKart.DUMMY_KART_ID,
-				dummyState,
-				rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
-				"best"
-			),
-		}
+		local proxies: { Flyable.KartProxy } = {}
+		if dummyEnabled then
+			table.insert(
+				proxies,
+				KartSolver.makeFlyableProxy(
+					TestDummyKart.DUMMY_KART_ID,
+					dummyState,
+					rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
+					sessionConfig.difficulty
+				)
+			)
+		end
+		for _, extra in extraAIs do
+			table.insert(
+				proxies,
+				KartSolver.makeFlyableProxy(extra.id, extra.state, rankById[extra.sid] or 1, sessionConfig.difficulty)
+			)
+		end
+		if localP2State ~= nil then
+			table.insert(
+				proxies,
+				KartSolver.makeFlyableProxy(
+					LOCAL_P2_KART_ID,
+					localP2State,
+					rankById[LOCAL_P2_STRING_ID] or 2,
+					sessionConfig.difficulty
+				)
+			)
+		end
 		local pIdx = 1
 		for _, entry in entries do
 			pIdx += 1
 			local numId = if entry.player.UserId ~= 0 then entry.player.UserId else pIdx
 			local sid = tostring(numId)
-			table.insert(proxies, KartSolver.makeFlyableProxy(numId, entry.state, rankById[sid] or 2, "best"))
+			table.insert(
+				proxies,
+				KartSolver.makeFlyableProxy(numId, entry.state, rankById[sid] or 2, sessionConfig.difficulty)
+			)
 		end
 		return rankById, proxies
 	end
 
 	RunService.Heartbeat:Connect(function(dt: number)
+		if sessionPhase ~= "RACING" then
+			return
+		end
 		debug.profilebegin("OpenKart_ServerSim")
 		local _, _ = stepper:advance(dt, function(fixedDt: number)
 			local prevPhase = raceClock.phase
@@ -685,39 +900,213 @@ function GreyboxKartServer.start()
 			ItemWorld.tick(itemWorld)
 			local rankById, preProxies = computeStandingsAndProxies()
 
-			local rawDummyInput = if dummyState.race.raceFinished
-				then AIController.computeCoastInput(dummyAI, dummyState, activeTrack.drivelineQuadCenters, fixedDt)
-				else TestDummyKart.computeCruiseInput(
-					dummyState,
-					dummyAI,
-					fixedDt,
-					nil,
-					activeTrack.drivelineQuadCenters
-				)
-			local dummyInput = KartSolver.stepRaceInput(dummyState, rawDummyInput, raceTick, racePhase)
-			KartSolver.stepWithItems(dummyState, dummyInput, worldQuery, fixedDt, itemWorld, {
-				isServer = true,
-				advanceItemWorld = false,
-				kartId = TestDummyKart.DUMMY_KART_ID,
-				flyableWorld = flyableWorld,
-				allKartProxies = preProxies,
-				drivelineCenters = activeTrack.drivelineQuadCenters,
-				rank = rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
-				difficulty = "best",
-			})
-			CheckManager.stepKart(
-				dummyState.race,
-				activeTrack.checkpoints,
-				dummyState.prevPos,
-				dummyState.pos,
-				raceTick,
-				raceClock.totalLaps
-			)
+			local function buildAIContext(
+				aiState: AIController.AIState,
+				ks: KartSolver.KartState,
+				aiPosIdx: number
+			): AIController.AIContext
+				local playerDist = 0.0
+				for _, e in entries do
+					playerDist = aiState.totalDistance - e.progress.totalDistance
+					break
+				end
+				local nearestAheadDist = 999.0
+				local nearestBehindDist = 999.0
+				local aheadAngleAbs = 3.14
+				local behindAngleAbs = 3.14
+				local aheadInvuln = false
+				local behindInvuln = false
+				local aheadHasShield = false
+				local invRot = Math3D.quatConjugate(ks.rot)
+				local function checkOpp(oppState: KartSolver.KartState, oppDist: number)
+					if oppState == ks then
+						return
+					end
+					local lc = Math3D.quatRotateVec(invRot, Math3D.sub(oppState.pos, ks.pos))
+					local ang = math.atan2(math.abs(lc.x), math.abs(lc.z))
+					local delta = oppDist - aiState.totalDistance
+					if delta >= 0.0 and lc.z > 0.0 and delta < nearestAheadDist then
+						nearestAheadDist = delta
+						aheadAngleAbs = ang
+						aheadInvuln = oppState.itemEffect.invulnerableTicks > 0
+						aheadHasShield = oppState.attachmentType == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD
+					elseif delta < 0.0 and lc.z < 0.0 and -delta < nearestBehindDist then
+						nearestBehindDist = -delta
+						behindAngleAbs = ang
+						behindInvuln = oppState.itemEffect.invulnerableTicks > 0
+					end
+				end
+				for _, e in entries do
+					checkOpp(e.state, e.progress.totalDistance)
+				end
+				if localP2State ~= nil and localP2AI ~= nil then
+					checkOpp(localP2State, localP2AI.totalDistance)
+				end
+				if dummyEnabled then
+					checkOpp(dummyState, dummyAI.totalDistance)
+				end
+				for _, ex in extraAIs do
+					checkOpp(ex.state, ex.ai.totalDistance)
+				end
+				return {
+					difficulty = sessionConfig.difficulty :: string,
+					distToPlayer = playerDist,
+					aiPos = aiPosIdx,
+					numAi = sessionConfig.aiCount,
+					nearestAheadDist = nearestAheadDist,
+					nearestBehindDist = nearestBehindDist,
+					aheadAngleAbs = aheadAngleAbs,
+					behindAngleAbs = behindAngleAbs,
+					aheadInvuln = aheadInvuln,
+					behindInvuln = behindInvuln,
+					aheadHasShield = aheadHasShield,
+				}
+			end
 
-			local collisionParticipants: { KartSolver.CollisionParticipant } = {
-				{ id = TestDummyKart.DUMMY_KART_ID, state = dummyState },
-			}
-			local activeStates: { KartSolver.KartState } = { dummyState }
+			if dummyEnabled then
+				local dummyRank = rankById[TestDummyKart.DUMMY_STRING_ID] or 1
+				local rawDummyInput = if dummyState.race.raceFinished
+					then AIController.computeCoastInput(dummyAI, dummyState, activeTrack.drivelineQuadCenters, fixedDt)
+					else TestDummyKart.computeCruiseInput(
+						dummyState,
+						dummyAI,
+						fixedDt,
+						nil,
+						activeTrack.drivelineQuadCenters,
+						buildAIContext(dummyAI, dummyState, 1)
+					)
+				local dummyInput = KartSolver.stepRaceInput(dummyState, rawDummyInput, raceTick, racePhase)
+				KartSolver.stepWithItems(dummyState, dummyInput, worldQuery, fixedDt, itemWorld, {
+					isServer = true,
+					advanceItemWorld = false,
+					kartId = TestDummyKart.DUMMY_KART_ID,
+					flyableWorld = flyableWorld,
+					allKartProxies = preProxies,
+					drivelineCenters = activeTrack.drivelineQuadCenters,
+					rank = dummyRank,
+					difficulty = sessionConfig.difficulty :: string,
+					rollPowerup = function(_s, ev)
+						rollCounter += 1
+						local seed = math.floor(os.clock() * 1000)
+							+ rollCounter * 7919
+							+ ev.id * 101
+							+ itemWorld.elapsedTicks * 31
+						return powerupMgr:getRandomPowerup(dummyRank, seed, itemWorld.elapsedTicks * fixedDt)
+					end,
+				})
+				CheckManager.stepKart(
+					dummyState.race,
+					activeTrack.checkpoints,
+					dummyState.prevPos,
+					dummyState.pos,
+					raceTick,
+					raceClock.totalLaps
+				)
+			end
+
+			for aiIdx, extra in extraAIs do
+				local extraRank = rankById[extra.sid] or 1
+				local rawExtraInput = if extra.state.race.raceFinished
+					then AIController.computeCoastInput(
+						extra.ai,
+						extra.state,
+						activeTrack.drivelineQuadCenters,
+						fixedDt
+					)
+					else TestDummyKart.computeCruiseInput(
+						extra.state,
+						extra.ai,
+						fixedDt,
+						nil,
+						activeTrack.drivelineQuadCenters,
+						buildAIContext(extra.ai, extra.state, aiIdx + 1)
+					)
+				local extraInput = KartSolver.stepRaceInput(extra.state, rawExtraInput, raceTick, racePhase)
+				KartSolver.stepWithItems(extra.state, extraInput, worldQuery, fixedDt, itemWorld, {
+					isServer = true,
+					advanceItemWorld = false,
+					kartId = extra.id,
+					flyableWorld = flyableWorld,
+					allKartProxies = preProxies,
+					drivelineCenters = activeTrack.drivelineQuadCenters,
+					rank = extraRank,
+					difficulty = sessionConfig.difficulty :: string,
+					rollPowerup = function(_s, ev)
+						rollCounter += 1
+						local seed = math.floor(os.clock() * 1000)
+							+ rollCounter * 7919
+							+ ev.id * 101
+							+ itemWorld.elapsedTicks * 31
+						return powerupMgr:getRandomPowerup(extraRank, seed, itemWorld.elapsedTicks * fixedDt)
+					end,
+				})
+				CheckManager.stepKart(
+					extra.state.race,
+					activeTrack.checkpoints,
+					extra.state.prevPos,
+					extra.state.pos,
+					raceTick,
+					raceClock.totalLaps
+				)
+			end
+
+			if localP2State ~= nil and localP2AI ~= nil then
+				local p2Raw = if localP2State.race.raceFinished
+					then AIController.computeCoastInput(
+						localP2AI,
+						localP2State,
+						activeTrack.drivelineQuadCenters,
+						fixedDt
+					)
+					else localP2Input
+				local p2Filtered = KartSolver.stepRaceInput(localP2State, p2Raw, raceTick, racePhase)
+				KartSolver.stepWithItems(localP2State, p2Filtered, worldQuery, fixedDt, itemWorld, {
+					isServer = true,
+					advanceItemWorld = false,
+					kartId = LOCAL_P2_KART_ID,
+					flyableWorld = flyableWorld,
+					allKartProxies = preProxies,
+					drivelineCenters = activeTrack.drivelineQuadCenters,
+					rank = rankById[LOCAL_P2_STRING_ID] or 2,
+					difficulty = sessionConfig.difficulty :: string,
+					rollPowerup = function(_s, ev)
+						rollCounter += 1
+						local seed = math.floor(os.clock() * 1000)
+							+ rollCounter * 7919
+							+ ev.id * 101
+							+ itemWorld.elapsedTicks * 31
+						return powerupMgr:getRandomPowerup(
+							rankById[LOCAL_P2_STRING_ID] or 2,
+							seed,
+							itemWorld.elapsedTicks * fixedDt
+						)
+					end,
+				})
+				CheckManager.stepKart(
+					localP2State.race,
+					activeTrack.checkpoints,
+					localP2State.prevPos,
+					localP2State.pos,
+					raceTick,
+					raceClock.totalLaps
+				)
+				AIController.updateProgress(localP2AI, localP2State.pos, activeTrack.drivelineQuadCenters)
+			end
+
+			local collisionParticipants: { KartSolver.CollisionParticipant } = {}
+			local activeStates: { KartSolver.KartState } = {}
+			if dummyEnabled then
+				table.insert(collisionParticipants, { id = TestDummyKart.DUMMY_KART_ID, state = dummyState })
+				table.insert(activeStates, dummyState)
+			end
+			for _, extra in extraAIs do
+				table.insert(collisionParticipants, { id = extra.id, state = extra.state })
+				table.insert(activeStates, extra.state)
+			end
+			if localP2State ~= nil then
+				table.insert(collisionParticipants, { id = LOCAL_P2_KART_ID, state = localP2State })
+				table.insert(activeStates, localP2State)
+			end
 			local playerFallbackIdx = 1
 			local playerCount = 0
 			local finishedPlayerCount = 0
@@ -899,6 +1288,9 @@ function GreyboxKartServer.start()
 			plungerFaceTicks = dummyTel.plungerFaceTicks,
 			timedImpulseTicks = dummyState.timedImpulseTicks,
 			isSquashed = dummyTel.isSquashed,
+			skidState = dummyTel.skidState,
+			skidTier = dummyTel.skidTier,
+			nitroActive = dummyTel.nitroActive,
 			rank = latestRanks[TestDummyKart.DUMMY_STRING_ID] or 1,
 			lap = dummyState.race.lap,
 			nextCheckpoint = dummyState.race.nextCheckpoint,
@@ -946,7 +1338,66 @@ function GreyboxKartServer.start()
 
 			if periodicDue or entry.forceSnapshot then
 				entry.forceSnapshot = false
-				local remotesForPlayer: { GreyboxProtocol.RemoteKartState } = { dummyRemoteState }
+				local remotesForPlayer: { GreyboxProtocol.RemoteKartState } = {}
+				if dummyEnabled then
+					table.insert(remotesForPlayer, dummyRemoteState)
+				end
+				for _, extra in extraAIs do
+					local eTel = KartSolver.getTelemetry(extra.state)
+					local eSSTime, eSSBonus = getRemoteSlipstreamTimes(extra.state)
+					table.insert(remotesForPlayer, {
+						id = extra.sid,
+						pos = { extra.state.pos.x, extra.state.pos.y, extra.state.pos.z },
+						rot = { extra.state.rot.w, extra.state.rot.x, extra.state.rot.y, extra.state.rot.z },
+						linVel = { extra.state.linVel.x, extra.state.linVel.y, extra.state.linVel.z },
+						speed = extra.state.speed,
+						steer = extra.state.steer,
+						attachmentType = eTel.attachmentType,
+						attachmentTicksLeft = eTel.attachmentTicksLeft,
+						plungerFaceTicks = eTel.plungerFaceTicks,
+						timedImpulseTicks = extra.state.timedImpulseTicks,
+						isSquashed = eTel.isSquashed,
+						skidState = eTel.skidState,
+						skidTier = eTel.skidTier,
+						nitroActive = eTel.nitroActive,
+						rank = latestRanks[extra.sid] or 1,
+						lap = extra.state.race.lap,
+						nextCheckpoint = extra.state.race.nextCheckpoint,
+						raceFinished = extra.state.race.raceFinished,
+						finishTick = extra.state.race.finishTick,
+						trackNodeIdx = extra.ai.trackNodeIdx,
+						slipstreamTime = eSSTime,
+						slipstreamBonusTime = eSSBonus,
+					})
+				end
+				if localP2State ~= nil and localP2AI ~= nil then
+					local p2Tel = KartSolver.getTelemetry(localP2State)
+					local p2SSTime, p2SSBonus = getRemoteSlipstreamTimes(localP2State)
+					table.insert(remotesForPlayer, {
+						id = LOCAL_P2_STRING_ID,
+						pos = { localP2State.pos.x, localP2State.pos.y, localP2State.pos.z },
+						rot = { localP2State.rot.w, localP2State.rot.x, localP2State.rot.y, localP2State.rot.z },
+						linVel = { localP2State.linVel.x, localP2State.linVel.y, localP2State.linVel.z },
+						speed = localP2State.speed,
+						steer = localP2State.steer,
+						attachmentType = p2Tel.attachmentType,
+						attachmentTicksLeft = p2Tel.attachmentTicksLeft,
+						plungerFaceTicks = p2Tel.plungerFaceTicks,
+						timedImpulseTicks = localP2State.timedImpulseTicks,
+						isSquashed = p2Tel.isSquashed,
+						skidState = p2Tel.skidState,
+						skidTier = p2Tel.skidTier,
+						nitroActive = p2Tel.nitroActive,
+						rank = latestRanks[LOCAL_P2_STRING_ID] or 2,
+						lap = localP2State.race.lap,
+						nextCheckpoint = localP2State.race.nextCheckpoint,
+						raceFinished = localP2State.race.raceFinished,
+						finishTick = localP2State.race.finishTick,
+						trackNodeIdx = localP2AI.trackNodeIdx,
+						slipstreamTime = p2SSTime,
+						slipstreamBonusTime = p2SSBonus,
+					})
+				end
 				for _, other in entries do
 					if other ~= entry then
 						local sid = tostring(if other.player.UserId ~= 0 then other.player.UserId else 1)
@@ -964,6 +1415,9 @@ function GreyboxKartServer.start()
 							plungerFaceTicks = oTel.plungerFaceTicks,
 							timedImpulseTicks = other.state.timedImpulseTicks,
 							isSquashed = oTel.isSquashed,
+							skidState = oTel.skidState,
+							skidTier = oTel.skidTier,
+							nitroActive = oTel.nitroActive,
 							rank = latestRanks[sid] or 1,
 							lap = other.state.race.lap,
 							nextCheckpoint = other.state.race.nextCheckpoint,
