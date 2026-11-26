@@ -7,6 +7,12 @@ local GreyboxArenaData = require("./GreyboxArenaData")
 local Math3D = require("../sim/Math3D")
 local SandtrackData = require("./SandtrackData")
 
+export type DrivelineBranch = {
+	fromQuad: number,
+	toQuad: number,
+	points: { { x: number, z: number } },
+}
+
 export type TrackConfig = {
 	trackId: string,
 	name: string,
@@ -16,6 +22,7 @@ export type TrackConfig = {
 	dummyStartPos: Math3D.Vec3,
 	dummyStartYawRad: number,
 	drivelineQuadCenters: { { x: number, z: number } },
+	drivelineBranches: { DrivelineBranch }?,
 	minimapBounds: { minX: number, maxX: number, minZ: number, maxZ: number, range: number },
 	items: { GreyboxArenaData.ArenaItemSpec },
 }
@@ -38,6 +45,7 @@ local TRACKS: { [string]: TrackConfig } = {
 		dummyStartPos = { x = slot1.pos.x, y = slot1.pos.y, z = slot1.pos.z },
 		dummyStartYawRad = slot1.yawRad,
 		drivelineQuadCenters = SandtrackData.drivelineQuadCenters,
+		drivelineBranches = SandtrackData.drivelineBranches :: any,
 		minimapBounds = SandtrackData.minimapBounds,
 		items = SandtrackData.items :: any,
 	},
@@ -50,6 +58,7 @@ local TRACKS: { [string]: TrackConfig } = {
 		dummyStartPos = { x = 0.0, y = 0.35, z = 6.0 },
 		dummyStartYawRad = math.pi * 0.5,
 		drivelineQuadCenters = GreyboxArenaData.drivelineQuadCenters,
+		drivelineBranches = {},
 		minimapBounds = GreyboxArenaData.minimapBounds,
 		items = GreyboxArenaData.items,
 	},

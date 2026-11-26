@@ -23,7 +23,7 @@ local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local PowerupManager = require(Shared.items.PowerupManager)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
-local SandtrackRoadCollisionData = require(Shared.track.SandtrackRoadCollisionData)
+local SandtrackCollisionData = require(Shared.track.SandtrackCollisionData)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
 local Standings = require(Shared.race.Standings)
 local TestDummyKart = require(Shared.race.TestDummyKart)
@@ -297,7 +297,50 @@ local function fireSnapshotPacket(
 	telemetryRemote:FireClient(entry.player, payload, noticeArg)
 end
 
+local function buildChunkMeshPart(chunk: SandtrackCollisionData.CollisionChunk): (boolean, MeshPart | string)
+	local function tryCreate(extrudeBackface: boolean, fidelity: Enum.CollisionFidelity): (boolean, any)
+		return pcall(function(): MeshPart
+			local em = AssetService:CreateEditableMesh()
+			local vIds: { number } = table.create(#chunk.verts // 3)
+			for i = 1, #chunk.verts, 3 do
+				table.insert(vIds, em:AddVertex(Vector3.new(chunk.verts[i], chunk.verts[i + 1], chunk.verts[i + 2])))
+			end
+			for i = 1, #chunk.tris, 3 do
+				em:AddTriangle(vIds[chunk.tris[i]], vIds[chunk.tris[i + 1]], vIds[chunk.tris[i + 2]])
+			end
+			if extrudeBackface then
+				local backIds: { number } = table.create(#vIds)
+				for i = 1, #chunk.verts, 3 do
+					table.insert(
+						backIds,
+						em:AddVertex(Vector3.new(chunk.verts[i], chunk.verts[i + 1] - 0.05, chunk.verts[i + 2]))
+					)
+				end
+				for i = 1, #chunk.tris, 3 do
+					em:AddTriangle(backIds[chunk.tris[i + 2]], backIds[chunk.tris[i + 1]], backIds[chunk.tris[i]])
+				end
+			end
+			return AssetService:CreateMeshPartAsync(Content.fromObject(em), {
+				CollisionFidelity = fidelity,
+				RenderFidelity = Enum.RenderFidelity.Automatic,
+			})
+		end)
+	end
+	local ok, res = tryCreate(false, Enum.CollisionFidelity.PreciseConvexDecomposition)
+	if not ok then
+		ok, res = tryCreate(true, Enum.CollisionFidelity.PreciseConvexDecomposition)
+	end
+	if not ok then
+		ok, res = tryCreate(true, Enum.CollisionFidelity.Hull)
+	end
+	return ok, res
+end
+
 local function loadTrackGeometry(trackId: string): (Folder, BasePart)
+	local prevLegacy = Workspace:FindFirstChild("Tracks")
+	if prevLegacy then
+		prevLegacy:Destroy()
+	end
 	local prevArena = Workspace:FindFirstChild(GreyboxProtocol.ARENA_NAME)
 	if prevArena then
 		prevArena:Destroy()
@@ -322,40 +365,58 @@ local function loadTrackGeometry(trackId: string): (Folder, BasePart)
 		local primary: BasePart? = cloned.PrimaryPart or cloned:FindFirstChildWhichIsA("BasePart", true)
 		if surfaces and surfaces:IsA("Folder") and primary then
 			if trackId == "sandtrack" then
-				for idx, chunk in SandtrackRoadCollisionData do
-					local ok, partOrErr = pcall(function(): MeshPart
-						local em = AssetService:CreateEditableMesh()
-						local vIds: { number } = table.create(#chunk.verts // 3)
-						for i = 1, #chunk.verts, 3 do
-							table.insert(
-								vIds,
-								em:AddVertex(Vector3.new(chunk.verts[i], chunk.verts[i + 1], chunk.verts[i + 2]))
+				local total = #SandtrackCollisionData
+				local remaining = total
+				local failedCount = 0
+				local doneEvent = Instance.new("BindableEvent")
+				local batchLimit = 16
+				local nextIdx = 1
+				local function spawnNext()
+					while nextIdx <= total do
+						local idx = nextIdx
+						nextIdx += 1
+						local chunk = SandtrackCollisionData[idx]
+						local ok, partOrErr = buildChunkMeshPart(chunk)
+						if ok then
+							local mp = partOrErr :: MeshPart
+							mp.Name = string.format("ColChunk_%03d_%s", idx, chunk.materialStem)
+							mp.Anchored = true
+							mp.CanCollide = true
+							mp.CanTouch = false
+							mp.CanQuery = true
+							mp.DoubleSided = true
+							mp.Transparency = 1
+							mp.CFrame = CFrame.new(chunk.center[1], chunk.center[2], chunk.center[3])
+							mp:SetAttribute("SurfaceMaterial", chunk.material)
+							mp.Parent = surfaces
+						else
+							failedCount += 1
+							warn(
+								string.format(
+									"[OpenKart] ColChunk_%03d_%s failed: %s",
+									idx,
+									chunk.materialStem,
+									tostring(partOrErr)
+								)
 							)
 						end
-						for i = 1, #chunk.tris, 3 do
-							em:AddTriangle(vIds[chunk.tris[i]], vIds[chunk.tris[i + 1]], vIds[chunk.tris[i + 2]])
+						remaining -= 1
+						if remaining == 0 then
+							doneEvent:Fire()
 						end
-						return AssetService:CreateMeshPartAsync(Content.fromObject(em), {
-							CollisionFidelity = Enum.CollisionFidelity.PreciseConvexDecomposition,
-							RenderFidelity = Enum.RenderFidelity.Automatic,
-						})
-					end)
-					if ok then
-						local mp = partOrErr :: MeshPart
-						mp.Name = "RoadCollisionChunk_" .. tostring(idx)
-						mp.Anchored = true
-						mp.CanCollide = true
-						mp.CanTouch = false
-						mp.CanQuery = true
-						mp.DoubleSided = true
-						mp.Transparency = 1
-						mp.CFrame = CFrame.new(chunk.center[1], chunk.center[2], chunk.center[3])
-						mp:SetAttribute("SurfaceMaterial", "road.jpg")
-						mp.Parent = surfaces
-					else
-						warn("[OpenKart] RoadCollisionChunk failed: " .. tostring(partOrErr))
 					end
 				end
+				for _ = 1, math.min(batchLimit, total) do
+					task.spawn(spawnNext)
+				end
+				if remaining > 0 then
+					doneEvent.Event:Wait()
+				end
+				doneEvent:Destroy()
+				assert(
+					failedCount == 0,
+					string.format("[OpenKart] %d sandtrack collision chunks failed to build", failedCount)
+				)
 			end
 			for _, desc in cloned:GetDescendants() do
 				if desc:IsA("BasePart") then

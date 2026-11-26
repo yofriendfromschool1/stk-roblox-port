@@ -601,28 +601,55 @@ def _chunk_submesh_per_material(
         ny = e1[2] * e2[0] - e1[0] * e2[2]
         nz = e1[0] * e2[1] - e1[1] * e2[0]
         nlen = math.sqrt(nx * nx + ny * ny + nz * nz)
-        if nlen < 1e-6:
+        e3 = (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
+        max_edge = max(
+            math.sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]),
+            math.sqrt(e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2]),
+            math.sqrt(e3[0] * e3[0] + e3[1] * e3[1] + e3[2] * e3[2]),
+        )
+        if nlen < 1e-3 or (max_edge > 1e-6 and (nlen / max_edge) < 0.01):
             continue
         nny = ny / nlen
         band = (0 if nny > 0.35 else (1 if nny >= -0.35 else 2)) if split_bands else 0
+        # Split opposing walls (left vs right tunnel wall) into separate normal quadrants
+        wdir = (int((math.atan2(nz, nx) + math.pi) / (math.pi * 0.5)) % 4) if band == 1 else 0
 
         if single_chunk:
-            key = (0, band, 0, 0)
+            key = (0, band, wdir, 0, 0, 0)
         elif mat_lower == "sand.png":
             cx_studs = (p0[0] + p1[0] + p2[0]) / 3.0
             cz_studs = (p0[2] + p1[2] + p2[2]) / 3.0
             cx_m = cx_studs * METERS_PER_STUD
             cz_m = -cz_studs * METERS_PER_STUD
             near = any((cx_m - qx) ** 2 + (cz_m - qz) ** 2 <= near_dist_sq for qx, qz in all_quad_centers_stk)
-            cell = 30.0 if near else 120.0
+            cell = 25.0 if near else 120.0
             zone = 0 if near else 1
-            key = (zone, band, math.floor(cx_studs / cell), math.floor(cz_studs / cell))
+            key = (zone, band, wdir, math.floor(cx_studs / cell), 0, math.floor(cz_studs / cell))
+        elif mat_lower in ("pyramidwall.jpg", "texture_egypte.jpg", "bumpy_surface.png"):
+            cx_studs = (p0[0] + p1[0] + p2[0]) / 3.0
+            cy_studs = (p0[1] + p1[1] + p2[1]) / 3.0
+            cz_studs = (p0[2] + p1[2] + p2[2]) / 3.0
+            cx_m = cx_studs * METERS_PER_STUD
+            cz_m = -cz_studs * METERS_PER_STUD
+            near = any((cx_m - qx) ** 2 + (cz_m - qz) ** 2 <= near_dist_sq for qx, qz in all_quad_centers_stk)
+            if mat_lower == "pyramidwall.jpg":
+                cell_xz, cell_y = (10.0, 6.0) if near else (80.0, 40.0)
+            elif mat_lower == "texture_egypte.jpg":
+                cell_xz, cell_y = (15.0, 8.0) if near else (60.0, 30.0)
+            else:
+                cell_xz, cell_y = (20.0, 8.0) if near else (80.0, 40.0)
+            zone = 0 if near else 1
+            key = (
+                zone,
+                band,
+                wdir,
+                math.floor(cx_studs / cell_xz),
+                math.floor(cy_studs / cell_y),
+                math.floor(cz_studs / cell_xz),
+            )
         else:
             cell_map = {
                 "road.jpg": 35.0,
-                "pyramidwall.jpg": 25.0,
-                "bumpy_surface.png": 35.0,
-                "texture_egypte.jpg": 40.0,
                 "woodpost.png": 40.0,
                 "wood_planks1.jpg": 40.0,
                 "sphinx.png": 40.0,
@@ -633,7 +660,7 @@ def _chunk_submesh_per_material(
             cell = cell_map.get(mat_lower, 40.0)
             cx_studs = (p0[0] + p1[0] + p2[0]) / 3.0
             cz_studs = (p0[2] + p1[2] + p2[2]) / 3.0
-            key = (0, band, math.floor(cx_studs / cell), math.floor(cz_studs / cell))
+            key = (0, band, wdir, math.floor(cx_studs / cell), 0, math.floor(cz_studs / cell))
         cells[key].append((i0, i1, i2))
 
     chunks: list[dict[str, Any]] = []

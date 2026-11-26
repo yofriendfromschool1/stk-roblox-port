@@ -884,6 +884,36 @@ class TestStk2Rbx(unittest.TestCase):
             self.assertEqual(rc, 0)
             mock_fetch.assert_called_once_with("models", dest, revision="18627", include_media=True)
 
+    def test_sandtrack_per_material_chunks_ground_items_and_branches(self) -> None:
+        from tools.stk2rbx.track_emit import (
+            _parse_graph_branches,
+            _parse_quads,
+            build_track_collision_chunks,
+            export_track_glbs,
+            verify_canonical_transforms,
+        )
+
+        track_dir = Path(r"C:\dev\stk-assets\tracks\sandtrack")
+        if not track_dir.is_dir():
+            self.skipTest("Local C:\\dev\\stk-assets\\tracks\\sandtrack not present")
+
+        quads = _parse_quads(track_dir / "quads.xml")
+        branches = _parse_graph_branches(track_dir / "graph.xml", quads)
+        self.assertEqual(len(branches), 1)
+        self.assertEqual(branches[0]["fromQuad"], 148)
+        self.assertEqual(branches[0]["toQuad"], 207)
+        self.assertEqual(len(branches[0]["points"]), 48)
+
+        chunks = build_track_collision_chunks(track_dir)
+        self.assertGreater(len(chunks), 200)
+        for ch in chunks:
+            self.assertTrue(ch["material"])
+            self.assertNotEqual(ch["material"].lower(), "oasis-water.png")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            report = export_track_glbs(track_dir, Path(tmp), include_aux=True)
+            verify_canonical_transforms(report, chunks)
+
 
 if __name__ == "__main__":
     unittest.main()

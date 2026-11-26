@@ -436,6 +436,7 @@ end
 
 local activeHudTrack = getActiveTrack()
 local drivelineSegments: { Frame } = {}
+local branchSegments: { { seg: Frame, a: { x: number, z: number }, b: { x: number, z: number } } } = {}
 local quadDots: { Frame } = {}
 
 local function rebuildMinimapGeometry()
@@ -443,6 +444,10 @@ local function rebuildMinimapGeometry()
 		seg:Destroy()
 	end
 	table.clear(drivelineSegments)
+	for _, b in branchSegments do
+		b.seg:Destroy()
+	end
+	table.clear(branchSegments)
 	for _, qd in quadDots do
 		qd:Destroy()
 	end
@@ -459,6 +464,27 @@ local function rebuildMinimapGeometry()
 		seg.ZIndex = 2
 		seg.Parent = minimapRoot
 		drivelineSegments[i] = seg
+	end
+
+	local branches = activeHudTrack.drivelineBranches
+	if branches ~= nil then
+		for bIdx, br in branches do
+			for sIdx = 1, math.max(0, #br.points - 1) do
+				local seg = Instance.new("Frame")
+				seg.Name = string.format("BranchSeg_%d_%d", bIdx, sIdx)
+				seg.AnchorPoint = Vector2.new(0.5, 0.5)
+				seg.BackgroundColor3 = Color3.fromRGB(220, 226, 238)
+				seg.BackgroundTransparency = 0.25
+				seg.BorderSizePixel = 0
+				seg.ZIndex = 2
+				seg.Parent = minimapRoot
+				table.insert(branchSegments, {
+					seg = seg,
+					a = br.points[sIdx],
+					b = br.points[sIdx + 1],
+				})
+			end
+		end
 	end
 
 	for i = 1, #activeHudTrack.drivelineQuadCenters do
@@ -693,6 +719,25 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 			projected[i + 1][2],
 			3
 		)
+	end
+	for _, bs in branchSegments do
+		local ax, ay = RaceHudMath.projectToMinimap(
+			bs.a.x,
+			bs.a.z,
+			arenaBounds,
+			cachedMinimapLayout.width,
+			cachedMinimapLayout.height,
+			false
+		)
+		local bx, by = RaceHudMath.projectToMinimap(
+			bs.b.x,
+			bs.b.z,
+			arenaBounds,
+			cachedMinimapLayout.width,
+			cachedMinimapLayout.height,
+			false
+		)
+		setLineSegment(bs.seg, ax, ay, bx, by, 2)
 	end
 	local sx, sy = RaceHudMath.projectToMinimap(
 		activeHudTrack.startPos.x,
