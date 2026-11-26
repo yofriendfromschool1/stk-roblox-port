@@ -7,7 +7,8 @@
       "Assets": {
         "$className": "Folder",
         "Karts": { "$path": "assets/roblox/karts" },
-        "Items": { "$path": "assets/roblox/items" }
+        "Items": { "$path": "assets/roblox/items" },
+        "Tracks": { "$path": "assets/roblox/tracks" }
       }
     },
     "ServerScriptService": { "Server": { "$path": "src/server" } },

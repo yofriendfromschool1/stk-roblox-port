@@ -1,0 +1,339 @@
+{
+  "track_id": "sandtrack",
+  "assets_revision": "18627",
+  "meters_per_stud": 1.0,
+  "creator_user_id": "7225229891",
+  "textures": {
+    "road.jpg": "rbxassetid://132919119427148",
+    "road_nm.png": "rbxassetid://115579901862190",
+    "matte_roughness.png": "rbxassetid://95967558727570",
+    "sand.png": "rbxassetid://82684804291769",
+    "sand_nm.png": "rbxassetid://131395986687859",
+    "camel_col.jpg": "rbxassetid://126383268215780",
+    "monkey_col.png": "rbxassetid://133638954216140",
+    "seabed.jpg": "rbxassetid://135307595971382",
+    "sphinx.png": "rbxassetid://86971642585689",
+    "texture_egypte.jpg": "rbxassetid://96452238500120",
+    "bumpy_surface.png": "rbxassetid://126756736584197",
+    "bumpy_surface_nm.png": "rbxassetid://110938507515932",
+    "egypt2.jpg": "rbxassetid://91313755323683",
+    "oasis-water.png": "rbxassetid://78980673392486",
+    "pyramidwall.jpg": "rbxassetid://124942731068445",
+    "pyramidwall_nm.png": "rbxassetid://125127744897744",
+    "water_light.png": "rbxassetid://74484616890040",
+    "wood_planks1.jpg": "rbxassetid://91050302189247",
+    "woodPost.png": "rbxassetid://106149772669769",
+    "wood_substitute_cc0.png": "rbxassetid://81075329731998",
+    "sand_clouds_substitute_cc0.png": "rbxassetid://129687349772780",
+    "stk_accacia_a.png": "rbxassetid://129702783931299",
+    "stktex_agave_a.png": "rbxassetid://138031266468585",
+    "stktex_lowPalmLeaf_a.png": "rbxassetid://111717421149209",
+    "stktex_lowPalmTree_a.png": "rbxassetid://84058243666350",
+    "stktex_palmLeaf_a.png": "rbxassetid://114102830983324",
+    "stktex_palmLeafDry_a.png": "rbxassetid://110113130487984",
+    "stktex_palmTreeBark_a.png": "rbxassetid://74615528267773"
+  },
+  "submeshes": {
+    "Submesh_06_road": {
+      "modelAssetId": "77648507459757",
+      "meshId": "rbxassetid://71401143394549",
+      "importFlipY180": true,
+      "meshSize": [
+        319.0457,
+        21.5226,
+        358.9474
+      ],
+      "glbFile": "build/tracks/sandtrack/sandtrack_06_road.glb",
+      "texture": "road.jpg"
+    },
+    "Submesh_00_bumpy_surface": {
+      "modelAssetId": "72293678499514",
+      "glbFile": "build/tracks/sandtrack/submesh_00_bumpy_surface.glb",
+      "texture": "bumpy_surface.png",
+      "meshId": "rbxassetid://86720961309227",
+      "meshSize": [
+        936.1924,
+        107.8556,
+        812.864
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_01_camel_col": {
+      "modelAssetId": "75336854003788",
+      "glbFile": "build/tracks/sandtrack/submesh_01_camel_col.glb",
+      "texture": "camel_col.jpg",
+      "meshId": "rbxassetid://126429038223651",
+      "meshSize": [
+        1.1941,
+        2.9611,
+        3.8371
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_02_egypt2": {
+      "modelAssetId": "101011325341715",
+      "glbFile": "build/tracks/sandtrack/submesh_02_egypt2.glb",
+      "texture": "egypt2.jpg",
+      "meshId": "rbxassetid://110452498281136",
+      "meshSize": [
+        963.6813,
+        51.4927,
+        802.7026
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_03_monkey_col": {
+      "modelAssetId": "76334290913573",
+      "glbFile": "build/tracks/sandtrack/submesh_03_monkey_col.glb",
+      "texture": "monkey_col.png",
+      "meshId": "rbxassetid://118653569627926",
+      "meshSize": [
+        24.9044,
+        13.2888,
+        14.1654
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_04_oasis_water": {
+      "modelAssetId": "101063843790461",
+      "glbFile": "build/tracks/sandtrack/submesh_04_oasis_water.glb",
+      "texture": "oasis-water.png",
+      "meshId": "rbxassetid://74151578961721",
+      "meshSize": [
+        412.5549,
+        23.2009,
+        280.4048
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_05_pyramidwall": {
+      "modelAssetId": "76259645715190",
+      "glbFile": "build/tracks/sandtrack/submesh_05_pyramidwall.glb",
+      "texture": "pyramidwall.jpg",
+      "meshId": "rbxassetid://128277416389709",
+      "meshSize": [
+        1724.8906,
+        232.7398,
+        806.4093
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_07_sand": {
+      "modelAssetId": "109720412787205",
+      "glbFile": "build/tracks/sandtrack/submesh_07_sand.glb",
+      "texture": "sand.png",
+      "meshId": "rbxassetid://80535606523201",
+      "meshSize": [
+        1400.0403,
+        95.9256,
+        1287.4731
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_08_seabed": {
+      "modelAssetId": "104543068644597",
+      "glbFile": "build/tracks/sandtrack/submesh_08_seabed.glb",
+      "texture": "seabed.jpg",
+      "meshId": "rbxassetid://110473508462918",
+      "meshSize": [
+        404.7379,
+        26.4879,
+        269.4221
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_09_sphinx": {
+      "modelAssetId": "83644914699575",
+      "glbFile": "build/tracks/sandtrack/submesh_09_sphinx.glb",
+      "texture": "sphinx.png",
+      "meshId": "rbxassetid://102627699386577",
+      "meshSize": [
+        57.2285,
+        35.1012,
+        56.0574
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_10_stktex_generic_WoodA": {
+      "modelAssetId": "120648292477046",
+      "glbFile": "build/tracks/sandtrack/submesh_10_stktex_generic_WoodA.glb",
+      "texture": "stktex_generic_WoodA.png",
+      "meshId": "rbxassetid://93193257609653",
+      "meshSize": [
+        35.2489,
+        25.4281,
+        51.6743
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_11_texture_egypte": {
+      "modelAssetId": "94118621013205",
+      "glbFile": "build/tracks/sandtrack/submesh_11_texture_egypte.glb",
+      "texture": "texture_egypte.jpg",
+      "meshId": "rbxassetid://128276230968666",
+      "meshSize": [
+        324.6741,
+        26.9327,
+        248.6422
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_13_water_light": {
+      "modelAssetId": "123461558230029",
+      "glbFile": "build/tracks/sandtrack/submesh_13_water_light.glb",
+      "texture": "water_light.png",
+      "meshId": "rbxassetid://105408382066051",
+      "meshSize": [
+        31.7393,
+        25.6717,
+        53.6465
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_14_woodPost": {
+      "modelAssetId": "103398537725586",
+      "glbFile": "build/tracks/sandtrack/submesh_14_woodPost.glb",
+      "texture": "woodPost.png",
+      "meshId": "rbxassetid://137388376087651",
+      "meshSize": [
+        265.1222,
+        8.4822,
+        73.3545
+      ],
+      "importFlipY180": true
+    },
+    "Submesh_15_wood_planks1": {
+      "modelAssetId": "93555909921278",
+      "glbFile": "build/tracks/sandtrack/submesh_15_wood_planks1.glb",
+      "texture": "wood_planks1.jpg",
+      "meshId": "rbxassetid://132207927287330",
+      "meshSize": [
+        64.7224,
+        21.2951,
+        86.8767
+      ],
+      "importFlipY180": true
+    },
+    "AuxBridgePhysics_00_stktex_generic_WoodA": {
+      "modelAssetId": "134268693511755",
+      "glbFile": "build/tracks/sandtrack/auxbridgephysics_00_stktex_generic_WoodA.glb",
+      "texture": "stktex_generic_WoodA.png",
+      "meshId": "rbxassetid://113508992492095",
+      "meshSize": [
+        72.7675,
+        23.8215,
+        101.6298
+      ],
+      "importFlipY180": true
+    },
+    "AuxGhostBridge_00_stktex_generic_WoodA": {
+      "modelAssetId": "113656280010318",
+      "glbFile": "build/tracks/sandtrack/auxghostbridge_00_stktex_generic_WoodA.glb",
+      "texture": "stktex_generic_WoodA.png",
+      "meshId": "rbxassetid://71902954157391",
+      "meshSize": [
+        72.6945,
+        23.8408,
+        101.8858
+      ],
+      "importFlipY180": true
+    },
+    "AuxSandClouds_00_gfx_sandAnimated_a": {
+      "modelAssetId": "109616717575850",
+      "glbFile": "build/tracks/sandtrack/auxsandclouds_00_gfx_sandAnimated_a.glb",
+      "texture": "gfx_sandAnimated_a.png",
+      "meshId": "rbxassetid://82754914945376",
+      "meshSize": [
+        230.849,
+        405.4981,
+        54.6801
+      ],
+      "importFlipY180": true
+    },
+    "Lib_stklib_accacia_a_00_stk_accacia_a": {
+      "modelAssetId": "76694475949206",
+      "glbFile": "build/tracks/sandtrack/lib_stklib_accacia_a_00_stk_accacia_a.glb",
+      "texture": "stk_accacia_a.png",
+      "meshId": "rbxassetid://108055460223500",
+      "meshSize": [
+        3.6489,
+        5.1545,
+        4.8
+      ],
+      "importFlipY180": true
+    },
+    "Lib_stklib_agave_a_00_stktex_agave_a": {
+      "modelAssetId": "134410796644800",
+      "glbFile": "build/tracks/sandtrack/lib_stklib_agave_a_00_stktex_agave_a.glb",
+      "texture": "stktex_agave_a.png",
+      "meshId": "rbxassetid://118611578263604",
+      "meshSize": [
+        3.2628,
+        1.5793,
+        3.1618
+      ],
+      "importFlipY180": true
+    },
+    "Lib_stklib_lowPalmTree_a_00_stktex_lowPalmLeaf_a": {
+      "modelAssetId": "108156101805252",
+      "glbFile": "build/tracks/sandtrack/lib_stklib_lowpalmtree_a_00_stktex_lowPalmLeaf_a.glb",
+      "texture": "stktex_lowPalmLeaf_a.png",
+      "meshId": "rbxassetid://104006046571891",
+      "meshSize": [
+        12.2802,
+        12.2811,
+        10.6449
+      ],
+      "importFlipY180": true
+    },
+    "Lib_stklib_lowPalmTree_a_01_stktex_lowPalmTree_a": {
+      "modelAssetId": "110237642915039",
+      "glbFile": "build/tracks/sandtrack/lib_stklib_lowpalmtree_a_01_stktex_lowPalmTree_a.glb",
+      "texture": "stktex_lowPalmTree_a.png",
+      "meshId": "rbxassetid://73167185969682",
+      "meshSize": [
+        3.9433,
+        15.6355,
+        3.9433
+      ],
+      "importFlipY180": true
+    },
+    "Lib_stklib_palmTree_a_00_stktex_palmLeafDry_a": {
+      "modelAssetId": "137934255078480",
+      "glbFile": "build/tracks/sandtrack/lib_stklib_palmtree_a_00_stktex_palmLeafDry_a.glb",
+      "texture": "stktex_palmLeafDry_a.png",
+      "meshId": "rbxassetid://102118030358661",
+      "meshSize": [
+        8.5658,
+        14.7275,
+        8.3016
+      ],
+      "importFlipY180": true
+    },
+    "Lib_stklib_palmTree_a_01_stktex_palmLeaf_a": {
+      "modelAssetId": "100137676787633",
+      "glbFile": "build/tracks/sandtrack/lib_stklib_palmtree_a_01_stktex_palmLeaf_a.glb",
+      "texture": "stktex_palmLeaf_a.png",
+      "meshId": "rbxassetid://86136166628298",
+      "meshSize": [
+        19.9656,
+        14.2786,
+        17.1968
+      ],
+      "importFlipY180": true
+    },
+    "Lib_stklib_palmTree_a_02_stktex_palmTreeBark_a": {
+      "modelAssetId": "114996636416368",
+      "glbFile": "build/tracks/sandtrack/lib_stklib_palmtree_a_02_stktex_palmTreeBark_a.glb",
+      "texture": "stktex_palmTreeBark_a.png",
+      "meshId": "rbxassetid://117135721855854",
+      "meshSize": [
+        5.693,
+        29.9458,
+        4.026
+      ],
+      "importFlipY180": true
+    }
+  },
+  "status": "ALL_25_MESHES_AND_28_TEXTURES_UPLOADED"
+}

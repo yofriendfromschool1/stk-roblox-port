@@ -9,23 +9,45 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemBoundsData = require(Shared.items.ItemBoundsData)
+local SandtrackData = require(Shared.track.SandtrackData)
 local TuxBoundsData = require(Shared.kart.TuxBoundsData)
 
 local KartAssetHydrator = {}
 
+local function getTargetCollisionFidelity(placeholder: MeshPart): Enum.CollisionFidelity
+	if placeholder:GetAttribute("DesiredCollisionFidelity") == "PreciseConvexDecomposition" then
+		return Enum.CollisionFidelity.PreciseConvexDecomposition
+	end
+	return placeholder.CollisionFidelity
+end
+
+local function needsHydration(placeholder: MeshPart): boolean
+	if placeholder.MeshId == "" or placeholder.MeshSize.Magnitude <= 1e-4 then
+		return true
+	end
+	if placeholder:GetAttribute("DesiredCollisionFidelity") == "PreciseConvexDecomposition" then
+		return placeholder.CollisionFidelity ~= Enum.CollisionFidelity.PreciseConvexDecomposition
+	end
+	return false
+end
+
 local function hydrateMeshPart(placeholder: MeshPart): MeshPart?
+	local targetFidelity = getTargetCollisionFidelity(placeholder)
 	-- Rojo .model.json writes MeshId without MeshSize; zero MeshSize causes Roblox to distort Size.
-	if placeholder.MeshId ~= "" and placeholder.MeshSize.Magnitude > 1e-4 then
+	if not needsHydration(placeholder) then
 		return placeholder
 	end
 
 	local rawAssetId = placeholder:GetAttribute("MeshAssetId")
 	if type(rawAssetId) ~= "string" or rawAssetId == "" then
+		rawAssetId = placeholder.MeshId
+	end
+	if type(rawAssetId) ~= "string" or rawAssetId == "" then
 		return nil
 	end
 
 	local ok, createdOrErr = pcall(function(): MeshPart
-		return InsertService:CreateMeshPartAsync(rawAssetId, Enum.CollisionFidelity.Box, Enum.RenderFidelity.Precise)
+		return InsertService:CreateMeshPartAsync(rawAssetId, targetFidelity, Enum.RenderFidelity.Precise)
 	end)
 	if not ok then
 		warn(
@@ -46,6 +68,7 @@ local function hydrateMeshPart(placeholder: MeshPart): MeshPart?
 	created.CanTouch = placeholder.CanTouch
 	created.CanQuery = placeholder.CanQuery
 	created.Massless = placeholder.Massless
+	created.DoubleSided = placeholder.DoubleSided
 	created.Size = placeholder.Size
 	created.CFrame = placeholder.CFrame
 	created.Color = placeholder.Color
@@ -127,10 +150,14 @@ local function hydrateModelFolder(folder: Instance?, boundsLookup: { [string]: {
 	local toHydrate: { { model: Model, part: MeshPart } } = {}
 	local models: { Model } = {}
 	for _, assetModel in folder:GetChildren() do
-		if assetModel:IsA("Model") then
+		if assetModel:IsA("MeshPart") then
+			if needsHydration(assetModel) then
+				table.insert(toHydrate, { model = assetModel :: any, part = assetModel })
+			end
+		elseif assetModel:IsA("Model") then
 			table.insert(models, assetModel)
 			for _, child in assetModel:GetChildren() do
-				if child:IsA("MeshPart") and (child.MeshId == "" or child.MeshSize.Magnitude <= 1e-4) then
+				if child:IsA("MeshPart") and needsHydration(child) then
 					table.insert(toHydrate, { model = assetModel, part = child })
 				end
 			end
@@ -186,6 +213,7 @@ local function hydrateModelFolder(folder: Instance?, boundsLookup: { [string]: {
 end
 
 function KartAssetHydrator.hydrateAll(): number
+	local t0 = os.clock()
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	if assets == nil then
 		return 0
@@ -202,6 +230,48 @@ function KartAssetHydrator.hydrateAll(): number
 		itemBounds[itemId] = byPart
 	end
 	local itemsCount = hydrateModelFolder(assets:FindFirstChild("Items"), itemBounds)
+	local tracksFolder = assets:FindFirstChild("Tracks")
+	local tracksCount = 0
+	if tracksFolder then
+		for _, trackModel in tracksFolder:GetChildren() do
+			if trackModel:IsA("Model") then
+				for _, subFolder in trackModel:GetChildren() do
+					if subFolder:IsA("Folder") then
+						tracksCount += hydrateModelFolder(subFolder, nil)
+					end
+				end
+				if trackModel.Name == "sandtrack" then
+					local surfaces = trackModel:FindFirstChild("Surfaces")
+					if surfaces then
+						local expBounds =
+							SandtrackData.expectedBounds :: { [string]: { size: { number }, tris: number } }
+						for pname, info in expBounds do
+							if string.sub(pname, 1, 8) == "Submesh_" then
+								local mp = surfaces:FindFirstChild(pname)
+								if mp and mp:IsA("MeshPart") then
+									local dx = math.abs(mp.Size.X - info.size[1])
+									local dy = math.abs(mp.Size.Y - info.size[2])
+									local dz = math.abs(mp.Size.Z - info.size[3])
+									if dx > 0.05 or dy > 0.05 or dz > 0.05 then
+										error(string.format("[OpenKart] Sandtrack bounds mismatch on %s", pname))
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	print(
+		string.format(
+			"[OpenKart] HydrateAll total=%.1f ms (karts=%d items=%d tracks=%d)",
+			(os.clock() - t0) * 1000,
+			kartsCount,
+			itemsCount,
+			tracksCount
+		)
+	)
 	local itemsFolder = assets:FindFirstChild("Items")
 	if itemsFolder then
 		for _, itemModel in itemsFolder:GetChildren() do
@@ -224,7 +294,7 @@ function KartAssetHydrator.hydrateAll(): number
 			end
 		end
 	end
-	return kartsCount + itemsCount
+	return kartsCount + itemsCount + tracksCount
 end
 
 return table.freeze(KartAssetHydrator)

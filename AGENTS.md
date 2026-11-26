@@ -76,3 +76,22 @@ GO/NO-GO at end of month 2 is "does drift feel good". No content ahead of that g
 VERIFY: run stylua, selene, luau-lsp with @roblox defs, and lune tests. PASTE THE
 ACTUAL OUTPUT. Do not report success without a green run. Do not search the web
 for functions in this repo — they are local.
+
+LICENSING RESOLUTION (do not re-block covered files)
+- A license grant is valid at any scope upstream wrote it: per-file, directory,
+  package, or wildcard. "No filename stanza" != unlicensed.
+- For each of the 10 flagged textures, check in order: textures/licenses.txt
+  wildcard/default -> root stk-assets/licenses.txt -> package stanza whose path
+  scope includes the file. Stop at first hit.
+- The 7 stklib_* textures are package-covered by root licenses.txt. Import them.
+  Cite stanza + line range, attribute Jean-Manuel Clémençon CC-BY-SA 4.0, and
+  record coverage scope as "package-level" in CREDITS.md.
+- transparence2.png: verify alpha extrema. If fully transparent, implement as a
+  native transparent Part preserving collision-reaction="reset"; log as an
+  implementation choice. If partially transparent, log a visual divergence.
+- stktex_generic_WoodA.png / gfx_sandAnimated_a.png: report which submeshes
+  reference them BEFORE deciding. If no grant is found anywhere, do NOT import.
+  Substitute (CC0 or self-authored) with a divergences.md entry naming the
+  original file and reason, or omit with a logged gap if non-drivable.
+- Add a "coverage scope" column to CREDITS.md so per-file vs package-level
+  grants are distinguishable.

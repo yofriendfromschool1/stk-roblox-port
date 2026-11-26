@@ -23,9 +23,11 @@ local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local PowerupManager = require(Shared.items.PowerupManager)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
+local SandtrackRoadCollisionData = require(Shared.track.SandtrackRoadCollisionData)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
 local Standings = require(Shared.race.Standings)
 local TestDummyKart = require(Shared.race.TestDummyKart)
+local TrackRegistry = require(Shared.track.TrackRegistry)
 
 type PlayerKartEntry = {
 	player: Player,
@@ -44,8 +46,6 @@ type PlayerKartEntry = {
 
 local DEBUG_ALLOW_NITRO_GRANT = RunService:IsStudio()
 
-local VOID_RESET_Y_METERS = GreyboxProtocol.VOID_RESET_Y_METERS
-local SPAWN_HEIGHT_METERS = GreyboxProtocol.SPAWN_HEIGHT_METERS
 local SNAPSHOT_INTERVAL_SEC = 1 / GreyboxProtocol.SNAPSHOT_RATE_HZ
 
 local RBX_MATERIALS: { [string]: Enum.Material } = {
@@ -296,11 +296,84 @@ local function fireSnapshotPacket(
 	telemetryRemote:FireClient(entry.player, payload, noticeArg)
 end
 
+local function loadTrackGeometry(trackId: string): (Folder, BasePart)
+	local prevArena = Workspace:FindFirstChild(GreyboxProtocol.ARENA_NAME)
+	if prevArena then
+		prevArena:Destroy()
+	end
+	local prevActive = Workspace:FindFirstChild(TrackRegistry.ACTIVE_TRACK_MODEL_NAME)
+	if prevActive then
+		prevActive:Destroy()
+	end
+
+	if trackId == "openkart_arena" then
+		return createGreyboxArena()
+	end
+
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local tracksFolder = if assets then assets:FindFirstChild("Tracks") else nil
+	local template = if tracksFolder then tracksFolder:FindFirstChild(trackId) else nil
+	if template and template:IsA("Model") then
+		local cloned = template:Clone()
+		cloned.Name = TrackRegistry.ACTIVE_TRACK_MODEL_NAME
+		cloned.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+		local surfaces = cloned:FindFirstChild("Surfaces")
+		local primary: BasePart? = cloned.PrimaryPart or cloned:FindFirstChildWhichIsA("BasePart", true)
+		if surfaces and surfaces:IsA("Folder") and primary then
+			if trackId == "sandtrack" then
+				for idx, chunk in SandtrackRoadCollisionData do
+					local ok, partOrErr = pcall(function(): MeshPart
+						local em = AssetService:CreateEditableMesh()
+						local vIds: { number } = table.create(#chunk.verts // 3)
+						for i = 1, #chunk.verts, 3 do
+							table.insert(
+								vIds,
+								em:AddVertex(Vector3.new(chunk.verts[i], chunk.verts[i + 1], chunk.verts[i + 2]))
+							)
+						end
+						for i = 1, #chunk.tris, 3 do
+							em:AddTriangle(vIds[chunk.tris[i]], vIds[chunk.tris[i + 1]], vIds[chunk.tris[i + 2]])
+						end
+						return AssetService:CreateMeshPartAsync(Content.fromObject(em), {
+							CollisionFidelity = Enum.CollisionFidelity.PreciseConvexDecomposition,
+							RenderFidelity = Enum.RenderFidelity.Automatic,
+						})
+					end)
+					if ok then
+						local mp = partOrErr :: MeshPart
+						mp.Name = "RoadCollisionChunk_" .. tostring(idx)
+						mp.Anchored = true
+						mp.CanCollide = true
+						mp.CanTouch = false
+						mp.CanQuery = true
+						mp.DoubleSided = true
+						mp.Transparency = 1
+						mp.CFrame = CFrame.new(chunk.center[1], chunk.center[2], chunk.center[3])
+						mp:SetAttribute("SurfaceMaterial", "road.jpg")
+						mp.Parent = surfaces
+					else
+						warn("[OpenKart] RoadCollisionChunk failed: " .. tostring(partOrErr))
+					end
+				end
+			end
+			cloned.PrimaryPart = primary
+			cloned.Parent = Workspace
+			return surfaces, primary
+		end
+		cloned:Destroy()
+	end
+
+	warn(string.format("[OpenKart] Track template '%s' missing; falling back to openkart_arena", trackId))
+	return createGreyboxArena()
+end
+
 function GreyboxKartServer.start()
 	Players.CharacterAutoLoads = false
 	KartAssetHydrator.hydrateAll()
 
-	local surfacesFolder, arenaPrimaryPart = createGreyboxArena()
+	local activeTrack = TrackRegistry.get(TrackRegistry.DEFAULT_TRACK_ID)
+	local surfacesFolder, arenaPrimaryPart = loadTrackGeometry(activeTrack.trackId)
+	Workspace:SetAttribute("OpenKartActiveTrack", activeTrack.trackId)
 	Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
 	local worldQuery = RobloxWorldQuery.create(surfacesFolder)
 
@@ -317,10 +390,10 @@ function GreyboxKartServer.start()
 	telemetryRemote.Parent = remotesFolder
 
 	local profile = KartTuning.buildProfile("medium", "best")
-	local itemWorld = ItemWorld.fromArenaSpec(GreyboxArenaData, "NORMAL_RACE")
+	local itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
 	local flyableWorld = Flyable.createWorld()
-	local dummyState = TestDummyKart.create(profile)
-	local dummyAI = TestDummyKart.createAIState(dummyState)
+	local dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
+	local dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
 	local powerupMgr = PowerupManager.new("NORMAL_RACE", 2, ItemTuning.IMPLEMENTED_POWERUPS)
 	local rollCounter = 0
 	local entries: { [Player]: PlayerKartEntry } = {}
@@ -341,6 +414,31 @@ function GreyboxKartServer.start()
 			entry.state.heldPowerup = clampedType
 			entry.state.heldPowerupCount = if clampedType == 0 then 0 else math.max(1, count)
 		end)
+
+		local switchTrackRemote = Instance.new("RemoteEvent")
+		switchTrackRemote.Name = "OpenKartSwitchTrack"
+		switchTrackRemote.Parent = remotesFolder
+		switchTrackRemote.OnServerEvent:Connect(function(_player: Player, nextTrackId: any)
+			if type(nextTrackId) ~= "string" then
+				return
+			end
+			activeTrack = TrackRegistry.get(nextTrackId)
+			surfacesFolder, arenaPrimaryPart = loadTrackGeometry(activeTrack.trackId)
+			worldQuery = RobloxWorldQuery.create(surfacesFolder)
+			itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
+			flyableWorld = Flyable.createWorld()
+			dummyState = TestDummyKart.create(profile, nil, activeTrack.dummyStartPos, activeTrack.dummyStartYawRad)
+			dummyAI = TestDummyKart.createAIState(dummyState, activeTrack.drivelineQuadCenters)
+			Workspace:SetAttribute("OpenKartActiveTrack", activeTrack.trackId)
+			Workspace:SetAttribute("OpenKartRaceStartTime", Workspace:GetServerTimeNow())
+			for _, entry in entries do
+				entry.player.ReplicationFocus = arenaPrimaryPart
+				entry.state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+				entry.progress = AIController.createState(activeTrack.drivelineQuadCenters, entry.state.pos)
+				entry.resetSeq += 1
+				entry.forceSnapshot = true
+			end
+		end)
 	end
 
 	local stepper: FixedStep.Accumulator
@@ -356,12 +454,12 @@ function GreyboxKartServer.start()
 			return
 		end
 		player.ReplicationFocus = arenaPrimaryPart
-		local state = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
+		local state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
 
 		entries[player] = {
 			player = player,
 			state = state,
-			progress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, state.pos),
+			progress = AIController.createState(activeTrack.drivelineQuadCenters, state.pos),
 			input = {
 				accel = 0,
 				brake = false,
@@ -431,7 +529,7 @@ function GreyboxKartServer.start()
 				aiState = entry.progress,
 			})
 		end
-		local ranked = Standings.compute(TestDummyKart.buildStandingsEntries(racers))
+		local ranked = Standings.compute(TestDummyKart.buildStandingsEntries(racers, activeTrack.drivelineQuadCenters))
 		local rankById: { [string]: number } = {}
 		for _, r in ranked do
 			rankById[r.id] = r.rank
@@ -462,7 +560,7 @@ function GreyboxKartServer.start()
 
 			KartSolver.stepWithItems(
 				dummyState,
-				TestDummyKart.computeCruiseInput(dummyState, dummyAI, fixedDt),
+				TestDummyKart.computeCruiseInput(dummyState, dummyAI, fixedDt, nil, activeTrack.drivelineQuadCenters),
 				worldQuery,
 				fixedDt,
 				itemWorld,
@@ -472,7 +570,7 @@ function GreyboxKartServer.start()
 					kartId = TestDummyKart.DUMMY_KART_ID,
 					flyableWorld = flyableWorld,
 					allKartProxies = preProxies,
-					drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+					drivelineCenters = activeTrack.drivelineQuadCenters,
 					rank = rankById[TestDummyKart.DUMMY_STRING_ID] or 1,
 					difficulty = "best",
 				}
@@ -486,13 +584,17 @@ function GreyboxKartServer.start()
 
 			for _, entry in entries do
 				playerFallbackIdx += 1
-				if entry.resetRequested or entry.state.pos.y < VOID_RESET_Y_METERS or entry.state.resetTriggered then
+				if
+					entry.resetRequested
+					or entry.state.pos.y < activeTrack.voidResetYMeters
+					or entry.state.resetTriggered
+				then
 					if entry.state.resetTriggered then
 						entry.resetNoticeText = "RESET (" .. entry.state.activeMaterialName .. ")"
 						entry.resetNoticeExpirySec = os.clock() + 1.5
 					end
-					entry.state = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
-					entry.progress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, entry.state.pos)
+					entry.state = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+					entry.progress = AIController.createState(activeTrack.drivelineQuadCenters, entry.state.pos)
 					entry.resetSeq += 1
 					entry.resetRequested = false
 					entry.forceSnapshot = true
@@ -505,7 +607,7 @@ function GreyboxKartServer.start()
 						kartId = kartId,
 						flyableWorld = flyableWorld,
 						allKartProxies = preProxies,
-						drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+						drivelineCenters = activeTrack.drivelineQuadCenters,
 						rank = myRank,
 						difficulty = "best",
 						rollPowerup = function(_s, ev)
@@ -517,7 +619,7 @@ function GreyboxKartServer.start()
 							return powerupMgr:getRandomPowerup(myRank, seed, itemWorld.elapsedTicks * fixedDt)
 						end,
 					})
-					AIController.updateProgress(entry.progress, entry.state.pos, GreyboxArenaData.drivelineQuadCenters)
+					AIController.updateProgress(entry.progress, entry.state.pos, activeTrack.drivelineQuadCenters)
 					table.insert(collisionParticipants, { id = kartId, state = entry.state })
 					table.insert(activeStates, entry.state)
 					if #events > 0 then
@@ -548,7 +650,7 @@ function GreyboxKartServer.start()
 				postProxies,
 				worldQuery,
 				fixedDt,
-				GreyboxArenaData.drivelineQuadCenters,
+				activeTrack.drivelineQuadCenters,
 				itemWorld.elapsedTicks
 			)
 		end)

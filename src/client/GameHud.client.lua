@@ -14,11 +14,11 @@ local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local HudState = require("./HudState")
 local ItemTuning = require(Shared.ItemTuning)
 local RaceHudMath = require(Shared.hud.RaceHudMath)
 local Standings = require(Shared.race.Standings)
+local TrackRegistry = require(Shared.track.TrackRegistry)
 
 -- Verified CC0 GUI icons (author: Alayan, stk-code data/gui/icons/licenses.txt:L193-L198; audited in assets/CREDITS.md)
 local SPEED_BACK_ASSET = "rbxassetid://118820075105703"
@@ -429,36 +429,56 @@ local minimapCorner = Instance.new("UICorner")
 minimapCorner.CornerRadius = UDim.new(0, 6)
 minimapCorner.Parent = minimapRoot
 
-local outlineCount = math.max(0, #GreyboxArenaData.drivelineQuadCenters - 1)
-local drivelineSegments: { Frame } = table.create(outlineCount)
-for i = 1, outlineCount do
-	local seg = Instance.new("Frame")
-	seg.Name = "DrivelineSeg_" .. tostring(i)
-	seg.AnchorPoint = Vector2.new(0.5, 0.5)
-	seg.BackgroundColor3 = Color3.fromRGB(220, 226, 238)
-	seg.BackgroundTransparency = 0.25
-	seg.BorderSizePixel = 0
-	seg.ZIndex = 2
-	seg.Parent = minimapRoot
-	drivelineSegments[i] = seg
+local function getActiveTrack()
+	local rawId = Workspace:GetAttribute("OpenKartActiveTrack")
+	return TrackRegistry.get(if type(rawId) == "string" then rawId else TrackRegistry.DEFAULT_TRACK_ID)
 end
 
-local quadDots: { Frame } = table.create(#GreyboxArenaData.drivelineQuadCenters)
-for i = 1, #GreyboxArenaData.drivelineQuadCenters do
-	local qdot = Instance.new("Frame")
-	qdot.Name = "QuadCenter_" .. tostring(i)
-	qdot.AnchorPoint = Vector2.new(0.5, 0.5)
-	qdot.Size = UDim2.fromOffset(4, 4)
-	qdot.BackgroundColor3 = Color3.fromRGB(185, 195, 212)
-	qdot.BackgroundTransparency = 0.25
-	qdot.BorderSizePixel = 0
-	qdot.ZIndex = 2
-	qdot.Parent = minimapRoot
-	local qc = Instance.new("UICorner")
-	qc.CornerRadius = UDim.new(1, 0)
-	qc.Parent = qdot
-	quadDots[i] = qdot
+local activeHudTrack = getActiveTrack()
+local drivelineSegments: { Frame } = {}
+local quadDots: { Frame } = {}
+
+local function rebuildMinimapGeometry()
+	for _, seg in drivelineSegments do
+		seg:Destroy()
+	end
+	table.clear(drivelineSegments)
+	for _, qd in quadDots do
+		qd:Destroy()
+	end
+	table.clear(quadDots)
+
+	local outlineCount = math.max(0, #activeHudTrack.drivelineQuadCenters - 1)
+	for i = 1, outlineCount do
+		local seg = Instance.new("Frame")
+		seg.Name = "DrivelineSeg_" .. tostring(i)
+		seg.AnchorPoint = Vector2.new(0.5, 0.5)
+		seg.BackgroundColor3 = Color3.fromRGB(220, 226, 238)
+		seg.BackgroundTransparency = 0.25
+		seg.BorderSizePixel = 0
+		seg.ZIndex = 2
+		seg.Parent = minimapRoot
+		drivelineSegments[i] = seg
+	end
+
+	for i = 1, #activeHudTrack.drivelineQuadCenters do
+		local qdot = Instance.new("Frame")
+		qdot.Name = "QuadCenter_" .. tostring(i)
+		qdot.AnchorPoint = Vector2.new(0.5, 0.5)
+		qdot.Size = UDim2.fromOffset(4, 4)
+		qdot.BackgroundColor3 = Color3.fromRGB(185, 195, 212)
+		qdot.BackgroundTransparency = 0.25
+		qdot.BorderSizePixel = 0
+		qdot.ZIndex = 2
+		qdot.Parent = minimapRoot
+		local qc = Instance.new("UICorner")
+		qc.CornerRadius = UDim.new(1, 0)
+		qc.Parent = qdot
+		quadDots[i] = qdot
+	end
 end
+
+rebuildMinimapGeometry()
 
 -- Start/Finish quad-0 marker (graph.cpp:L229-L273)
 local startTick = Instance.new("Frame")
@@ -565,15 +585,28 @@ for _, spec in blockedSlots do
 end
 
 local arenaBounds: RaceHudMath.MinimapBounds = {
-	minX = GreyboxArenaData.minimapBounds.minX,
-	maxX = GreyboxArenaData.minimapBounds.maxX,
-	minZ = GreyboxArenaData.minimapBounds.minZ,
-	maxZ = GreyboxArenaData.minimapBounds.maxZ,
-	range = GreyboxArenaData.minimapBounds.range,
+	minX = activeHudTrack.minimapBounds.minX,
+	maxX = activeHudTrack.minimapBounds.maxX,
+	minZ = activeHudTrack.minimapBounds.minZ,
+	maxZ = activeHudTrack.minimapBounds.maxZ,
+	range = activeHudTrack.minimapBounds.range,
 }
 
 local lastViewportW = -1
 local lastViewportH = -1
+
+Workspace:GetAttributeChangedSignal("OpenKartActiveTrack"):Connect(function()
+	activeHudTrack = getActiveTrack()
+	arenaBounds = {
+		minX = activeHudTrack.minimapBounds.minX,
+		maxX = activeHudTrack.minimapBounds.maxX,
+		minZ = activeHudTrack.minimapBounds.minZ,
+		maxZ = activeHudTrack.minimapBounds.maxZ,
+		range = activeHudTrack.minimapBounds.range,
+	}
+	rebuildMinimapGeometry()
+	lastViewportW = -1
+end)
 local lastMinimapMode = -1
 local lastTotalKarts = -1
 local cachedSpeedRect: RaceHudMath.HudRect = RaceHudMath.computeSpeedometerRect(800, 450)
@@ -637,7 +670,7 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 	playerIconRoot.Size = UDim2.fromOffset(topRect.width, math.max(topRect.height, totalKarts * (topRect.height + 2)))
 
 	-- Project canonical driveline quad centers through RaceHudMath.projectToMinimap
-	local centers = GreyboxArenaData.drivelineQuadCenters
+	local centers = activeHudTrack.drivelineQuadCenters
 	local projected: { { number } } = table.create(#centers)
 	for i, c in centers do
 		local px, py = RaceHudMath.projectToMinimap(
@@ -661,8 +694,14 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 			3
 		)
 	end
-	local sx, sy =
-		RaceHudMath.projectToMinimap(0, 0, arenaBounds, cachedMinimapLayout.width, cachedMinimapLayout.height, false)
+	local sx, sy = RaceHudMath.projectToMinimap(
+		activeHudTrack.startPos.x,
+		activeHudTrack.startPos.z,
+		arenaBounds,
+		cachedMinimapLayout.width,
+		cachedMinimapLayout.height,
+		false
+	)
 	startTick.Position = UDim2.fromOffset(sx, sy)
 end
 

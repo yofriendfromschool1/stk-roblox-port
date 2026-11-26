@@ -16,7 +16,6 @@ local AIController = require(Shared.ai.AIController)
 local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local FlyablePresentation = require("./items/FlyablePresentation")
-local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local HudState = require("./HudState")
 local InputMapper = require("./InputMapper")
@@ -34,6 +33,7 @@ local SfxEvents = require(Shared.audio.SfxEvents)
 local SfxPlayer = require("./SfxPlayer")
 local Standings = require(Shared.race.Standings)
 local TouchControls = require("./TouchControls")
+local TrackRegistry = require(Shared.track.TrackRegistry)
 local Units = require(Shared.Units)
 
 type ClientInputPacket = GreyboxProtocol.ClientInputPacket
@@ -58,8 +58,6 @@ local inputRemote = remotesFolder:WaitForChild(GreyboxProtocol.INPUT_REMOTE) :: 
 local telemetryRemote = remotesFolder:WaitForChild(GreyboxProtocol.TELEMETRY_REMOTE) :: UnreliableRemoteEvent
 
 local IS_STUDIO = RunService:IsStudio()
-local SPAWN_HEIGHT_METERS = GreyboxProtocol.SPAWN_HEIGHT_METERS
-local VOID_RESET_Y_METERS = GreyboxProtocol.VOID_RESET_Y_METERS
 local INPUT_HEARTBEAT_SEC = 1 / GreyboxProtocol.SNAPSHOT_RATE_HZ
 local MAX_INPUT_HISTORY = 240
 
@@ -179,7 +177,12 @@ local profile = KartTuning.buildProfile("medium", "best")
 local visuals = KartPresentation.create(localPlayer, profile, "tux")
 
 local localKartId = if localPlayer.UserId ~= 0 then localPlayer.UserId else 1
-local localItemWorld = ItemWorld.fromArenaSpec(GreyboxArenaData, "NORMAL_RACE")
+local activeTrack = TrackRegistry.get(
+	if type(Workspace:GetAttribute("OpenKartActiveTrack")) == "string"
+		then Workspace:GetAttribute("OpenKartActiveTrack") :: string
+		else TrackRegistry.DEFAULT_TRACK_ID
+)
+local localItemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
 local localFlyableWorld = Flyable.createWorld()
 local itemVisuals = ItemPresentation.create()
 local flyableVisuals = FlyablePresentation.create()
@@ -192,8 +195,8 @@ local localAudioTracker = SfxEvents.createTracker()
 local remoteAudioTrackers: { [string]: SfxEvents.AudioTracker } = {}
 
 local localStepper = FixedStep.new()
-local localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
-local localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
+local localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+local localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 local prevPose = capturePose(localState)
 local currPose = capturePose(localState)
 
@@ -202,7 +205,8 @@ local function resolveWorldQuery(): KartSolver.WorldQuery?
 	if cachedWorldQuery ~= nil then
 		return cachedWorldQuery
 	end
-	local arena = Workspace:FindFirstChild(GreyboxProtocol.ARENA_NAME)
+	local activeModel = Workspace:FindFirstChild(TrackRegistry.ACTIVE_TRACK_MODEL_NAME)
+	local arena = if activeModel then activeModel else Workspace:FindFirstChild(GreyboxProtocol.ARENA_NAME)
 	local surfaces = if arena then arena:FindFirstChild("Surfaces") else nil
 	if surfaces then
 		cachedWorldQuery = RobloxWorldQuery.create(surfaces)
@@ -249,6 +253,22 @@ if IS_STUDIO and hud.switcherFrame then
 			grantDebugItem(itemType)
 		end)
 	end
+	local switchTrackRemote = remotesFolder:FindFirstChild("OpenKartSwitchTrack")
+	if switchTrackRemote and switchTrackRemote:IsA("RemoteEvent") then
+		local trackBtn = Instance.new("TextButton")
+		trackBtn.Name = "TrackSwitchBtn"
+		trackBtn.BackgroundColor3 = Color3.fromRGB(48, 72, 54)
+		trackBtn.TextColor3 = Color3.fromRGB(240, 244, 250)
+		trackBtn.Font = Enum.Font.Code
+		trackBtn.TextSize = 11
+		trackBtn.Text = "Arena"
+		trackBtn.Parent = hud.switcherFrame
+		trackBtn.Activated:Connect(function()
+			local nextId = if activeTrack.trackId == "sandtrack" then "openkart_arena" else "sandtrack"
+			trackBtn.Text = if nextId == "sandtrack" then "Arena" else "Sandtrk"
+			(switchTrackRemote :: RemoteEvent):FireServer(nextId)
+		end)
+	end
 	UserInputService.InputBegan:Connect(function(inputObj: InputObject, gameProcessed: boolean)
 		if gameProcessed then
 			return
@@ -276,6 +296,20 @@ local resetNoticeExpirySec = 0.0
 local lastCorrectionErrMeters = 0.0
 local lastReplayedTicks = 0
 local inputHistory: { InputHistoryEntry } = {}
+
+Workspace:GetAttributeChangedSignal("OpenKartActiveTrack"):Connect(function()
+	local rawId = Workspace:GetAttribute("OpenKartActiveTrack")
+	activeTrack = TrackRegistry.get(if type(rawId) == "string" then rawId else TrackRegistry.DEFAULT_TRACK_ID)
+	cachedWorldQuery = nil
+	localItemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
+	localFlyableWorld = Flyable.createWorld()
+	localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+	localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
+	table.clear(inputHistory)
+	ReconciliationSmoother.reset(reconciler)
+	prevPose = capturePose(localState)
+	currPose = capturePose(localState)
+end)
 
 local lastSent: ClientInputPacket = {
 	seq = 0,
@@ -374,7 +408,7 @@ local function buildClientCollisionParticipants(): { KartSolver.CollisionPartici
 end
 
 local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, number, { Flyable.KartProxy })
-	local nPts = math.max(1, #GreyboxArenaData.drivelineQuadCenters)
+	local nPts = math.max(1, #activeTrack.drivelineQuadCenters)
 	local entries: { Standings.StandingsEntry } = {
 		{
 			id = "local",
@@ -386,7 +420,7 @@ local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, 
 	}
 	for idx, rk in latestRemoteKarts do
 		local rPos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
-		local rNode, rDist = AIController.computeTrackProgress(rPos, GreyboxArenaData.drivelineQuadCenters)
+		local rNode, rDist = AIController.computeTrackProgress(rPos, activeTrack.drivelineQuadCenters)
 		local nIdx = rk.trackNodeIdx or rNode
 		table.insert(entries, {
 			id = rk.id,
@@ -451,8 +485,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		KartSolver.addNitro(localState, profile.nitro.bigContainer)
 	end
 	if wantsReset then
-		localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
-		localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
+		localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+		localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 		table.clear(inputHistory)
 		pendingSnapshot = nil
 		ReconciliationSmoother.reset(reconciler)
@@ -493,7 +527,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			if snapshot.resetSeq > lastResetSeq then
 				lastResetSeq = snapshot.resetSeq
 				KartSolver.applyNetState(localState, snapshot.netState, localItemWorld, localFlyableWorld)
-				localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
+				localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 				table.clear(inputHistory)
 				prevPose = capturePose(localState)
 				currPose = capturePose(localState)
@@ -535,23 +569,19 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 								kartId = localKartId,
 								flyableWorld = localFlyableWorld,
 								allKartProxies = proxies,
-								drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+								drivelineCenters = activeTrack.drivelineQuadCenters,
 								rank = myRank,
 								difficulty = "best",
 							}
 						)
 						KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
-						AIController.updateProgress(
-							localProgress,
-							localState.pos,
-							GreyboxArenaData.drivelineQuadCenters
-						)
+						AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
 						Flyable.step(
 							localFlyableWorld,
 							proxies,
 							worldQuery,
 							FixedStep.FIXED_DT,
-							GreyboxArenaData.drivelineQuadCenters,
+							activeTrack.drivelineQuadCenters,
 							localItemWorld.elapsedTicks
 						)
 					end
@@ -588,13 +618,13 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			steppedThisFrame = true
 			inputSeq += 1
 			prevPose = capturePose(localState)
-			if localState.pos.y < VOID_RESET_Y_METERS or localState.resetTriggered then
+			if localState.pos.y < activeTrack.voidResetYMeters or localState.resetTriggered then
 				if localState.resetTriggered then
 					resetNoticeText = "RESET (" .. localState.activeMaterialName .. ")"
 					resetNoticeExpirySec = os.clock() + 1.5
 				end
-				localState = KartSolver.createState(profile, { x = 0, y = SPAWN_HEIGHT_METERS, z = 0 }, 0)
-				localProgress = AIController.createState(GreyboxArenaData.drivelineQuadCenters, localState.pos)
+				localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+				localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 				table.clear(inputHistory)
 				pendingSnapshot = nil
 				ReconciliationSmoother.reset(reconciler)
@@ -622,18 +652,18 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					kartId = localKartId,
 					flyableWorld = localFlyableWorld,
 					allKartProxies = proxies,
-					drivelineCenters = GreyboxArenaData.drivelineQuadCenters,
+					drivelineCenters = activeTrack.drivelineQuadCenters,
 					rank = myRank,
 					difficulty = "best",
 				})
 				KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
-				AIController.updateProgress(localProgress, localState.pos, GreyboxArenaData.drivelineQuadCenters)
+				AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
 				Flyable.step(
 					localFlyableWorld,
 					proxies,
 					worldQuery,
 					fixedDt,
-					GreyboxArenaData.drivelineQuadCenters,
+					activeTrack.drivelineQuadCenters,
 					localItemWorld.elapsedTicks
 				)
 				currPose = capturePose(localState)
