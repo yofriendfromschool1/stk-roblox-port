@@ -121,6 +121,11 @@ ItemTuning.bubblegum = table.freeze({
 	SHIELD_DURATION_SEC = 10.0, -- data/kart_characteristics.xml:L239 shield-duration="10.0" / stk_config.xml:L248
 	DISAPPEAR_COUNTER = 1, -- data/stk_config.xml:L248 disappear-counter="1"
 	RESTRICT_WEAPONS = false, -- data/stk_config.xml:L248 restrict-weapons="false"
+	-- Expiring bubblegum shield flash timings (src/items/attachment.cpp:L654-L667)
+	SHIELD_SLOW_FLASH_THRESHOLD_SEC = 3.0,
+	SHIELD_SLOW_FLASH_PERIOD_SEC = 0.2,
+	SHIELD_FAST_FLASH_THRESHOLD_SEC = 0.5,
+	SHIELD_FAST_FLASH_PERIOD_SEC = 0.07,
 })
 
 -- Banana-triggered & item-triggered attachment constants (kart_characteristics.xml:L211, L229-L231, L301)

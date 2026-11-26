@@ -55,15 +55,16 @@ def _make_part(
     transparency: float = 0.0,
     can_collide: bool = True,
     can_touch: bool = False,
-    can_query: bool = True,
+    can_query: Optional[bool] = None,
     shape: Optional[str] = None,
     attributes: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    resolved_can_query = can_collide if can_query is None else can_query
     props: dict[str, Any] = {
         "Anchored": True,
         "CanCollide": can_collide,
         "CanTouch": can_touch,
-        "CanQuery": can_query,
+        "CanQuery": resolved_can_query,
         "Size": size,
         "Color": color,
         "Transparency": transparency,
@@ -85,56 +86,6 @@ def _make_part(
         "Name": name,
         "Properties": props,
     }
-
-
-def _build_main_track_part(
-    scene: SceneData,
-    mesh_audits: dict[str, MeshAudit],
-) -> dict[str, Any]:
-    audit = mesh_audits.get(scene.main_track_model)
-    orient = stk_hpr_to_rbx_matrix(*scene.main_track_hpr)
-
-    if audit is not None:
-        cx_m = 0.5 * (audit.bbox_min_m[0] + audit.bbox_max_m[0]) + scene.main_track_xyz[0]
-        cy_m = 0.5 * (audit.bbox_min_m[1] + audit.bbox_max_m[1]) + scene.main_track_xyz[1]
-        cz_m = 0.5 * (audit.bbox_min_m[2] + audit.bbox_max_m[2]) + scene.main_track_xyz[2]
-        pos = stk_to_rbx_pos(cx_m, cy_m, cz_m)
-        size, raw_studs, exceeds_size = stk_to_rbx_size(*audit.size_m, min_studs=1.0)
-        attrs: dict[str, Any] = {
-            "ModelFile": scene.main_track_model,
-            "MeshFormat": audit.mesh_format,
-            "SubmeshCount": audit.submesh_count,
-            "MaterialCount": audit.material_count,
-            "TriangleCount": audit.triangle_count,
-            "VertexCount": audit.vertex_count,
-            "MaxSubmeshTriangles": audit.max_submesh_triangles,
-            "ExceedsCap20k": audit.exceeds_20k_whole,
-            "ExceedsCap10k": audit.exceeds_10k_whole,
-            "ExceedsCap20kSubmesh": audit.exceeds_20k_any_submesh,
-            "ExceedsCap10kSubmesh": audit.exceeds_10k_any_submesh,
-            "Exceeds2048Studs": exceeds_size,
-            "RawSizeStudsX": raw_studs[0],
-            "RawSizeStudsY": raw_studs[1],
-            "RawSizeStudsZ": raw_studs[2],
-        }
-    else:
-        pos = stk_to_rbx_pos(*scene.main_track_xyz)
-        size = [10.0, 1.0, 10.0]
-        attrs = {
-            "ModelFile": scene.main_track_model,
-            "MeshFormat": "MISSING",
-        }
-
-    return _make_part(
-        name="MainTrack",
-        size=size,
-        pos=pos,
-        orient=orient,
-        color=[0.85, 0.72, 0.45],
-        transparency=0.92,
-        can_collide=False,
-        attributes=attrs,
-    )
 
 
 def _build_driveline_folder(graph: DriveGraphData) -> dict[str, Any]:
@@ -160,7 +111,7 @@ def _build_driveline_folder(graph: DriveGraphData) -> dict[str, Any]:
                 transparency=1.0,
                 can_collide=False,
                 can_touch=False,
-                can_query=True,
+                can_query=False,
                 attributes=attrs,
             )
         )
@@ -225,7 +176,7 @@ def _build_checkpoints_folder(scene: SceneData, graph: DriveGraphData) -> dict[s
                 transparency=1.0,
                 can_collide=False,
                 can_touch=False,
-                can_query=True,
+                can_query=False,
                 shape=shape,
                 attributes=attrs,
             )
@@ -364,7 +315,7 @@ def _build_starts_folder(scene: SceneData, graph: DriveGraphData) -> dict[str, A
                     transparency=0.3,
                     can_collide=False,
                     can_touch=False,
-                    can_query=True,
+                    can_query=False,
                     attributes={"StartPosition": st.position, "HeadingDeg": st.heading},
                 )
             )
@@ -425,7 +376,6 @@ def emit_track_model_json(
             }),
         },
         "Children": [
-            _build_main_track_part(scene, mesh_audits),
             _build_driveline_folder(graph),
             _build_checkpoints_folder(scene, graph),
             _build_items_folder(scene.items),

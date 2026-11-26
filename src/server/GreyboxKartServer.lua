@@ -94,9 +94,10 @@ local function makeSurfacePart(
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Anchored = true
-	part.CanCollide = if canCollide ~= nil then canCollide else true
+	local collide = if canCollide ~= nil then canCollide else true
+	part.CanCollide = collide
 	part.CanTouch = false
-	part.CanQuery = true
+	part.CanQuery = collide
 	part.Size = size
 	part.CFrame = cf
 	part.Color = color
@@ -353,6 +354,24 @@ local function loadTrackGeometry(trackId: string): (Folder, BasePart)
 						mp.Parent = surfaces
 					else
 						warn("[OpenKart] RoadCollisionChunk failed: " .. tostring(partOrErr))
+					end
+				end
+			end
+			for _, desc in cloned:GetDescendants() do
+				if desc:IsA("BasePart") then
+					if desc:IsDescendantOf(surfaces) then
+						assert(
+							desc.CanCollide == desc.CanQuery,
+							string.format(
+								"[OpenKart] Surfaces part '%s' flag mismatch: CanCollide=%s CanQuery=%s",
+								desc.Name,
+								tostring(desc.CanCollide),
+								tostring(desc.CanQuery)
+							)
+						)
+					else
+						desc.CanCollide = false
+						desc.CanQuery = false
 					end
 				end
 			end
@@ -634,6 +653,23 @@ function GreyboxKartServer.start()
 				end
 			end
 
+			local ssParticipants: { KartSolver.SlipstreamParticipant } = table.create(#collisionParticipants)
+			for _, cp in collisionParticipants do
+				local isDummy = (cp.id == TestDummyKart.DUMMY_KART_ID)
+				local diffPreset = KartTuning.difficulties[cp.state.profile.difficulty]
+				local disableSS = isDummy and diffPreset ~= nil and diffPreset.aiDisableSlipstreamUsage
+				table.insert(ssParticipants, {
+					id = cp.id,
+					state = cp.state,
+					disableSlipstream = disableSS,
+				})
+			end
+			if KartSolver.stepSlipstream(ssParticipants, fixedDt, stepper:getTick()) > 0 then
+				for _, other in entries do
+					other.forceSnapshot = true
+				end
+			end
+
 			for _, attackerState in activeStates do
 				if attackerState.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
 					if KartSolver.checkSwatterHits(attackerState, activeStates, itemWorld.elapsedTicks) > 0 then
@@ -645,6 +681,11 @@ function GreyboxKartServer.start()
 			end
 
 			local _, postProxies = computeStandingsAndProxies()
+			local preFlyCount = #flyableWorld.entries
+			local preEffects: { [Player]: number } = {}
+			for player, entry in entries do
+				preEffects[player] = entry.state.itemEffect.effectType
+			end
 			Flyable.step(
 				flyableWorld,
 				postProxies,
@@ -653,6 +694,12 @@ function GreyboxKartServer.start()
 				activeTrack.drivelineQuadCenters,
 				itemWorld.elapsedTicks
 			)
+			local flyChanged = (#flyableWorld.entries ~= preFlyCount)
+			for player, entry in entries do
+				if flyChanged or entry.state.itemEffect.effectType ~= preEffects[player] then
+					entry.forceSnapshot = true
+				end
+			end
 		end)
 		debug.profileend()
 
@@ -665,6 +712,16 @@ function GreyboxKartServer.start()
 		end
 
 		local latestRanks, _ = computeStandingsAndProxies()
+		local function getRemoteSlipstreamTimes(s: KartSolver.KartState): (number, number)
+			local ssTime = if s.slipstream.inZone then math.max(0.0, s.slipstream.slipstreamTime) else 0.0
+			local ssInc = s.maxSpeedState.increases["SLIPSTREAM"]
+			local fadeRatio = if ssInc.active and ssInc.maxAddSpeed > 0
+				then (ssInc.currentSpeedup / ssInc.maxAddSpeed)
+				else 0.0
+			local ssBonus = math.max(s.slipstream.bonusTime, fadeRatio)
+			return ssTime, ssBonus
+		end
+		local dummySSTime, dummySSBonus = getRemoteSlipstreamTimes(dummyState)
 		local dummyTel = KartSolver.getTelemetry(dummyState)
 		local dummyRemoteState: GreyboxProtocol.RemoteKartState = {
 			id = TestDummyKart.DUMMY_STRING_ID,
@@ -674,26 +731,34 @@ function GreyboxKartServer.start()
 			speed = dummyState.speed,
 			steer = dummyState.steer,
 			attachmentType = dummyTel.attachmentType,
+			attachmentTicksLeft = dummyTel.attachmentTicksLeft,
 			plungerFaceTicks = dummyTel.plungerFaceTicks,
 			timedImpulseTicks = dummyState.timedImpulseTicks,
 			isSquashed = dummyTel.isSquashed,
 			rank = latestRanks[TestDummyKart.DUMMY_STRING_ID] or 1,
 			lap = dummyAI.lap,
 			trackNodeIdx = dummyAI.trackNodeIdx,
+			slipstreamTime = dummySSTime,
+			slipstreamBonusTime = dummySSBonus,
 		}
 
 		for _, entry in entries do
 			local curr = entry.state
+			local currTel = KartSolver.getTelemetry(curr)
 			if
-				(curr.maxCompressionRatio >= 1.0 or curr.chassisSweepHitCount > entry.lastLoggedSweepCount)
-				and (now - entry.lastDiagLogSec) > 0.25
+				(
+					curr.maxCompressionRatio >= 1.0
+					or curr.chassisSweepHitCount > entry.lastLoggedSweepCount
+					or currTel.slipstreamInZone
+					or currTel.slipstreamActive
+				) and (now - entry.lastDiagLogSec) > 0.25
 			then
 				entry.lastDiagLogSec = now
 				entry.lastLoggedSweepCount = curr.chassisSweepHitCount
 				local n1 = curr.wheels[1].contactNormalWS
 				print(
 					string.format(
-						"[OpenKart Diag] v=%.2fm/s y=%.3fm comp=%.2f sweeps=%d depen=%d mat=%s n1=(%.2f,%.2f,%.2f)",
+						"[OpenKart Diag] v=%.2fm/s y=%.3fm comp=%.2f sweeps=%d depen=%d mat=%s n1=(%.2f,%.2f,%.2f) ssInZone=%s chargeTicks=%d ready=%s act=%s max=%.2f",
 						curr.speed,
 						curr.pos.y,
 						curr.maxCompressionRatio,
@@ -702,7 +767,12 @@ function GreyboxKartServer.start()
 						curr.activeMaterialName,
 						n1.x,
 						n1.y,
-						n1.z
+						n1.z,
+						tostring(currTel.slipstreamInZone),
+						currTel.slipstreamChargeTicks,
+						tostring(currTel.slipstreamReady),
+						tostring(currTel.slipstreamActive),
+						currTel.currentMaxSpeed
 					)
 				)
 			end
@@ -714,6 +784,7 @@ function GreyboxKartServer.start()
 					if other ~= entry then
 						local sid = tostring(if other.player.UserId ~= 0 then other.player.UserId else 1)
 						local oTel = KartSolver.getTelemetry(other.state)
+						local oSSTime, oSSBonus = getRemoteSlipstreamTimes(other.state)
 						table.insert(remotesForPlayer, {
 							id = sid,
 							pos = { other.state.pos.x, other.state.pos.y, other.state.pos.z },
@@ -722,12 +793,15 @@ function GreyboxKartServer.start()
 							speed = other.state.speed,
 							steer = other.state.steer,
 							attachmentType = oTel.attachmentType,
+							attachmentTicksLeft = oTel.attachmentTicksLeft,
 							plungerFaceTicks = oTel.plungerFaceTicks,
 							timedImpulseTicks = other.state.timedImpulseTicks,
 							isSquashed = oTel.isSquashed,
 							rank = latestRanks[sid] or 1,
 							lap = other.progress.lap,
 							trackNodeIdx = other.progress.trackNodeIdx,
+							slipstreamTime = oSSTime,
+							slipstreamBonusTime = oSSBonus,
 						})
 					end
 				end

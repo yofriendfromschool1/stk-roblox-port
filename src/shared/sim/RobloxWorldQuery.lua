@@ -4,6 +4,7 @@
 -- Shared Roblox Workspace raycast/Blockcast WorldQuery + STK->Roblox CFrame boundary helper
 -- used identically by Server authority and Client 120 Hz prediction.
 
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local KartSolver = require("./KartSolver")
 local Math3D = require("./Math3D")
@@ -11,12 +12,33 @@ local Units = require("../Units")
 
 local RobloxWorldQuery = {}
 
--- GetPartBoundsInBox is AABB-only. Large track submeshes and collision chunks have
--- bounding boxes extending far above their real triangles, so an AABB hit is a
--- CANDIDATE, never proof of overlap. Narrowphase = shrunk-core outward Blockcasts,
--- which test real collision geometry (same technique as KartSolver's 6-axis probes).
-local OVERLAP_CORE_SCALE = 0.94
-local OVERLAP_PROBE_SKIN = 0.004 -- studs
+-- When Blockcast starts already intersecting a part, Roblox ignores that part and returns nil.
+-- Broadphase uses GetPartBoundsInBox (cheap AABB reject); narrowphase uses GetPartsInPart
+-- (exact CollisionFidelity / PreciseConvexDecomposition geometry, never blind to deep overlap).
+-- If sweepChassis returns nil while overlapping, a shrunk-core Blockcast + backed-off center ray
+-- recover the contact normal so the chassis can never phase through walls or ramp undersides.
+local SWEEP_FALLBACK_CORE_SCALE = 0.45
+
+local function getOrCreateOverlapProbe(): Part
+	local probeName = if RunService:IsServer() then "_OpenKartChassisProbe_S" else "_OpenKartChassisProbe_C"
+	local existing = Workspace:FindFirstChild(probeName)
+	if existing and existing:IsA("Part") then
+		return existing
+	end
+	local probe = Instance.new("Part")
+	probe.Name = probeName
+	probe.Anchored = true
+	probe.CanCollide = false
+	probe.CanQuery = false
+	probe.CanTouch = false
+	probe.Massless = true
+	probe.CastShadow = false
+	probe.Transparency = 1.0
+	probe.Size = Vector3.new(1, 1, 1)
+	probe.CFrame = CFrame.new(0, -10000, 0)
+	probe.Parent = Workspace
+	return probe
+end
 
 function RobloxWorldQuery.stkPoseToRobloxCFrame(
 	pos: Math3D.Vec3,
@@ -42,7 +64,7 @@ function RobloxWorldQuery.create(surfacesFolder: Instance): KartSolver.WorldQuer
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Include
 	rayParams.FilterDescendantsInstances = { surfacesFolder }
-	rayParams.RespectCanCollide = false
+	rayParams.RespectCanCollide = true
 
 	local sweepParams = RaycastParams.new()
 	sweepParams.FilterType = Enum.RaycastFilterType.Include
@@ -53,6 +75,36 @@ function RobloxWorldQuery.create(surfacesFolder: Instance): KartSolver.WorldQuer
 	overlapParams.FilterType = Enum.RaycastFilterType.Include
 	overlapParams.FilterDescendantsInstances = { surfacesFolder }
 	overlapParams.RespectCanCollide = true
+
+	local probePart = getOrCreateOverlapProbe()
+
+	local function hasExactOverlap(rbxCf: CFrame, rbxSize: Vector3): boolean
+		if #Workspace:GetPartBoundsInBox(rbxCf, rbxSize, overlapParams) == 0 then
+			return false
+		end
+		probePart.Size = rbxSize
+		probePart.CFrame = rbxCf
+		return #Workspace:GetPartsInPart(probePart, overlapParams) > 0
+	end
+
+	local function toSweepHit(result: RaycastResult, frac: number): KartSolver.SweepHit
+		local rawMat = result.Instance:GetAttribute("SurfaceMaterial")
+		local matName = if type(rawMat) == "string" then rawMat else nil
+		return {
+			fraction = math.clamp(frac, 0.0, 1.0),
+			point = {
+				x = Units.studsToMeters(result.Position.X),
+				y = Units.studsToMeters(result.Position.Y),
+				z = Units.studsToMeters(-result.Position.Z),
+			},
+			normal = {
+				x = result.Normal.X,
+				y = result.Normal.Y,
+				z = -result.Normal.Z,
+			},
+			materialName = matName,
+		}
+	end
 
 	local function toRobloxBoxCFrameAndSize(
 		center: Math3D.Vec3,
@@ -120,54 +172,40 @@ function RobloxWorldQuery.create(surfacesFolder: Instance): KartSolver.WorldQuer
 			end
 			local rbxCf, rbxSize = toRobloxBoxCFrameAndSize(center, rot, halfExtents)
 			local result = Workspace:Blockcast(rbxCf, rbxSize, rbxDelta, sweepParams)
-			if result == nil then
+			if result ~= nil then
+				return toSweepHit(result, result.Distance / deltaMag)
+			end
+
+			-- Fallback when starting box already touches/penetrates a surface (Blockcast ignores initial overlaps)
+			if not hasExactOverlap(rbxCf, rbxSize) then
 				return nil
 			end
-			local rawMat = result.Instance:GetAttribute("SurfaceMaterial")
-			local matName = if type(rawMat) == "string" then rawMat else nil
-			return {
-				fraction = math.clamp(result.Distance / deltaMag, 0.0, 1.0),
-				point = {
-					x = Units.studsToMeters(result.Position.X),
-					y = Units.studsToMeters(result.Position.Y),
-					z = Units.studsToMeters(-result.Position.Z),
-				},
-				normal = {
-					x = result.Normal.X,
-					y = result.Normal.Y,
-					z = -result.Normal.Z,
-				},
-				materialName = matName,
-			}
+
+			local dir = rbxDelta / deltaMag
+			local halfAlong = 0.5
+				* (
+					math.abs(dir:Dot(rbxCf.RightVector)) * rbxSize.X
+					+ math.abs(dir:Dot(rbxCf.UpVector)) * rbxSize.Y
+					+ math.abs(dir:Dot(rbxCf.LookVector)) * rbxSize.Z
+				)
+			local coreSize = rbxSize * SWEEP_FALLBACK_CORE_SCALE
+			local margin = halfAlong * (1.0 - SWEEP_FALLBACK_CORE_SCALE)
+			local coreRes = Workspace:Blockcast(rbxCf, coreSize, dir * (margin + deltaMag), sweepParams)
+			if coreRes ~= nil and coreRes.Normal:Dot(dir) < -1e-4 then
+				return toSweepHit(coreRes, (coreRes.Distance - margin) / deltaMag)
+			end
+
+			local rayRes =
+				Workspace:Raycast(rbxCf.Position - dir * halfAlong, dir * (2.0 * halfAlong + deltaMag), sweepParams)
+			if rayRes ~= nil and rayRes.Normal:Dot(dir) < -1e-4 then
+				return toSweepHit(rayRes, 0.0)
+			end
+			return nil
 		end,
 
 		checkChassisOverlap = function(center: Math3D.Vec3, rot: Math3D.Quat, halfExtents: Math3D.Vec3): boolean
 			local rbxCf, rbxSize = toRobloxBoxCFrameAndSize(center, rot, halfExtents)
-
-			-- Broadphase: cheap AABB reject only.
-			if #Workspace:GetPartBoundsInBox(rbxCf, rbxSize, overlapParams) == 0 then
-				return false
-			end
-
-			-- Narrowphase: shrunk core swept outward along each local axis. Only real
-			-- geometry within the shrink margin counts as penetration, so track-spanning
-			-- AABBs can no longer pin the kart to lastSafePos.
-			local core = rbxSize * OVERLAP_CORE_SCALE
-			local probes: { { dir: Vector3, dist: number } } = {
-				{ dir = rbxCf.RightVector, dist = (rbxSize.X - core.X) * 0.5 },
-				{ dir = -rbxCf.RightVector, dist = (rbxSize.X - core.X) * 0.5 },
-				{ dir = rbxCf.UpVector, dist = (rbxSize.Y - core.Y) * 0.5 },
-				{ dir = -rbxCf.UpVector, dist = (rbxSize.Y - core.Y) * 0.5 },
-				{ dir = rbxCf.LookVector, dist = (rbxSize.Z - core.Z) * 0.5 },
-				{ dir = -rbxCf.LookVector, dist = (rbxSize.Z - core.Z) * 0.5 },
-			}
-			for _, probe in probes do
-				local dist = probe.dist + OVERLAP_PROBE_SKIN
-				if dist > 1e-5 and Workspace:Blockcast(rbxCf, core, probe.dir * dist, sweepParams) ~= nil then
-					return true
-				end
-			end
-			return false
+			return hasExactOverlap(rbxCf, rbxSize)
 		end,
 	}
 end

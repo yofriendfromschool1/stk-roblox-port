@@ -3,6 +3,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 
 local FixedStep = require("../src/shared/sim/FixedStep")
+local GreyboxProtocol = require("../src/shared/net/GreyboxProtocol")
 local KartSolver = require("../src/shared/sim/KartSolver")
 local KartTuning = require("../src/shared/KartTuning")
 local Math3D = require("../src/shared/sim/Math3D")
@@ -1239,6 +1240,108 @@ local tests: { TestCase } = {
 			)
 			assert(not sCommit.nitro.active, "committed burn ends at tick 64 and does not re-ignite while accel=0")
 			assert(sCommit.nitro.minNitroTicks == 0, "minNitroTicks returns to 0 after committed burn")
+		end,
+	},
+	{
+		name = "60-tick stuck escape recovers instead of stranding",
+		fn = function()
+			local baseWorld = makeFlatPlaneWorld(0)
+			local alwaysOverlapWorld: WorldQuery = {
+				raycast = baseWorld.raycast,
+				sweepChassis = nil,
+				checkChassisOverlap = function(): boolean
+					return true
+				end,
+			}
+			local profile = KartTuning.buildProfile("medium", "best")
+			local state = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local driveInput: KartInput = { accel = 1, brake = false, steer = 0, drift = false }
+
+			for tick = 1, 59 do
+				KartSolver.step(state, driveInput, alwaysOverlapWorld, FixedStep.FIXED_DT)
+				assert(
+					state.stuckTicks == tick,
+					string.format("expected stuckTicks == %d at tick %d, got %d", tick, tick, state.stuckTicks)
+				)
+				assertNear(state.pos.z, 0, 1e-6, "pinned at spawn before 60-tick escape")
+			end
+
+			KartSolver.step(state, driveInput, alwaysOverlapWorld, FixedStep.FIXED_DT)
+			assert(state.stuckTicks == 0, "stuckTicks resets to 0 on 60th overlapping tick")
+			assert(state.pos.z > 1e-4, "kart escapes forward on 60th tick instead of stranding")
+			assertNear(state.lastSafePos.z, state.pos.z, 1e-9, "lastSafePos updated to escaped pos")
+		end,
+	},
+	{
+		name = "stuckTicks survives capture/restore/replay and GreyboxProtocol pack/unpack identically",
+		fn = function()
+			local baseWorld = makeFlatPlaneWorld(0)
+			local alwaysOverlapWorld: WorldQuery = {
+				raycast = baseWorld.raycast,
+				sweepChassis = nil,
+				checkChassisOverlap = function(): boolean
+					return true
+				end,
+			}
+			local profile = KartTuning.buildProfile("medium", "best")
+			local driveInput: KartInput = { accel = 1, brake = false, steer = 0, drift = false }
+
+			-- Baseline: 65 continuous ticks
+			local stateA = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			for _ = 1, 65 do
+				KartSolver.step(stateA, driveInput, alwaysOverlapWorld, FixedStep.FIXED_DT)
+			end
+			assert(stateA.stuckTicks == 5, "65 ticks = 1 escape (60) + 5 overlapping ticks")
+
+			-- Replay: 25 ticks -> capture -> pack/unpack -> applyNetState -> 40 ticks
+			local stateB = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			for _ = 1, 25 do
+				KartSolver.step(stateB, driveInput, alwaysOverlapWorld, FixedStep.FIXED_DT)
+			end
+			assert(stateB.stuckTicks == 25, "stuckTicks == 25 before snapshot")
+
+			local snap = KartSolver.captureNetState(stateB)
+			assert(snap.stuckTicks == 25, "captureNetState preserves stuckTicks")
+			local buf, notice = GreyboxProtocol.packSnapshot(25, 25, 0, snap, "", nil, 0)
+			local pkt = GreyboxProtocol.unpackSnapshot(buf, notice)
+			assert(pkt ~= nil, "unpackSnapshot succeeded")
+			assert((pkt :: any).netState.stuckTicks == 25, "GreyboxProtocol preserves stuckTicks")
+
+			local stateC = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			KartSolver.applyNetState(stateC, (pkt :: any).netState)
+			assert(stateC.stuckTicks == 25, "applyNetState restores stuckTicks == 25")
+
+			for _ = 1, 40 do
+				KartSolver.step(stateC, driveInput, alwaysOverlapWorld, FixedStep.FIXED_DT)
+			end
+
+			assert(stateC.stuckTicks == stateA.stuckTicks, "post-replay stuckTicks matches baseline")
+			assertNear(stateC.pos.x, stateA.pos.x, 1e-9, "post-replay pos.x bit-identical")
+			assertNear(stateC.pos.y, stateA.pos.y, 1e-9, "post-replay pos.y bit-identical")
+			assertNear(stateC.pos.z, stateA.pos.z, 1e-9, "post-replay pos.z bit-identical")
+			assertNear(stateC.linVel.z, stateA.linVel.z, 1e-9, "post-replay linVel.z bit-identical")
+		end,
+	},
+	{
+		name = "real wall rollback never ratchets into wall after 60+ ticks of sustained throttle",
+		fn = function()
+			local baseWorld = makeFlatPlaneWorld(0)
+			local wallOnlyWorld: WorldQuery = {
+				raycast = baseWorld.raycast,
+				sweepChassis = nil,
+				checkChassisOverlap = function(center: Vec3, _rot: Quat, halfExtents: Vec3): boolean
+					return (center.z + halfExtents.z) > 10.0
+				end,
+			}
+			local profile = KartTuning.buildProfile("medium", "best")
+			local state = KartSolver.createState(profile, { x = 0, y = 0.291, z = 8.0 }, 0)
+			local driveInput: KartInput = { accel = 1, brake = false, steer = 0, drift = false }
+
+			for _ = 1, 240 do
+				KartSolver.step(state, driveInput, wallOnlyWorld, FixedStep.FIXED_DT)
+				local frontZ = state.pos.z + 0.5 * profile.length
+				assert(frontZ <= 10.0 + 1e-4, string.format("kart ratcheted past z=10 wall: frontZ=%.4f", frontZ))
+			end
 		end,
 	},
 }

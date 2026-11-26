@@ -25,6 +25,20 @@ export type NitroProfile = {
 	minConsumptionTicks: number,
 }
 
+export type SlipstreamProfile = {
+	baseSpeed: number,
+	length: number,
+	width: number,
+	innerFactor: number,
+	minCollectTime: number,
+	maxCollectTime: number,
+	addPower: number,
+	minSpeed: number,
+	maxSpeedIncrease: number,
+	durationFactor: number,
+	fadeOutTime: number,
+}
+
 export type KartClassPreset = {
 	massMult: number,
 	enginePowerMult: number,
@@ -35,6 +49,9 @@ export type KartClassPreset = {
 	nitroConsumptionMult: number,
 	nitroMaxSpeedIncreaseMult: number,
 	nitroDurationMult: number,
+	slipstreamLengthMult: number,
+	slipstreamDurationFactorMult: number,
+	slipstreamFadeOutMult: number,
 	turnRadius: { TablePoint },
 	gearSwitchRatio: { number },
 	gearPowerIncrease: { number },
@@ -46,6 +63,7 @@ export type DifficultyPreset = {
 	nitroEngineForceMult: number,
 	nitroMaxSpeedIncreaseMult: number,
 	nitroMaxMult: number,
+	aiDisableSlipstreamUsage: boolean,
 }
 
 export type KartDimensions = {
@@ -66,6 +84,7 @@ export type KartProfile = {
 	brakeTimeIncrease: number,
 	maxSpeedReverseRatio: number,
 	nitro: NitroProfile,
+	slipstream: SlipstreamProfile,
 	turnRadius: { TablePoint },
 	gearSwitchRatio: { number },
 	gearPowerIncrease: { number },
@@ -250,6 +269,33 @@ KartTuning.nitro = {
 	minConsumptionTicks = 64, -- src/karts/kart_properties.cpp:L102 (64 ticks at 120 Hz)
 }
 
+-- Slipstream constants (data/kart_characteristics.xml:L341-L343, src/graphics/slip_stream.cpp:L779-L1108, src/tracks/graph.cpp:L44-L45)
+KartTuning.slipstream = {
+	baseSpeed = 20.0, -- L341 base-speed="20" (m/s)
+	length = 8.0, -- L341 length="8" (m)
+	width = 4.0, -- L341 width="4" (m)
+	innerFactor = 0.5, -- L341 inner-factor="0.5"
+	minCollectTime = 2.5, -- L342 min-collect-time="2.5" (s)
+	maxCollectTime = 8.0, -- L342 max-collect-time="8" (s)
+	addPower = 300.0, -- L342 add-power="300" (N)
+	minSpeed = 8.0, -- L342 min-speed="8" (m/s)
+	maxSpeedIncrease = 3.0, -- L343 max-speed-increase="3" (m/s)
+	durationFactor = 1.0, -- L343 duration-factor="1"
+	fadeOutTime = 2.0, -- L343 fade-out-time="2" (s)
+	quadUpdateMinSpeed = 1.0, -- src/graphics/slip_stream.cpp:L869 (m/s)
+	collectorMinSpeedMargin = 2.0, -- src/graphics/slip_stream.cpp:L896 (m/s)
+	outerQuadScale = 1.1, -- src/graphics/slip_stream.cpp:L779-L780, L978
+	innerWidthSubtract = 0.5, -- src/graphics/slip_stream.cpp:L804 (m)
+	verticalAbsLimit = 6.0, -- src/graphics/slip_stream.cpp:L952 (m)
+	quadMinHeightTesting = -1.0, -- src/tracks/graph.cpp:L44 (m)
+	quadMaxHeightTesting = 5.0, -- src/tracks/graph.cpp:L45 (m)
+	innerCollectRate = 2.0, -- src/graphics/slip_stream.cpp:L1108
+	outerDecayRate = 1.0, -- src/graphics/slip_stream.cpp:L1086
+	outsideDecayRate = 3.0, -- src/graphics/slip_stream.cpp:L1088
+	innerTargetScoreBase = 2000.0, -- src/graphics/slip_stream.cpp:L995
+	mainTargetScoreBase = 1000.0, -- src/graphics/slip_stream.cpp:L1008
+}
+
 -- Zipper item / pad speed boost (data/kart_characteristics.xml:L249-L250)
 KartTuning.zipper = {
 	duration = 3.5, -- L249 duration="3.5" (s)
@@ -320,7 +366,7 @@ KartTuning.camera = {
 	reverseReturnUp = 1.6, -- camera.cpp:L203
 }
 
--- Difficulty multipliers (data/kart_characteristics.xml:L347-L362, L418)
+-- Difficulty multipliers (data/kart_characteristics.xml:L347-L362, L418; data/stk_config.xml:L353, L372, L391, L410)
 KartTuning.difficulties = {
 	easy = {
 		enginePowerMult = 0.7,
@@ -328,6 +374,7 @@ KartTuning.difficulties = {
 		nitroEngineForceMult = 0.8,
 		nitroMaxSpeedIncreaseMult = 0.9,
 		nitroMaxMult = 0.8,
+		aiDisableSlipstreamUsage = true, -- stk_config.xml:L353
 	}, -- L349, L418
 	medium = {
 		enginePowerMult = 0.83,
@@ -335,6 +382,7 @@ KartTuning.difficulties = {
 		nitroEngineForceMult = 1.0,
 		nitroMaxSpeedIncreaseMult = 1.0,
 		nitroMaxMult = 1.0,
+		aiDisableSlipstreamUsage = false, -- stk_config.xml:L372
 	}, -- L353
 	hard = {
 		enginePowerMult = 0.92,
@@ -342,6 +390,7 @@ KartTuning.difficulties = {
 		nitroEngineForceMult = 1.0,
 		nitroMaxSpeedIncreaseMult = 1.0,
 		nitroMaxMult = 1.0,
+		aiDisableSlipstreamUsage = false, -- stk_config.xml:L391
 	}, -- L357
 	best = {
 		enginePowerMult = 1.0,
@@ -349,6 +398,7 @@ KartTuning.difficulties = {
 		nitroEngineForceMult = 1.0,
 		nitroMaxSpeedIncreaseMult = 1.0,
 		nitroMaxMult = 1.0,
+		aiDisableSlipstreamUsage = false, -- stk_config.xml:L410
 	}, -- L361
 } :: { [string]: DifficultyPreset }
 
@@ -364,6 +414,9 @@ KartTuning.kartClasses = {
 		nitroConsumptionMult = 1.0, -- base 1.0
 		nitroMaxSpeedIncreaseMult = 0.9, -- L375
 		nitroDurationMult = 1.0, -- L375
+		slipstreamLengthMult = 0.9, -- L376 (xml_characteristic.cpp:L568 ignores collect-time)
+		slipstreamDurationFactorMult = 1.0, -- L377
+		slipstreamFadeOutMult = 1.0, -- L377
 		turnRadius = { { 0, 2.0 }, { 10, 7.5 }, { 25, 15.0 }, { 45, 30.0 } }, -- L367
 		gearSwitchRatio = { 0.1, 0.25, 0.45, 0.7, 1.0, 4.0 }, -- L370
 		gearPowerIncrease = { 2.8, 2.3, 1.9, 1.5, 1.25, 1.0 }, -- L371
@@ -378,6 +431,9 @@ KartTuning.kartClasses = {
 		nitroConsumptionMult = 1.25, -- L388
 		nitroMaxSpeedIncreaseMult = 1.0, -- base 1.0
 		nitroDurationMult = 1.0, -- base 1.0
+		slipstreamLengthMult = 1.0, -- base 1.0
+		slipstreamDurationFactorMult = 0.8, -- L389
+		slipstreamFadeOutMult = 1.0, -- L389
 		turnRadius = { { 0, 2.3 }, { 10, 8.625 }, { 25, 17.25 }, { 45, 34.5 } }, -- L380
 		gearSwitchRatio = { 0.1, 0.25, 0.45, 0.7, 1.0, 4.0 }, -- L383
 		gearPowerIncrease = { 2.4, 2.0, 1.7, 1.4, 1.2, 1.0 }, -- L384
@@ -392,6 +448,9 @@ KartTuning.kartClasses = {
 		nitroConsumptionMult = 1.67, -- L400
 		nitroMaxSpeedIncreaseMult = 1.1, -- L400
 		nitroDurationMult = 1.0, -- base 1.0
+		slipstreamLengthMult = 1.1, -- L401 (xml_characteristic.cpp:L568 ignores collect-time)
+		slipstreamDurationFactorMult = 0.6, -- L402
+		slipstreamFadeOutMult = 1.0, -- L402
 		turnRadius = { { 0, 2.6 }, { 10, 9.75 }, { 25, 19.5 }, { 45, 39.0 } }, -- L392
 		gearSwitchRatio = { 0.1, 0.25, 0.45, 0.7, 1.0, 4.0 }, -- L395
 		gearPowerIncrease = { 2.0, 1.7, 1.5, 1.3, 1.15, 1.0 }, -- L396
@@ -441,6 +500,19 @@ function KartTuning.buildProfile(className: string?, difficulty: string?, dims: 
 			fadeOutTime = KartTuning.nitro.fadeOutTime,
 			max = KartTuning.nitro.max * diff.nitroMaxMult,
 			minConsumptionTicks = KartTuning.nitro.minConsumptionTicks,
+		},
+		slipstream = {
+			baseSpeed = KartTuning.slipstream.baseSpeed,
+			length = KartTuning.slipstream.length * cls.slipstreamLengthMult,
+			width = KartTuning.slipstream.width,
+			innerFactor = KartTuning.slipstream.innerFactor,
+			minCollectTime = KartTuning.slipstream.minCollectTime,
+			maxCollectTime = KartTuning.slipstream.maxCollectTime,
+			addPower = KartTuning.slipstream.addPower,
+			minSpeed = KartTuning.slipstream.minSpeed,
+			maxSpeedIncrease = KartTuning.slipstream.maxSpeedIncrease,
+			durationFactor = KartTuning.slipstream.durationFactor * cls.slipstreamDurationFactorMult,
+			fadeOutTime = KartTuning.slipstream.fadeOutTime * cls.slipstreamFadeOutMult,
 		},
 		turnRadius = cls.turnRadius,
 		gearSwitchRatio = cls.gearSwitchRatio,

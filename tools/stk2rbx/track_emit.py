@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 import dataclasses
 import json
 import math
@@ -27,6 +28,7 @@ from .kart_emit import (
 )
 from .open_cloud_upload import upload_glb_model
 from .rbx_emit import IDENTITY_MAT3
+from .xml_parser import parse_materials_xml
 
 Vec3 = tuple[float, float, float]
 
@@ -160,8 +162,150 @@ def compute_start_transforms(
     return transforms
 
 
-def parse_scene_items(scene_root: ET.Element) -> list[dict[str, Any]]:
-    """Extract track items from scene.xml with Roblox-stud coordinates (matching ItemWorld.fromArenaSpec)."""
+def _parse_graph_branches(graph_path: Path, quads: list[list[Vec3]]) -> list[dict[str, Any]]:
+    """Extract secondary driveline branches (e.g. temple shortcut) from graph.xml."""
+    if not graph_path.exists():
+        return []
+    root = ET.parse(graph_path).getroot()
+    incoming: dict[int, int] = {}
+    outgoing: dict[int, int] = {}
+    for edge in root.findall("edge"):
+        f_idx = int(edge.attrib["from"])
+        t_idx = int(edge.attrib["to"])
+        incoming[t_idx] = f_idx
+        outgoing[f_idx] = t_idx
+
+    branches: list[dict[str, Any]] = []
+    for b_idx, line in enumerate(root.findall("edge-line"), 1):
+        a = int(line.attrib["from"])
+        b = int(line.attrib["to"])
+        seq: list[int] = []
+        if a in incoming:
+            seq.append(incoming[a])
+        step = 1 if b >= a else -1
+        seq.extend(range(a, b + step, step))
+        if b in outgoing:
+            seq.append(outgoing[b])
+
+        pts: list[dict[str, float]] = []
+        for qi in seq:
+            q = quads[qi]
+            cx = 0.25 * sum(p[0] for p in q)
+            cz = 0.25 * sum(p[2] for p in q)
+            pts.append({"x": round(cx, 4), "z": round(cz, 4)})
+        branches.append(
+            {
+                "id": b_idx,
+                "fromQuad": seq[0],
+                "toQuad": seq[-1],
+                "quadIndices": seq,
+                "points": pts,
+            }
+        )
+    return branches
+
+
+def parse_scene_checkpoints(scene_root: ET.Element, quads: list[list[Vec3]]) -> list[dict[str, Any]]:
+    """Extract <checks> checkpoint lines in canonical STK meters."""
+    checks_el = scene_root.find("checks")
+    if checks_el is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for idx, el in enumerate(checks_el):
+        kind = el.attrib.get("kind", "activate")
+        other_ids = [int(v) for v in el.attrib.get("other-ids", "").split() if v]
+        same_group = [int(v) for v in el.attrib.get("same-group", "").split() if v]
+        if "p1" in el.attrib and "p2" in el.attrib:
+            p1 = [round(float(v), 4) for v in el.attrib["p1"].split()[:3]]
+            p2 = [round(float(v), 4) for v in el.attrib["p2"].split()[:3]]
+        elif quads:
+            p1 = [round(v, 4) for v in quads[0][0]]
+            p2 = [round(v, 4) for v in quads[0][1]]
+        else:
+            p1 = [0.0, 0.0, 0.0]
+            p2 = [0.0, 0.0, 0.0]
+        out.append(
+            {
+                "id": idx,
+                "kind": kind,
+                "otherIds": other_ids,
+                "sameGroup": same_group,
+                "p1": p1,
+                "p2": p2,
+            }
+        )
+    return out
+
+
+def _raycast_down_stk(
+    x: float,
+    y_start: float,
+    z: float,
+    tris: Sequence[tuple[Vec3, Vec3, Vec3, str]],
+) -> Optional[tuple[float, str]]:
+    """Vertical downward raycast against STK triangles (Track::itemCommand, track.cpp:L2813-L2837)."""
+    best_y: Optional[float] = None
+    best_mat = ""
+    for p0, p1, p2, mat in tris:
+        if x < min(p0[0], p1[0], p2[0]) - 1e-5 or x > max(p0[0], p1[0], p2[0]) + 1e-5:
+            continue
+        if z < min(p0[2], p1[2], p2[2]) - 1e-5 or z > max(p0[2], p1[2], p2[2]) + 1e-5:
+            continue
+        d00 = (p1[0] - p0[0]) * (p2[2] - p0[2]) - (p1[2] - p0[2]) * (p2[0] - p0[0])
+        if abs(d00) < 1e-9:
+            continue
+        u = ((x - p0[0]) * (p2[2] - p0[2]) - (z - p0[2]) * (p2[0] - p0[0])) / d00
+        v = ((p1[0] - p0[0]) * (z - p0[2]) - (p1[2] - p0[2]) * (x - p0[0])) / d00
+        if u >= -1e-5 and v >= -1e-5 and (u + v) <= 1.0 + 1e-5:
+            hy = p0[1] + u * (p1[1] - p0[1]) + v * (p2[1] - p0[1])
+            if hy <= y_start and (best_y is None or hy > best_y):
+                best_y = hy
+                best_mat = mat
+    if best_y is None:
+        return None
+    return best_y, best_mat
+
+
+def _collect_track_collision_tris_stk(
+    track_dir: Path,
+    scene_root: ET.Element,
+    ignored_mats: set[str],
+) -> list[tuple[Vec3, Vec3, Vec3, str]]:
+    """Collect all physical track triangles in canonical STK meter coordinates."""
+    track_id = track_dir.name
+    spm = read_spm_mesh(track_dir / f"{track_id}_track.spm")
+    tris: list[tuple[Vec3, Vec3, Vec3, str]] = []
+    for sub in spm.submeshes:
+        if sub.texture_1.lower() in ignored_mats:
+            continue
+        for k in range(0, len(sub.indices_stk) - 2, 3):
+            p0 = sub.positions_stk[sub.indices_stk[k]]
+            p1 = sub.positions_stk[sub.indices_stk[k + 1]]
+            p2 = sub.positions_stk[sub.indices_stk[k + 2]]
+            tris.append((p0, p1, p2, sub.texture_1))
+
+    bridge_path = track_dir / "bridge_physics.spm"
+    if bridge_path.exists():
+        bspm = read_spm_mesh(bridge_path)
+        for el in scene_root.iter():
+            if el.tag in ("static-object", "object") and el.attrib.get("model") == "bridge_physics.spm":
+                xyz = _parse_vec3_attr(el.attrib.get("xyz", ""), (0.0, 0.0, 0.0))
+                scl = _parse_vec3_attr(el.attrib.get("scale", ""), (1.0, 1.0, 1.0))
+                for sub in bspm.submeshes:
+                    for k in range(0, len(sub.indices_stk) - 2, 3):
+                        pts = []
+                        for idx_v in (sub.indices_stk[k], sub.indices_stk[k + 1], sub.indices_stk[k + 2]):
+                            vp = sub.positions_stk[idx_v]
+                            pts.append((vp[0] * scl[0] + xyz[0], vp[1] * scl[1] + xyz[1], vp[2] * scl[2] + xyz[2]))
+                        tris.append((pts[0], pts[1], pts[2], "road.jpg"))
+    return tris
+
+
+def parse_scene_items(
+    scene_root: ET.Element,
+    track_tris: Optional[Sequence[tuple[Vec3, Vec3, Vec3, str]]] = None,
+) -> list[dict[str, Any]]:
+    """Extract track items from scene.xml with STK Track::itemCommand ground drop -> Roblox studs."""
     tag_map = {
         "item": "item",
         "banana": "banana",
@@ -181,6 +325,12 @@ def parse_scene_items(scene_root: ET.Element) -> list[dict[str, Any]]:
         sx = float(el.attrib.get("x", "0"))
         sy = float(el.attrib.get("y", "0"))
         sz = float(el.attrib.get("z", "0"))
+        drop = el.attrib.get("drop", "true").lower() not in ("false", "0", "n")
+        if drop and track_tris is not None:
+            hit = _raycast_down_stk(sx, sy + 0.1, sz, track_tris)
+            if hit is None:
+                raise RuntimeError(f"Item #{idx} ({item_type}) at ({sx}, {sy}, {sz}) missed track ground")
+            sy = hit[0]
         items.append(
             {
                 "id": idx,
@@ -363,6 +513,7 @@ def export_track_glbs(
 
     quads = _parse_quads(track_dir / "quads.xml")
     main_loop = _parse_main_loop_quad_indices(track_dir / "graph.xml", len(quads))
+    driveline_branches = _parse_graph_branches(track_dir / "graph.xml", quads)
     start_transforms = compute_start_transforms(quads, main_loop, scene_root)
 
     driveline_centers: list[dict[str, float]] = []
@@ -373,6 +524,8 @@ def export_track_glbs(
         cx = 0.25 * sum(p[0] for p in q)
         cz = 0.25 * sum(p[2] for p in q)
         driveline_centers.append({"x": round(cx, 4), "z": round(cz, 4)})
+    # Include ALL quads (main loop + shortcut branches) in minimapBounds
+    for q in quads:
         for p in q:
             min_x = min(min_x, p[0])
             max_x = max(max_x, p[0])
@@ -388,6 +541,12 @@ def export_track_glbs(
     mid_x = 0.5 * (min_x + max_x)
     mid_z = 0.5 * (min_z + max_z)
 
+    mat_path = track_dir / "materials.xml"
+    ignored_mats = {m.name.lower() for m in parse_materials_xml(mat_path) if m.ignore} if mat_path.exists() else set()
+    track_tris = _collect_track_collision_tris_stk(track_dir, scene_root, ignored_mats)
+    items = parse_scene_items(scene_root, track_tris=track_tris)
+    checkpoints = parse_scene_checkpoints(scene_root, quads)
+
     return {
         "track_id": track_id,
         "submeshes": sub_reports,
@@ -397,6 +556,8 @@ def export_track_glbs(
         "libraryProxies": lib_proxies,
         "startTransforms": start_transforms,
         "drivelineQuadCenters": driveline_centers,
+        "drivelineBranches": driveline_branches,
+        "checkpoints": checkpoints,
         "minimapBounds": {
             "minX": round(mid_x - span * 0.5, 4),
             "maxX": round(mid_x + span * 0.5, 4),
@@ -404,8 +565,224 @@ def export_track_glbs(
             "maxZ": round(mid_z + span * 0.5, 4),
             "range": round(span, 4),
         },
-        "items": parse_scene_items(scene_root),
+        "items": items,
     }
+
+
+def _chunk_submesh_per_material(
+    sub_rbx: SpmSubmeshGeom,
+    material_name: str,
+    all_quad_centers_stk: Sequence[tuple[float, float]],
+) -> list[dict[str, Any]]:
+    """Split ONE material submesh into spatial + normal-band convex-safe collision chunks."""
+    mat_lower = material_name.lower()
+    stem = sanitize_tex_stem(material_name)
+    single_chunk = mat_lower in ("camel_col.jpg", "monkey_col.png", "water_light.png", "transparence2.png")
+    split_bands = mat_lower in (
+        "road.jpg",
+        "sand.png",
+        "pyramidwall.jpg",
+        "bumpy_surface.png",
+        "texture_egypte.jpg",
+        "egypt2.jpg",
+        "seabed.jpg",
+    )
+    near_dist_sq = 55.0 * 55.0
+    cells: dict[tuple[int, int, int, int], list[tuple[int, int, int]]] = defaultdict(list)
+
+    pos = sub_rbx.positions_studs
+    idxs = sub_rbx.indices_rbx
+    for k in range(0, len(idxs) - 2, 3):
+        i0, i1, i2 = idxs[k], idxs[k + 1], idxs[k + 2]
+        p0, p1, p2 = pos[i0], pos[i1], pos[i2]
+        e1 = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+        e2 = (p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2])
+        nx = e1[1] * e2[2] - e1[2] * e2[1]
+        ny = e1[2] * e2[0] - e1[0] * e2[2]
+        nz = e1[0] * e2[1] - e1[1] * e2[0]
+        nlen = math.sqrt(nx * nx + ny * ny + nz * nz)
+        if nlen < 1e-6:
+            continue
+        nny = ny / nlen
+        band = (0 if nny > 0.35 else (1 if nny >= -0.35 else 2)) if split_bands else 0
+
+        if single_chunk:
+            key = (0, band, 0, 0)
+        elif mat_lower == "sand.png":
+            cx_studs = (p0[0] + p1[0] + p2[0]) / 3.0
+            cz_studs = (p0[2] + p1[2] + p2[2]) / 3.0
+            cx_m = cx_studs * METERS_PER_STUD
+            cz_m = -cz_studs * METERS_PER_STUD
+            near = any((cx_m - qx) ** 2 + (cz_m - qz) ** 2 <= near_dist_sq for qx, qz in all_quad_centers_stk)
+            cell = 30.0 if near else 120.0
+            zone = 0 if near else 1
+            key = (zone, band, math.floor(cx_studs / cell), math.floor(cz_studs / cell))
+        else:
+            cell_map = {
+                "road.jpg": 35.0,
+                "pyramidwall.jpg": 25.0,
+                "bumpy_surface.png": 35.0,
+                "texture_egypte.jpg": 40.0,
+                "woodpost.png": 40.0,
+                "wood_planks1.jpg": 40.0,
+                "sphinx.png": 40.0,
+                "stktex_generic_wooda.png": 40.0,
+                "egypt2.jpg": 60.0,
+                "seabed.jpg": 60.0,
+            }
+            cell = cell_map.get(mat_lower, 40.0)
+            cx_studs = (p0[0] + p1[0] + p2[0]) / 3.0
+            cz_studs = (p0[2] + p1[2] + p2[2]) / 3.0
+            key = (0, band, math.floor(cx_studs / cell), math.floor(cz_studs / cell))
+        cells[key].append((i0, i1, i2))
+
+    chunks: list[dict[str, Any]] = []
+    for key in sorted(cells.keys()):
+        tri_list = cells[key]
+        remap: dict[int, int] = {}
+        local_world: list[Vec3] = []
+        chunk_tris: list[int] = []
+        for i0, i1, i2 in tri_list:
+            for orig in (i0, i1, i2):
+                if orig not in remap:
+                    remap[orig] = len(local_world) + 1
+                    local_world.append(pos[orig])
+                chunk_tris.append(remap[orig])
+        xs = [v[0] for v in local_world]
+        ys = [v[1] for v in local_world]
+        zs = [v[2] for v in local_world]
+        cx = 0.5 * (min(xs) + max(xs))
+        cy = 0.5 * (min(ys) + max(ys))
+        cz = 0.5 * (min(zs) + max(zs))
+        verts_flat: list[float] = []
+        for vx, vy, vz in local_world:
+            verts_flat.extend([round(vx - cx, 4), round(vy - cy, 4), round(vz - cz, 4)])
+        chunks.append(
+            {
+                "material": material_name,
+                "materialStem": stem,
+                "center": [round(cx, 4), round(cy, 4), round(cz, 4)],
+                "verts": verts_flat,
+                "tris": chunk_tris,
+            }
+        )
+    return chunks
+
+
+def build_track_collision_chunks(track_dir: Path) -> list[dict[str, Any]]:
+    """Build strictly per-material collision chunks for all non-ignored surfaces."""
+    track_id = track_dir.name
+    quads = _parse_quads(track_dir / "quads.xml")
+    all_quad_centers = [
+        (0.25 * sum(p[0] for p in q), 0.25 * sum(p[2] for p in q)) for q in quads
+    ]
+    mat_path = track_dir / "materials.xml"
+    ignored_mats = {m.name.lower() for m in parse_materials_xml(mat_path) if m.ignore} if mat_path.exists() else set()
+
+    spm = read_spm_mesh(track_dir / f"{track_id}_track.spm")
+    chunks: list[dict[str, Any]] = []
+    for sub in spm.submeshes:
+        if sub.texture_1.lower() in ignored_mats:
+            continue
+        sub_rbx = convert_submesh_to_rbx(sub)
+        chunks.extend(_chunk_submesh_per_material(sub_rbx, sub.texture_1, all_quad_centers))
+
+    bridge_path = track_dir / "bridge_physics.spm"
+    scene_path = track_dir / "scene.xml"
+    if bridge_path.exists() and scene_path.exists():
+        scene_root = ET.parse(scene_path).getroot()
+        bspm = read_spm_mesh(bridge_path)
+        for el in scene_root.iter():
+            if el.tag in ("static-object", "object") and el.attrib.get("model") == "bridge_physics.spm":
+                xyz = _parse_vec3_attr(el.attrib.get("xyz", ""), (0.0, 0.0, 0.0))
+                scl = _parse_vec3_attr(el.attrib.get("scale", ""), (1.0, 1.0, 1.0))
+                for sub in bspm.submeshes:
+                    world_stk_verts = [
+                        (p[0] * scl[0] + xyz[0], p[1] * scl[1] + xyz[1], p[2] * scl[2] + xyz[2])
+                        for p in sub.positions_stk
+                    ]
+                    shifted = dataclasses.replace(sub, positions_stk=world_stk_verts)
+                    sub_rbx = convert_submesh_to_rbx(shifted)
+                    chunks.extend(_chunk_submesh_per_material(sub_rbx, "road.jpg", all_quad_centers))
+    return chunks
+
+
+def emit_track_collision_lua(chunks: Sequence[dict[str, Any]], out_lua: Path, revision: str) -> None:
+    """Emit SandtrackCollisionData.lua with per-material spatial + normal-band chunks."""
+    lines: list[str] = [
+        "--!strict",
+        "-- src/shared/track/SandtrackCollisionData.lua",
+        "-- SPDX-License-Identifier: GPL-3.0-or-later",
+        f"-- AUTO-GENERATED per-material collision chunks for sandtrack (rev {revision}).",
+        "",
+        "export type CollisionChunk = {",
+        "\tmaterial: string,",
+        "\tmaterialStem: string,",
+        "\tcenter: { number },",
+        "\tverts: { number },",
+        "\ttris: { number },",
+        "}",
+        "",
+        "local chunks: { CollisionChunk } = {",
+    ]
+    for ch in chunks:
+        c = ch["center"]
+        verts_s = ", ".join(str(v) for v in ch["verts"])
+        tris_s = ", ".join(str(t) for t in ch["tris"])
+        lines.append("\t{")
+        lines.append(f'\t\tmaterial = "{ch["material"]}",')
+        lines.append(f'\t\tmaterialStem = "{ch["materialStem"]}",')
+        lines.append(f"\t\tcenter = {{ {c[0]}, {c[1]}, {c[2]} }},")
+        lines.append(f"\t\tverts = {{ {verts_s} }},")
+        lines.append(f"\t\ttris = {{ {tris_s} }},")
+        lines.append("\t},")
+    lines.extend(["}", "", "return table.freeze(chunks)", ""])
+    out_lua.parent.mkdir(parents=True, exist_ok=True)
+    out_lua.write_text("\n".join(lines), encoding="utf-8")
+
+
+def verify_canonical_transforms(report: dict[str, Any], chunks: Sequence[dict[str, Any]]) -> None:
+    """Assert canonical STK<->Roblox transform agreement across chunks, items, driveline, starts, and checks."""
+    chunk_tris_stk: list[tuple[Vec3, Vec3, Vec3, str]] = []
+    for ch in chunks:
+        mat = ch["material"]
+        if not mat:
+            raise AssertionError("Collision chunk missing material")
+        cx, cy, cz = ch["center"]
+        v = ch["verts"]
+        t = ch["tris"]
+        pts_stk = [
+            ((cx + v[i]) * METERS_PER_STUD, (cy + v[i + 1]) * METERS_PER_STUD, -(cz + v[i + 2]) * METERS_PER_STUD)
+            for i in range(0, len(v), 3)
+        ]
+        for k in range(0, len(t), 3):
+            chunk_tris_stk.append((pts_stk[t[k] - 1], pts_stk[t[k + 1] - 1], pts_stk[t[k + 2] - 1], mat))
+
+    for it in report["items"]:
+        rx, ry, rz = it["pos"]
+        sx, sy, sz = rx * METERS_PER_STUD, ry * METERS_PER_STUD, -rz * METERS_PER_STUD
+        hit = _raycast_down_stk(sx, sy + 0.05, sz, chunk_tris_stk)
+        if hit is None or abs(sy - hit[0]) > 0.05:
+            raise AssertionError(
+                f"Item #{it['id']} ({it['itemType']}) at STK=({sx},{sy},{sz}) not grounded on collision chunks: hit={hit}"
+            )
+
+    mb = report["minimapBounds"]
+    for pt in report["drivelineQuadCenters"]:
+        if not (mb["minX"] <= pt["x"] <= mb["maxX"] and mb["minZ"] <= pt["z"] <= mb["maxZ"]):
+            raise AssertionError(f"Main driveline point {pt} outside minimapBounds {mb}")
+    for br in report.get("drivelineBranches", []):
+        for pt in br["points"]:
+            if not (mb["minX"] <= pt["x"] <= mb["maxX"] and mb["minZ"] <= pt["z"] <= mb["maxZ"]):
+                raise AssertionError(f"Branch driveline point {pt} outside minimapBounds {mb}")
+    for st in report["startTransforms"]:
+        p = st["posStk"]
+        if not (mb["minX"] <= p[0] <= mb["maxX"] and mb["minZ"] <= p[2] <= mb["maxZ"]):
+            raise AssertionError(f"Start transform {st} outside minimapBounds {mb}")
+    for chk in report.get("checkpoints", []):
+        for p in (chk["p1"], chk["p2"]):
+            if not (mb["minX"] <= p[0] <= mb["maxX"] and mb["minZ"] <= p[2] <= mb["maxZ"]):
+                raise AssertionError(f"Checkpoint {chk} outside minimapBounds {mb}")
 
 
 def emit_sandtrack_data_lua(report: dict[str, Any], out_lua: Path, revision: str) -> None:
@@ -447,6 +824,36 @@ def emit_sandtrack_data_lua(report: dict[str, Any], out_lua: Path, revision: str
     lines.append("SandtrackData.drivelineQuadCenters = table.freeze({")
     for pt in report["drivelineQuadCenters"]:
         lines.append(f"\ttable.freeze({{ x = {pt['x']}, z = {pt['z']} }}),")
+    lines.append("})")
+    lines.append("")
+
+    lines.append("SandtrackData.drivelineBranches = table.freeze({")
+    for br in report.get("drivelineBranches", []):
+        lines.append("\ttable.freeze({")
+        lines.append(f"\t\tfromQuad = {br['fromQuad']},")
+        lines.append(f"\t\ttoQuad = {br['toQuad']},")
+        lines.append("\t\tpoints = table.freeze({")
+        for pt in br["points"]:
+            lines.append(f"\t\t\ttable.freeze({{ x = {pt['x']}, z = {pt['z']} }}),")
+        lines.append("\t\t}),")
+        lines.append("\t}),")
+    lines.append("})")
+    lines.append("")
+
+    lines.append("SandtrackData.checkpoints = table.freeze({")
+    for chk in report.get("checkpoints", []):
+        oids = ", ".join(str(v) for v in chk["otherIds"])
+        sgrp = ", ".join(str(v) for v in chk["sameGroup"])
+        p1 = chk["p1"]
+        p2 = chk["p2"]
+        lines.append("\ttable.freeze({")
+        lines.append(f'\t\tid = {chk["id"]},')
+        lines.append(f'\t\tkind = "{chk["kind"]}",')
+        lines.append(f"\t\totherIds = table.freeze({{ {oids} }}),")
+        lines.append(f"\t\tsameGroup = table.freeze({{ {sgrp} }}),")
+        lines.append(f"\t\tp1 = table.freeze({{ x = {p1[0]}, y = {p1[1]}, z = {p1[2]} }}),")
+        lines.append(f"\t\tp2 = table.freeze({{ x = {p2[0]}, y = {p2[1]}, z = {p2[2]} }}),")
+        lines.append("\t}),")
     lines.append("})")
     lines.append("")
 
@@ -629,73 +1036,22 @@ def emit_track_rbxmx(
         pname = sp["part_name"]
         sz, _, _ = stk_to_rbx_size(*sp["size_studs"], min_studs=0.05)
         if tex_lower == "transparence2.png":
-            attrs = {
-                "SurfaceMaterial": sp["texture_1"],
-                "TriangleCount": sp["triangle_count"],
-                "SourceTrack": report["track_id"],
-            }
-            surface_lines.extend(
-                [
-                    f'      <Item class="Part" referent="{next_ref()}">',
-                    "        <Properties>",
-                    f'          <string name="Name">{_xml_escape(pname)}</string>',
-                    '          <bool name="Anchored">true</bool>',
-                    '          <bool name="CanCollide">true</bool>',
-                    '          <bool name="CanTouch">false</bool>',
-                    '          <bool name="CanQuery">true</bool>',
-                    '          <float name="Transparency">1</float>',
-                    f'          {xml_vec3("size", sz)}',
-                    f'          {_xml_cf("CFrame", sp["world_center_studs"], IDENTITY_MAT3)}',
-                    f'          <BinaryString name="AttributesSerialize">{_encode_rbx_attrs_binary(attrs)}</BinaryString>',
-                    "        </Properties>",
-                    "      </Item>",
-                ]
-            )
-        elif tex_lower == "oasis-water.png":
-            flip_y180 = bool(sub_meta.get(pname, {}).get("importFlipY180", False))
-            append_mesh_part(
-                visual_lines,
-                pname,
-                sp,
-                sp["world_center_studs"],
-                FLIP_Y180_MAT3 if flip_y180 else IDENTITY_MAT3,
-                sz,
-                can_collide=False,
-                can_query=False,
-                transparency=0.0,
-                surface_material=None,
-                desired_fidelity="Box",
-            )
-        elif tex_lower == "road.jpg":
-            flip_y180 = bool(sub_meta.get(pname, {}).get("importFlipY180", False))
-            append_mesh_part(
-                visual_lines,
-                pname,
-                sp,
-                sp["world_center_studs"],
-                FLIP_Y180_MAT3 if flip_y180 else IDENTITY_MAT3,
-                sz,
-                can_collide=False,
-                can_query=False,
-                transparency=0.0,
-                surface_material=None,
-                desired_fidelity="Box",
-            )
-        else:
-            flip_y180 = bool(sub_meta.get(pname, {}).get("importFlipY180", False))
-            append_mesh_part(
-                surface_lines,
-                pname,
-                sp,
-                sp["world_center_studs"],
-                FLIP_Y180_MAT3 if flip_y180 else IDENTITY_MAT3,
-                sz,
-                can_collide=True,
-                can_query=True,
-                transparency=0.0,
-                surface_material=sp["texture_1"],
-                desired_fidelity="PreciseConvexDecomposition",
-            )
+            # Reset trigger surface lives in per-material runtime collision chunks (invisible).
+            continue
+        flip_y180 = bool(sub_meta.get(pname, {}).get("importFlipY180", False))
+        append_mesh_part(
+            visual_lines,
+            pname,
+            sp,
+            sp["world_center_studs"],
+            FLIP_Y180_MAT3 if flip_y180 else IDENTITY_MAT3,
+            sz,
+            can_collide=False,
+            can_query=False,
+            transparency=0.0,
+            surface_material=None,
+            desired_fidelity="Box",
+        )
 
     # Auxiliary meshes (bridge_physics, ghost_bridge, sand-clouds)
     aux_by_model: dict[str, dict[str, Any]] = {}
@@ -726,20 +1082,8 @@ def emit_track_rbxmx(
             min_studs=0.05,
         )
         if mname == "bridge_physics.spm":
-            append_mesh_part(
-                surface_lines,
-                "AuxBridgePhysics",
-                sp,
-                wpos,
-                worient,
-                sz,
-                can_collide=True,
-                can_query=True,
-                transparency=1.0,
-                surface_material="road.jpg",
-                desired_fidelity="PreciseConvexDecomposition",
-                skip_sa=True,
-            )
+            # bridge_physics.spm collision lives in per-material runtime collision chunks (road.jpg).
+            continue
         elif mname == "ghost_bridge.spm":
             append_mesh_part(
                 visual_lines,

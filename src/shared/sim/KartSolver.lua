@@ -15,6 +15,7 @@ local Math3D = require("./Math3D")
 local MaxSpeed = require("../kart/MaxSpeed")
 local Nitro = require("../kart/Nitro")
 local Skidding = require("../kart/Skidding")
+local Slipstream = require("./Slipstream")
 local SurfaceMaterials = require("../track/SurfaceMaterials")
 
 export type Vec3 = Math3D.Vec3
@@ -83,6 +84,7 @@ export type WheelState = {
 export type KartState = {
 	profile: KartTuning.KartProfile,
 	pos: Vec3,
+	prevPos: Vec3,
 	rot: Quat,
 	linVel: Vec3,
 	angVel: Vec3,
@@ -96,6 +98,7 @@ export type KartState = {
 	skid: Skidding.SkidState,
 	maxSpeedState: MaxSpeed.MaxSpeedState,
 	nitro: Nitro.NitroState,
+	slipstream: Slipstream.SlipstreamState,
 	-- Powerup inventory & PA_FIRE edge trigger (powerup.hpp:L22, kart.cpp:L1643-L1654)
 	heldPowerup: number,
 	heldPowerupCount: number,
@@ -139,6 +142,7 @@ export type NetIncreaseSnapshot = {
 
 export type NetState = {
 	pos: { number },
+	prevPos: { number }?,
 	rot: { number },
 	linVel: { number },
 	angVel: { number },
@@ -183,6 +187,8 @@ export type NetState = {
 	bubbleFadeTicks: number?,
 	bubbleDurationTicks: number?,
 	increases: { NetIncreaseSnapshot },
+	slipstreamChargeTicks: number?,
+	slipstream: Slipstream.NetSlipstreamState?,
 	itemWorldSnapshot: ItemWorld.ItemWorldSnapshot?,
 	flyableSnapshot: Flyable.FlyableSnapshot?,
 }
@@ -207,6 +213,13 @@ export type KartTelemetry = {
 	nitroEnergy: number,
 	nitroMaxEnergy: number,
 	nitroActive: boolean,
+	slipstreamMode: Slipstream.SlipstreamMode,
+	slipstreamInZone: boolean,
+	slipstreamChargeTicks: number,
+	slipstreamTimeSec: number,
+	slipstreamReady: boolean,
+	slipstreamBonusTimeSec: number,
+	slipstreamActive: boolean,
 	attachmentType: number,
 	attachmentTicksLeft: number,
 	bubblegumTicks: number,
@@ -254,6 +267,7 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 	return {
 		profile = prof,
 		pos = pos,
+		prevPos = { x = pos.x, y = pos.y, z = pos.z },
 		rot = rot,
 		linVel = { x = 0, y = 0, z = 0 },
 		angVel = { x = 0, y = 0, z = 0 },
@@ -267,6 +281,7 @@ function KartSolver.createState(profile: KartTuning.KartProfile?, spawnPos: Vec3
 		skid = Skidding.new(),
 		maxSpeedState = MaxSpeed.new(prof.maxSpeed),
 		nitro = Nitro.new(prof.nitro.max),
+		slipstream = Slipstream.new(prof.width, prof.length),
 		heldPowerup = ItemTuning.POWERUP_NONE,
 		heldPowerupCount = 0,
 		fireWasDown = false,
@@ -320,6 +335,7 @@ function KartSolver.captureNetState(
 	local bubble = if rawBubble ~= nil and rawBubble.active then rawBubble else nil
 	return {
 		pos = { state.pos.x, state.pos.y, state.pos.z },
+		prevPos = { state.prevPos.x, state.prevPos.y, state.prevPos.z },
 		rot = { state.rot.w, state.rot.x, state.rot.y, state.rot.z },
 		linVel = { state.linVel.x, state.linVel.y, state.linVel.z },
 		angVel = { state.angVel.x, state.angVel.y, state.angVel.z },
@@ -364,6 +380,8 @@ function KartSolver.captureNetState(
 		bubbleFadeTicks = if bubble then bubble.fadeInTicks else 0,
 		bubbleDurationTicks = if bubble then bubble.durationTicks else 0,
 		increases = increases,
+		slipstreamChargeTicks = state.slipstream.chargeTicks,
+		slipstream = Slipstream.captureNet(state.slipstream),
 		itemWorldSnapshot = if itemWorld ~= nil then ItemWorld.captureSnapshot(itemWorld) else nil,
 		flyableSnapshot = if flyableWorld ~= nil then Flyable.captureSnapshot(flyableWorld) else nil,
 	}
@@ -376,6 +394,11 @@ function KartSolver.applyNetState(
 	flyableWorld: Flyable.FlyableWorldState?
 )
 	state.pos = { x = snap.pos[1], y = snap.pos[2], z = snap.pos[3] }
+	if snap.prevPos ~= nil then
+		state.prevPos = { x = snap.prevPos[1], y = snap.prevPos[2], z = snap.prevPos[3] }
+	else
+		state.prevPos = { x = snap.pos[1], y = snap.pos[2], z = snap.pos[3] }
+	end
 	state.rot = { w = snap.rot[1], x = snap.rot[2], y = snap.rot[3], z = snap.rot[4] }
 	state.linVel = { x = snap.linVel[1], y = snap.linVel[2], z = snap.linVel[3] }
 	state.angVel = { x = snap.angVel[1], y = snap.angVel[2], z = snap.angVel[3] }
@@ -482,6 +505,10 @@ function KartSolver.applyNetState(
 	if flyableWorld ~= nil and snap.flyableSnapshot ~= nil then
 		Flyable.applySnapshot(flyableWorld, snap.flyableSnapshot)
 	end
+	Slipstream.applyNet(state.slipstream, snap.slipstream, state.profile.width, state.profile.length)
+	if snap.slipstreamChargeTicks ~= nil then
+		state.slipstream.chargeTicks = snap.slipstreamChargeTicks
+	end
 
 	local _, _, fwd = Math3D.quatBasis(state.rot)
 	local signed = Math3D.dot(state.linVel, fwd)
@@ -554,6 +581,13 @@ function KartSolver.triggerExplosion(state: KartState, worldTicks: number?, dire
 	state.attachmentInitialSpeed = 0.0
 	ItemEffectState.setParachuteDrag(state.itemEffect, false)
 	Skidding.reset(state.skid)
+	Slipstream.reset(state.slipstream, state.profile.width, state.profile.length)
+	state.maxSpeedState.increases["SLIPSTREAM"].active = false
+	state.maxSpeedState.increases["SLIPSTREAM"].maxAddSpeed = 0
+	state.maxSpeedState.increases["SLIPSTREAM"].currentSpeedup = 0
+	state.maxSpeedState.increases["SLIPSTREAM"].engineForce = 0
+	state.maxSpeedState.increases["SLIPSTREAM"].durationTicks = 0
+	state.maxSpeedState.increases["SLIPSTREAM"].fadeOutTicks = 0
 	state.maxSpeedState.decreases["SQUASH"] = nil
 	state.linVel = { x = 0, y = 0, z = 0 }
 	state.angVel = { x = 0, y = 0, z = 0 }
@@ -701,6 +735,8 @@ function KartSolver.makeFlyableProxy(id: number, state: KartState, rank: number,
 		rot = state.rot,
 		linVel = state.linVel,
 		speed = state.speed,
+		width = state.profile.width,
+		height = state.profile.collisionHeight,
 		length = state.profile.length,
 		rank = rank,
 		baseMaxSpeed = state.profile.maxSpeed,
@@ -1281,6 +1317,7 @@ local function resolveContacts(state: KartState, contacts: { Contact })
 end
 
 function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQuery, dt: number)
+	state.prevPos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
 	if ItemEffectState.isDriverInputSuppressed(state.itemEffect) then
 		local effStep = ItemEffectState.tick(state.itemEffect)
 		if effStep.explosionPos ~= nil then
@@ -1851,15 +1888,33 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 				break
 			end
 		end
-				if
+		if
 			worldQuery.checkChassisOverlap(computeBoxCenter(state.pos, state.rot, halfExtents), state.rot, halfExtents)
 		then
 			state.stuckTicks += 1
-			if state.stuckTicks >= STUCK_ESCAPE_TICKS then
+			local lastSafeOverlaps = worldQuery.checkChassisOverlap(
+				computeBoxCenter(state.lastSafePos, state.lastSafeRot, halfExtents),
+				state.lastSafeRot,
+				halfExtents
+			)
+			if state.stuckTicks >= STUCK_ESCAPE_TICKS and lastSafeOverlaps then
 				state.lastSafePos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
 				state.lastSafeRot = { w = state.rot.w, x = state.rot.x, y = state.rot.y, z = state.rot.z }
 				state.stuckTicks = 0
 			else
+				if state.stuckTicks > STUCK_ESCAPE_TICKS then
+					state.stuckTicks = STUCK_ESCAPE_TICKS
+				end
+				local blockedDelta = Math3D.sub(state.pos, state.lastSafePos)
+				local blockedLen = Math3D.len(blockedDelta)
+				if blockedLen > 1e-6 then
+					local blockedDir = Math3D.scale(blockedDelta, 1.0 / blockedLen)
+					local vBlocked = Math3D.dot(state.linVel, blockedDir)
+					if vBlocked > 0.0 then
+						state.linVel = Math3D.sub(state.linVel, Math3D.scale(blockedDir, vBlocked))
+					end
+				end
+				state.angVel = { x = 0, y = 0, z = 0 }
 				state.rot = {
 					w = state.lastSafeRot.w,
 					x = state.lastSafeRot.x,
@@ -2332,6 +2387,52 @@ function KartSolver.resolveKartKartCollisions(participants: { CollisionParticipa
 	return collisions
 end
 
+export type SlipstreamParticipant = {
+	id: number,
+	state: KartState,
+	disableSlipstream: boolean?,
+	isGhost: boolean?,
+	isEliminated: boolean?,
+}
+
+-- Multi-participant STK 1.5 slipstream pass sorted deterministically by kart id.
+-- Ported from src/graphics/slip_stream.cpp:L855-L1148 & src/karts/kart.cpp:L1503-L1505 (STK 1.5).
+function KartSolver.stepSlipstream(participants: { SlipstreamParticipant }, dt: number, worldTick: number): number
+	if #participants == 0 then
+		return 0
+	end
+	local ssParticipants: { Slipstream.Participant } = table.create(#participants)
+	for _, p in participants do
+		local s = p.state
+		table.insert(ssParticipants, {
+			id = p.id,
+			pos = s.pos,
+			prevPos = s.prevPos,
+			rot = s.rot,
+			linVel = s.linVel,
+			speed = s.speed,
+			isOnGround = s.isOnGround,
+			width = s.profile.width,
+			length = s.profile.length,
+			slipstreamCfg = s.profile.slipstream,
+			maxSpeedState = s.maxSpeedState,
+			slipstream = s.slipstream,
+			disableSlipstream = p.disableSlipstream,
+			isGhost = p.isGhost,
+			isInAnimation = ItemEffectState.isDriverInputSuppressed(s.itemEffect),
+			isEliminated = p.isEliminated,
+			onApplyInstantSpeed = function(newMinSpeed: number)
+				if newMinSpeed > s.speed then
+					local _, _, fwd = Math3D.quatBasis(s.rot)
+					s.linVel = Math3D.add(s.linVel, Math3D.scale(fwd, newMinSpeed - s.speed))
+					s.speed = newMinSpeed
+				end
+			end,
+		})
+	end
+	return Slipstream.stepAll(ssParticipants, dt, worldTick)
+end
+
 KartSolver.evalWallRestitution = evalWallRestitution
 KartSolver.getMaxSteerAngle = getMaxSteerAngle
 
@@ -2358,6 +2459,14 @@ function KartSolver.getTelemetry(state: KartState): KartTelemetry
 		nitroEnergy = state.nitro.energy,
 		nitroMaxEnergy = state.nitro.maxEnergy,
 		nitroActive = state.nitro.active,
+		slipstreamMode = state.slipstream.mode,
+		slipstreamInZone = state.slipstream.inZone,
+		slipstreamChargeTicks = state.slipstream.chargeTicks,
+		slipstreamTimeSec = state.slipstream.slipstreamTime,
+		slipstreamReady = Slipstream.isReady(state.slipstream, state.profile.slipstream),
+		slipstreamBonusTimeSec = state.slipstream.bonusTime,
+		slipstreamActive = Slipstream.inUse(state.slipstream)
+			or MaxSpeed.isSpeedIncreaseActive(state.maxSpeedState, "SLIPSTREAM"),
 		attachmentType = state.attachmentType,
 		attachmentTicksLeft = state.attachmentTicksLeft,
 		bubblegumTicks = bubbleTicks,

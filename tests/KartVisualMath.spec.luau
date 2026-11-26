@@ -66,4 +66,31 @@ return {
 			)
 		end,
 	},
+	{
+		name = "isBubblegumShieldVisible matches STK slow/fast flash schedule",
+		fn = function()
+			-- Hidden at/below 0; steady at >= 3.0s (360 ticks)
+			assert(not KartVisualMath.isBubblegumShieldVisible(-1), "negative ticks hidden")
+			assert(not KartVisualMath.isBubblegumShieldVisible(0), "0 ticks hidden")
+			assert(KartVisualMath.isBubblegumShieldVisible(1200), "10.0s steady visible")
+			assert(KartVisualMath.isBubblegumShieldVisible(360), "3.0s steady boundary visible")
+
+			-- Slow flash [60, 359]: ticksPerFlash = 24, visible iff (ticks // 24) % 2 == 0
+			assert(KartVisualMath.isBubblegumShieldVisible(359), "359t -> 14 (even) visible")
+			assert(KartVisualMath.isBubblegumShieldVisible(336), "336t -> 14 (even) visible")
+			assert(not KartVisualMath.isBubblegumShieldVisible(335), "335t -> 13 (odd) hidden")
+			assert(not KartVisualMath.isBubblegumShieldVisible(312), "312t -> 13 (odd) hidden")
+			assert(KartVisualMath.isBubblegumShieldVisible(311), "311t -> 12 (even) visible")
+			assert(KartVisualMath.isBubblegumShieldVisible(60), "60t -> 2 (even) visible")
+
+			-- Fast flash [1, 59]: ticksPerFlash = floor(0.07 * 120) = 8, visible iff (ticks // 8) % 2 == 0
+			assert(not KartVisualMath.isBubblegumShieldVisible(59), "59t -> 7 (odd) hidden")
+			assert(not KartVisualMath.isBubblegumShieldVisible(56), "56t -> 7 (odd) hidden")
+			assert(KartVisualMath.isBubblegumShieldVisible(55), "55t -> 6 (even) visible")
+			assert(not KartVisualMath.isBubblegumShieldVisible(15), "15t -> 1 (odd) hidden")
+			assert(not KartVisualMath.isBubblegumShieldVisible(8), "8t -> 1 (odd) hidden")
+			assert(KartVisualMath.isBubblegumShieldVisible(7), "7t -> 0 (even) visible")
+			assert(KartVisualMath.isBubblegumShieldVisible(1), "1t -> 0 (even) visible")
+		end,
+	},
 }

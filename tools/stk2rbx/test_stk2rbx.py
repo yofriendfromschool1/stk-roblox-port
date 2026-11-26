@@ -513,18 +513,12 @@ class TestStk2Rbx(unittest.TestCase):
 
             model_doc = json.loads(out_model.read_text(encoding="utf-8"))
             folders = {c["Name"]: c for c in model_doc["Children"]}
-            for qpart in folders["Driveline"]["Children"]:
-                props = qpart["Properties"]
-                self.assertFalse(props["CanCollide"])
-                self.assertFalse(props["CanTouch"])
-                self.assertTrue(props["CanQuery"])
-                self.assertEqual(props["Transparency"], 1.0)
-            for cpart in folders["Checkpoints"]["Children"]:
-                props = cpart["Properties"]
-                self.assertFalse(props["CanCollide"])
-                self.assertFalse(props["CanTouch"])
-                self.assertTrue(props["CanQuery"])
-                self.assertEqual(props["Transparency"], 1.0)
+            self.assertNotIn("MainTrack", folders)
+            for fname in ("Driveline", "Checkpoints", "Items", "SceneObjects", "StartPositions"):
+                for part in folders[fname]["Children"]:
+                    props = part["Properties"]
+                    self.assertFalse(props["CanCollide"], f"{fname}/{part['Name']} CanCollide")
+                    self.assertEqual(props["CanQuery"], props["CanCollide"], f"{fname}/{part['Name']} CQ==CC")
 
     def test_spm_writer_roundtrip_and_winding(self) -> None:
         from tools.stk2rbx.road_probe import _read_spm_submesh

@@ -1,8 +1,13 @@
 --!strict
 -- src/shared/kart/KartVisualMath.lua
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- ported from src/karts/kart_model.cpp:L142-L145, L1267-L1301 (STK 1.5)
--- Pure-Luau visual wheel spin, steering angle, and suspension displacement helpers.
+-- ported from src/karts/kart_model.cpp:L142-L145, L1267-L1301,
+-- src/items/attachment.cpp:L654-L668 (STK 1.5)
+-- Pure-Luau visual wheel spin, steering angle, suspension displacement,
+-- and expiring bubblegum-shield flash helpers.
+
+local FixedStep = require("../sim/FixedStep")
+local ItemTuning = require("../ItemTuning")
 
 local KartVisualMath = {}
 
@@ -45,6 +50,25 @@ end
 function KartVisualMath.computeBodyGroundOffsetY(restSuspension: number?): number
 	local rest = restSuspension or KartVisualMath.DEFAULT_REST_SUSPENSION_M
 	return -rest
+end
+
+-- Expiring bubblegum shield flash visibility (src/items/attachment.cpp:L654-L668).
+function KartVisualMath.isBubblegumShieldVisible(attachmentTicksLeft: number): boolean
+	if attachmentTicksLeft <= 0 then
+		return false
+	end
+	local bg = ItemTuning.bubblegum
+	local slowFlashes = FixedStep.timeToTicks(bg.SHIELD_SLOW_FLASH_THRESHOLD_SEC)
+	if attachmentTicksLeft >= slowFlashes then
+		return true
+	end
+	local fastFlashes = FixedStep.timeToTicks(bg.SHIELD_FAST_FLASH_THRESHOLD_SEC)
+	local periodSec = if attachmentTicksLeft < fastFlashes
+		then bg.SHIELD_FAST_FLASH_PERIOD_SEC
+		else bg.SHIELD_SLOW_FLASH_PERIOD_SEC
+	local ticksPerFlash = math.max(1, FixedStep.timeToTicks(periodSec))
+	local division = attachmentTicksLeft // ticksPerFlash
+	return (division % 2) == 0
 end
 
 return table.freeze(KartVisualMath)

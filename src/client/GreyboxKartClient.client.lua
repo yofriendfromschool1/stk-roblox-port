@@ -31,6 +31,7 @@ local RemoteInterp = require(Shared.net.RemoteInterp)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SfxEvents = require(Shared.audio.SfxEvents)
 local SfxPlayer = require("./SfxPlayer")
+local SlipstreamVfxMath = require(Shared.kart.SlipstreamVfxMath)
 local Standings = require(Shared.race.Standings)
 local TouchControls = require("./TouchControls")
 local TrackRegistry = require(Shared.track.TrackRegistry)
@@ -176,7 +177,7 @@ local hud = createDebugHud()
 local profile = KartTuning.buildProfile("medium", "best")
 local visuals = KartPresentation.create(localPlayer, profile, "tux")
 
-local localKartId = if localPlayer.UserId ~= 0 then localPlayer.UserId else 1
+local localKartId = if localPlayer.UserId ~= 0 then localPlayer.UserId else 2
 local activeTrack = TrackRegistry.get(
 	if type(Workspace:GetAttribute("OpenKartActiveTrack")) == "string"
 		then Workspace:GetAttribute("OpenKartActiveTrack") :: string
@@ -383,6 +384,7 @@ local function syncRemoteKartStates(remotes: { GreyboxProtocol.RemoteKartState }
 		rs.speed = rk.speed
 		rs.steer = rk.steer
 		rs.attachmentType = rk.attachmentType
+		rs.attachmentTicksLeft = rk.attachmentTicksLeft or 0
 		rs.itemEffect.plungerFaceTicks = rk.plungerFaceTicks
 		rs.timedImpulseTicks = rk.timedImpulseTicks or 0
 	end
@@ -400,7 +402,7 @@ local function buildClientCollisionParticipants(): { KartSolver.CollisionPartici
 	for idx, rk in latestRemoteKarts do
 		local rs = remoteKartStates[rk.id]
 		if rs ~= nil then
-			local numericId = tonumber(rk.id) or -idx
+			local numericId = tonumber(rk.id) or -(1000 + idx)
 			table.insert(list, { id = numericId, state = rs })
 		end
 	end
@@ -435,7 +437,7 @@ local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, 
 		KartSolver.makeFlyableProxy(localKartId, localState, myRank, "best"),
 	}
 	for idx, rk in latestRemoteKarts do
-		local numericId = tonumber(rk.id) or -idx
+		local numericId = tonumber(rk.id) or -(1000 + idx)
 		local rs = remoteKartStates[rk.id]
 		if rs ~= nil then
 			table.insert(proxies, KartSolver.makeFlyableProxy(numericId, rs, rk.rank, "best"))
@@ -446,6 +448,8 @@ local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, 
 				rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] },
 				linVel = { x = 0, y = 0, z = rk.speed },
 				speed = rk.speed,
+				width = profile.width,
+				height = profile.collisionHeight,
 				length = profile.length,
 				rank = rk.rank,
 				baseMaxSpeed = profile.maxSpeed,
@@ -576,9 +580,10 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 						)
 						KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
 						AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
+						local _, _, postProxies = buildClientStandingsAndProxies()
 						Flyable.step(
 							localFlyableWorld,
-							proxies,
+							postProxies,
 							worldQuery,
 							FixedStep.FIXED_DT,
 							activeTrack.drivelineQuadCenters,
@@ -658,9 +663,10 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				})
 				KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
 				AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
+				local _, _, postProxies = buildClientStandingsAndProxies()
 				Flyable.step(
 					localFlyableWorld,
-					proxies,
+					postProxies,
 					worldQuery,
 					fixedDt,
 					activeTrack.drivelineQuadCenters,
@@ -699,6 +705,12 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		local rSpeed = if sampled then sampled.speed else rk.speed
 		local rSteer = if sampled then sampled.steer else rk.steer
 		local rCf = RobloxWorldQuery.stkPoseToRobloxCFrame(rPos, rRot, 0, 0)
+		local rSSTime = rk.slipstreamTime or 0.0
+		local remoteVfxInput: SlipstreamVfxMath.SlipstreamVfxInput = {
+			inZone = rSSTime > 0.0,
+			chargeTicks = FixedStep.timeToTicks(rSSTime),
+			minCollectTicks = FixedStep.timeToTicks(profile.slipstream.minCollectTime),
+		}
 		KartPresentation.update(
 			rv,
 			rCf,
@@ -711,9 +723,11 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			false,
 			rk.attachmentType,
 			rk.isSquashed,
-			rk.plungerFaceTicks
+			rk.plungerFaceTicks,
+			remoteVfxInput,
+			rk.attachmentTicksLeft
 		)
-		local numericId = tonumber(rk.id) or -idx
+		local numericId = tonumber(rk.id) or -(1000 + idx)
 		kartPositionsById[numericId] =
 			Vector3.new(Units.metersToStuds(rPos.x), Units.metersToStuds(rPos.y), Units.metersToStuds(-rPos.z))
 		table.insert(remoteMinimapPoses, { id = rk.id, x = rPos.x, z = rPos.z })
@@ -806,6 +820,11 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		localState.wheels[4].suspensionLength,
 	}
 	debug.profilebegin("OpenKart_KartPres")
+	local localVfxInput: SlipstreamVfxMath.SlipstreamVfxInput = {
+		inZone = localState.slipstream.inZone,
+		chargeTicks = localState.slipstream.chargeTicks,
+		minCollectTicks = FixedStep.timeToTicks(profile.slipstream.minCollectTime),
+	}
 	KartPresentation.update(
 		visuals,
 		bodyCFrame,
@@ -818,7 +837,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		tel.nitroActive,
 		tel.attachmentType,
 		tel.isSquashed,
-		tel.plungerFaceTicks
+		tel.plungerFaceTicks,
+		localVfxInput,
+		tel.attachmentTicksLeft
 	)
 	kartPositionsById[localKartId] = bodyCFrame.Position
 	FlyablePresentation.sync(flyableVisuals, localFlyableWorld, now, kartPositionsById)

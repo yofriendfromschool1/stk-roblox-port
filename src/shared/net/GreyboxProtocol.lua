@@ -4,10 +4,12 @@
 
 local Flyable = require("../sim/Flyable")
 local ItemEffectState = require("../sim/ItemEffectState")
+local ItemTuning = require("../ItemTuning")
 local ItemWorld = require("../items/ItemWorld")
 local KartSolver = require("../sim/KartSolver")
 local MaxSpeed = require("../kart/MaxSpeed")
 local Skidding = require("../kart/Skidding")
+local Slipstream = require("../sim/Slipstream")
 
 export type RemoteKartState = {
 	id: string,
@@ -17,12 +19,15 @@ export type RemoteKartState = {
 	speed: number,
 	steer: number,
 	attachmentType: number,
+	attachmentTicksLeft: number?,
 	plungerFaceTicks: number,
 	timedImpulseTicks: number?,
 	isSquashed: boolean,
 	rank: number,
 	lap: number?,
 	trackNodeIdx: number?,
+	slipstreamTime: number?,
+	slipstreamBonusTime: number?,
 }
 
 export type ClientInputPacket = {
@@ -92,13 +97,75 @@ for idx, name in FLYABLE_KINDS do
 	FLYABLE_KIND_TO_ID[name :: Flyable.FlyableKind] = idx
 end
 
-local CORE_HEADER_BYTES = 229
-local ITEM_EFFECT_BYTES = 116
+local CORE_HEADER_BYTES = 230
+local ITEM_EFFECT_BASE_BYTES = 12
+local ITEM_EFFECT_EXPLOSION_BYTES = 88
+local ITEM_EFFECT_PULL_BYTES = 16
 local INCREASE_ENTRY_BYTES = 17
 local COOLDOWN_ENTRY_BYTES = 6
 local DYNAMIC_ITEM_ENTRY_BYTES = 28
-local FLYABLE_ENTRY_BYTES = 135
-local REMOTE_KART_FIXED_BYTES = 58
+local FLYABLE_BASE_BYTES = 84
+local FLYABLE_CUSTOM_PHYS_BYTES = 12
+local FLYABLE_TARGET_BYTES = 8
+local FLYABLE_RUBBER_BYTES = 8
+local FLYABLE_PLUNGER_BYTES = 23
+local REMOTE_KART_FIXED_BYTES = 62
+local SLIPSTREAM_BYTES = 65
+
+local function defaultFlyablePhys(kind: Flyable.FlyableKind): (number, number, number)
+	if kind == "bowling" then
+		return ItemTuning.bowling.RADIUS, ItemTuning.bowling.GRAVITY, ItemTuning.bowling.RESTITUTION
+	elseif kind == "cake" then
+		return ItemTuning.cake.RADIUS, ItemTuning.cake.GRAVITY, ItemTuning.cake.RESTITUTION
+	elseif kind == "plunger" then
+		return ItemTuning.plunger.RADIUS, 0.0, 0.5
+	else
+		return ItemTuning.rubberBall.RADIUS, 0.0, 0.0
+	end
+end
+
+local function hasCustomFlyablePhys(e: Flyable.NetFlyableEntry): boolean
+	local defR, defG, defE = defaultFlyablePhys(e.kind)
+	return math.abs(e.radius - defR) > 1e-6
+		or math.abs(e.gravity - defG) > 1e-6
+		or math.abs(e.restitution - defE) > 1e-6
+end
+
+local function hasRubberBallFields(e: Flyable.NetFlyableEntry): boolean
+	return e.kind == "rubber_ball" or e.deleteTicks ~= -1 or e.drivelineIdx ~= 1 or e.bouncePhaseSec ~= 0.0
+end
+
+local function hasPlungerBandFields(e: Flyable.NetFlyableEntry): boolean
+	return e.keepAliveTicks >= 0 or e.bandState ~= 0
+end
+
+local function computeItemEffectBytes(eff: ItemEffectState.NetEffectState): number
+	local size = ITEM_EFFECT_BASE_BYTES
+	if eff.effectType == ItemEffectState.EFFECT_EXPLOSION then
+		size += ITEM_EFFECT_EXPLOSION_BYTES
+	end
+	if eff.slowdownFraction ~= 1.0 or eff.externalPullTicks > 0 then
+		size += ITEM_EFFECT_PULL_BYTES
+	end
+	return size
+end
+
+local function computeFlyableEntryBytes(e: Flyable.NetFlyableEntry): number
+	local size = FLYABLE_BASE_BYTES
+	if hasCustomFlyablePhys(e) then
+		size += FLYABLE_CUSTOM_PHYS_BYTES
+	end
+	if e.targetKartId ~= 0 then
+		size += FLYABLE_TARGET_BYTES
+	end
+	if hasRubberBallFields(e) then
+		size += FLYABLE_RUBBER_BYTES
+	end
+	if hasPlungerBandFields(e) then
+		size += FLYABLE_PLUNGER_BYTES
+	end
+	return size
+end
 
 local GreyboxProtocol = {}
 
@@ -144,6 +211,23 @@ local function isItemEffectActive(eff: ItemEffectState.NetEffectState?): boolean
 		or eff.parachuteDragActive
 end
 
+local function isSlipstreamStateActive(ss: Slipstream.NetSlipstreamState?): boolean
+	if ss == nil then
+		return false
+	end
+	return ss.mode == "COLLECT"
+		or ss.inZone
+		or ss.chargeTicks > 0
+		or ss.slipstreamTime > 0.0
+		or ss.bonusTime > 0.0
+		or ss.bonusActive
+		or ss.currentTargetId ~= nil
+		or ss.previousTargetId ~= nil
+		or ss.speedIncreaseTick >= 0
+		or ss.inInnerQuad
+		or ss.inOuterQuad
+end
+
 -- Pack authoritative snapshot into a compact binary Luau buffer well below UnreliableRemoteEvent's ~900-byte limit.
 function GreyboxProtocol.packSnapshot(
 	tick: number,
@@ -162,10 +246,13 @@ function GreyboxProtocol.packSnapshot(
 	local hasFlyables = fw ~= nil and (#fw.entries > 0 or fw.nextId > 1)
 	local nRemotes = if remoteKarts ~= nil then math.min(#remoteKarts, 255) else 0
 	local hasRemoteKarts = nRemotes > 0
+	local ss = ns.slipstream
+	local hasSlipstream = isSlipstreamStateActive(ss)
 
 	local nIncs = math.min(#ns.increases, 255)
 	local totalBytes = CORE_HEADER_BYTES
-		+ (if hasItemEffect then ITEM_EFFECT_BYTES else 0)
+		+ (if hasItemEffect and eff ~= nil then computeItemEffectBytes(eff) else 0)
+		+ (if hasSlipstream then SLIPSTREAM_BYTES else 0)
 		+ 1
 		+ nIncs * INCREASE_ENTRY_BYTES
 
@@ -180,7 +267,10 @@ function GreyboxProtocol.packSnapshot(
 	local nFlyables = 0
 	if hasFlyables and fw ~= nil then
 		nFlyables = math.min(#fw.entries, 255)
-		totalBytes += 3 + nFlyables * FLYABLE_ENTRY_BYTES
+		totalBytes += 3
+		for idx = 1, nFlyables do
+			totalBytes += computeFlyableEntryBytes(fw.entries[idx])
+		end
 	end
 
 	local remoteIds: { string } = {}
@@ -251,17 +341,19 @@ function GreyboxProtocol.packSnapshot(
 		+ (if hasItemWorld then 16 else 0)
 		+ (if hasFlyables then 32 else 0)
 		+ (if hasRemoteKarts then 64 else 0)
+		+ (if hasSlipstream then 128 else 0)
 	buffer.writeu8(buf, off, sectionFlags)
 	off += 1
 
-	-- 6 small enum/count bytes (6 B)
+	-- 7 small enum/count bytes (7 B)
 	buffer.writeu8(buf, off, SKID_CONTROL_TO_ID[ns.latchedSkidControl] or 1)
 	buffer.writeu8(buf, off + 1, SKID_STATE_TO_ID[ns.skidState] or 1)
 	buffer.writeu8(buf, off + 2, clampU8(ns.currentTier))
 	buffer.writeu8(buf, off + 3, clampU8(ns.heldPowerup or 0))
 	buffer.writeu8(buf, off + 4, clampU8(ns.heldPowerupCount or 0))
 	buffer.writeu8(buf, off + 5, clampU8(ns.attachmentType or 0))
-	off += 6
+	buffer.writeu8(buf, off + 6, clampU8(ns.stuckTicks or 0))
+	off += 7
 
 	-- 12 i16 tick counters (24 B)
 	buffer.writei16(buf, off, clampI16(ns.brakeTicks))
@@ -279,12 +371,16 @@ function GreyboxProtocol.packSnapshot(
 	off += 24
 
 	if hasItemEffect and eff ~= nil then
+		local hasExp = (eff.effectType == ItemEffectState.EFFECT_EXPLOSION)
+		local hasPull = (eff.slowdownFraction ~= 1.0 or eff.externalPullTicks > 0)
 		local effFlags = (if eff.suppressThrottle then 1 else 0)
 			+ (if eff.suppressSteer then 2 else 0)
 			+ (if eff.suppressDrift then 4 else 0)
 			+ (if eff.suppressFire then 8 else 0)
 			+ (if eff.torqueSign then 16 else 0)
 			+ (if eff.parachuteDragActive then 32 else 0)
+			+ (if hasExp then 64 else 0)
+			+ (if hasPull then 128 else 0)
 		buffer.writeu8(buf, off, clampU8(eff.effectType))
 		buffer.writeu8(buf, off + 1, effFlags)
 		buffer.writei16(buf, off + 2, clampI16(eff.ticksRemaining))
@@ -292,26 +388,55 @@ function GreyboxProtocol.packSnapshot(
 		buffer.writei16(buf, off + 6, clampI16(eff.invulnerableTicks))
 		buffer.writei16(buf, off + 8, clampI16(eff.plungerFaceTicks))
 		buffer.writei16(buf, off + 10, clampI16(eff.externalPullTicks))
-		buffer.writef64(buf, off + 12, eff.originPos[1])
-		buffer.writef64(buf, off + 20, eff.originPos[2])
-		buffer.writef64(buf, off + 28, eff.originPos[3])
-		buffer.writef64(buf, off + 36, eff.originRot[1])
-		buffer.writef64(buf, off + 44, eff.originRot[2])
-		buffer.writef64(buf, off + 52, eff.originRot[3])
-		buffer.writef64(buf, off + 60, eff.originRot[4])
-		buffer.writef32(buf, off + 68, eff.normal[1])
-		buffer.writef32(buf, off + 72, eff.normal[2])
-		buffer.writef32(buf, off + 76, eff.normal[3])
-		buffer.writef32(buf, off + 80, eff.initUpVel)
-		buffer.writef32(buf, off + 84, eff.gravity)
-		buffer.writef32(buf, off + 88, eff.addHeadingRate)
-		buffer.writef32(buf, off + 92, eff.addPitchRate)
-		buffer.writef32(buf, off + 96, eff.addRollRate)
-		buffer.writef32(buf, off + 100, eff.slowdownFraction)
-		buffer.writef32(buf, off + 104, eff.externalPullAccel[1])
-		buffer.writef32(buf, off + 108, eff.externalPullAccel[2])
-		buffer.writef32(buf, off + 112, eff.externalPullAccel[3])
-		off += ITEM_EFFECT_BYTES
+		off += ITEM_EFFECT_BASE_BYTES
+		if hasExp then
+			buffer.writef64(buf, off, eff.originPos[1])
+			buffer.writef64(buf, off + 8, eff.originPos[2])
+			buffer.writef64(buf, off + 16, eff.originPos[3])
+			buffer.writef64(buf, off + 24, eff.originRot[1])
+			buffer.writef64(buf, off + 32, eff.originRot[2])
+			buffer.writef64(buf, off + 40, eff.originRot[3])
+			buffer.writef64(buf, off + 48, eff.originRot[4])
+			buffer.writef32(buf, off + 56, eff.normal[1])
+			buffer.writef32(buf, off + 60, eff.normal[2])
+			buffer.writef32(buf, off + 64, eff.normal[3])
+			buffer.writef32(buf, off + 68, eff.initUpVel)
+			buffer.writef32(buf, off + 72, eff.gravity)
+			buffer.writef32(buf, off + 76, eff.addHeadingRate)
+			buffer.writef32(buf, off + 80, eff.addPitchRate)
+			buffer.writef32(buf, off + 84, eff.addRollRate)
+			off += ITEM_EFFECT_EXPLOSION_BYTES
+		end
+		if hasPull then
+			buffer.writef32(buf, off, eff.slowdownFraction)
+			buffer.writef32(buf, off + 4, eff.externalPullAccel[1])
+			buffer.writef32(buf, off + 8, eff.externalPullAccel[2])
+			buffer.writef32(buf, off + 12, eff.externalPullAccel[3])
+			off += ITEM_EFFECT_PULL_BYTES
+		end
+	end
+
+	if hasSlipstream and ss ~= nil then
+		local ssFlags = (if ss.mode == "COLLECT" then 1 else 0)
+			+ (if ss.bonusActive then 2 else 0)
+			+ (if ss.currentTargetId ~= nil then 4 else 0)
+			+ (if ss.previousTargetId ~= nil then 8 else 0)
+			+ (if ss.inInnerQuad then 16 else 0)
+			+ (if ss.inOuterQuad then 32 else 0)
+			+ (if ss.inZone then 64 else 0)
+		buffer.writeu8(buf, off, ssFlags)
+		buffer.writef64(buf, off + 1, ss.slipstreamTime)
+		buffer.writef64(buf, off + 9, ss.bonusTime)
+		buffer.writef64(buf, off + 17, ss.currentTargetId or 0)
+		buffer.writef64(buf, off + 25, ss.previousTargetId or 0)
+		buffer.writei32(buf, off + 33, clampI32(ss.speedIncreaseTick))
+		buffer.writei16(buf, off + 37, clampI16(ss.speedIncreaseDurationTicks))
+		local pp = ns.prevPos or ns.pos
+		buffer.writef64(buf, off + 39, pp[1])
+		buffer.writef64(buf, off + 47, pp[2])
+		buffer.writef64(buf, off + 55, pp[3])
+		buffer.writei16(buf, off + 63, clampI16(ss.chargeTicks))
+		off += SLIPSTREAM_BYTES
 	end
 
 	buffer.writeu8(buf, off, nIncs)
@@ -362,41 +487,61 @@ function GreyboxProtocol.packSnapshot(
 		off += 3
 		for idx = 1, nFlyables do
 			local e = fw.entries[idx]
+			local customPhys = hasCustomFlyablePhys(e)
+			local hasTarget = (e.targetKartId ~= 0)
+			local hasRubber = hasRubberBallFields(e)
+			local hasPlunger = hasPlungerBandFields(e)
 			local bFlags = (if e.reverseMode then 1 else 0)
 				+ (if e.isBattle then 2 else 0)
 				+ (if e.hasHitSomething then 4 else 0)
 				+ (if e.movedToInfinity then 8 else 0)
+				+ (if customPhys then 16 else 0)
+				+ (if hasTarget then 32 else 0)
+				+ (if hasRubber then 64 else 0)
+				+ (if hasPlunger then 128 else 0)
 			buffer.writeu16(buf, off, clampU16(e.id))
 			buffer.writeu8(buf, off + 2, FLYABLE_KIND_TO_ID[e.kind] or 1)
-			buffer.writef64(buf, off + 3, e.ownerId)
-			buffer.writef64(buf, off + 11, e.pos[1])
-			buffer.writef64(buf, off + 19, e.pos[2])
-			buffer.writef64(buf, off + 27, e.pos[3])
-			buffer.writef64(buf, off + 35, e.vel[1])
-			buffer.writef64(buf, off + 43, e.vel[2])
-			buffer.writef64(buf, off + 51, e.vel[3])
-			buffer.writef32(buf, off + 59, e.rot[1])
-			buffer.writef32(buf, off + 63, e.rot[2])
-			buffer.writef32(buf, off + 67, e.rot[3])
-			buffer.writef32(buf, off + 71, e.rot[4])
-			buffer.writef32(buf, off + 75, e.radius)
-			buffer.writef32(buf, off + 79, e.gravity)
-			buffer.writef32(buf, off + 83, e.restitution)
-			buffer.writef32(buf, off + 87, e.speedScalar)
-			buffer.writei16(buf, off + 91, clampI16(e.ticksSinceThrown))
-			buffer.writei16(buf, off + 93, clampI16(e.maxLifespanTicks))
-			buffer.writeu8(buf, off + 95, bFlags)
-			buffer.writei16(buf, off + 96, clampI16(e.keepAliveTicks))
-			buffer.writef64(buf, off + 98, e.targetKartId)
-			buffer.writei16(buf, off + 106, clampI16(e.deleteTicks))
-			buffer.writei16(buf, off + 108, clampI16(e.drivelineIdx))
-			buffer.writef32(buf, off + 110, e.bouncePhaseSec)
-			buffer.writeu8(buf, off + 114, clampU8(e.bandState))
-			buffer.writef64(buf, off + 115, e.bandTargetKartId)
-			buffer.writef32(buf, off + 123, e.bandAnchorPos[1])
-			buffer.writef32(buf, off + 127, e.bandAnchorPos[2])
-			buffer.writef32(buf, off + 131, e.bandAnchorPos[3])
-			off += FLYABLE_ENTRY_BYTES
+			buffer.writeu8(buf, off + 3, bFlags)
+			buffer.writef64(buf, off + 4, e.ownerId)
+			buffer.writef64(buf, off + 12, e.pos[1])
+			buffer.writef64(buf, off + 20, e.pos[2])
+			buffer.writef64(buf, off + 28, e.pos[3])
+			buffer.writef64(buf, off + 36, e.vel[1])
+			buffer.writef64(buf, off + 44, e.vel[2])
+			buffer.writef64(buf, off + 52, e.vel[3])
+			buffer.writef32(buf, off + 60, e.rot[1])
+			buffer.writef32(buf, off + 64, e.rot[2])
+			buffer.writef32(buf, off + 68, e.rot[3])
+			buffer.writef32(buf, off + 72, e.rot[4])
+			buffer.writef32(buf, off + 76, e.speedScalar)
+			buffer.writei16(buf, off + 80, clampI16(e.ticksSinceThrown))
+			buffer.writei16(buf, off + 82, clampI16(e.maxLifespanTicks))
+			off += FLYABLE_BASE_BYTES
+			if customPhys then
+				buffer.writef32(buf, off, e.radius)
+				buffer.writef32(buf, off + 4, e.gravity)
+				buffer.writef32(buf, off + 8, e.restitution)
+				off += FLYABLE_CUSTOM_PHYS_BYTES
+			end
+			if hasTarget then
+				buffer.writef64(buf, off, e.targetKartId)
+				off += FLYABLE_TARGET_BYTES
+			end
+			if hasRubber then
+				buffer.writei16(buf, off, clampI16(e.deleteTicks))
+				buffer.writei16(buf, off + 2, clampI16(e.drivelineIdx))
+				buffer.writef32(buf, off + 4, e.bouncePhaseSec)
+				off += FLYABLE_RUBBER_BYTES
+			end
+			if hasPlunger then
+				buffer.writei16(buf, off, clampI16(e.keepAliveTicks))
+				buffer.writeu8(buf, off + 2, clampU8(e.bandState))
+				buffer.writef64(buf, off + 3, e.bandTargetKartId)
+				buffer.writef32(buf, off + 11, e.bandAnchorPos[1])
+				buffer.writef32(buf, off + 15, e.bandAnchorPos[2])
+				buffer.writef32(buf, off + 19, e.bandAnchorPos[3])
+				off += FLYABLE_PLUNGER_BYTES
+			end
 		end
 	end
 
@@ -430,6 +575,9 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writeu8(buf, rOff + 54, clampU8(rk.rank))
 			buffer.writeu8(buf, rOff + 55, clampU8(rk.lap or 0))
 			buffer.writeu16(buf, rOff + 56, clampU16(rk.trackNodeIdx or 1))
+			buffer.writeu8(buf, rOff + 58, clampU8(math.max(0, rk.slipstreamTime or 0) * (255 / 8.0)))
+			buffer.writeu8(buf, rOff + 59, clampU8(math.max(0, rk.slipstreamBonusTime or 0) * (255 / 8.0)))
+			buffer.writei16(buf, rOff + 60, clampI16(rk.attachmentTicksLeft or 0))
 			off = rOff + REMOTE_KART_FIXED_BYTES
 		end
 	end
@@ -499,6 +647,7 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 	local hasItemWorld = bit32.btest(sectionFlags, 16)
 	local hasFlyables = bit32.btest(sectionFlags, 32)
 	local hasRemoteKarts = bit32.btest(sectionFlags, 64)
+	local hasSlipstream = bit32.btest(sectionFlags, 128)
 
 	local skidCtrlId = buffer.readu8(buf, off)
 	local skidStateId = buffer.readu8(buf, off + 1)
@@ -506,7 +655,8 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 	local heldPowerup = buffer.readu8(buf, off + 3)
 	local heldPowerupCount = buffer.readu8(buf, off + 4)
 	local attachmentType = buffer.readu8(buf, off + 5)
-	off += 6
+	local stuckTicks = buffer.readu8(buf, off + 6)
+	off += 7
 
 	local brakeTicks = buffer.readi16(buf, off)
 	local skidTimeTicks = buffer.readi16(buf, off + 2)
@@ -524,53 +674,93 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 
 	local itemEffect: ItemEffectState.NetEffectState
 	if hasItemEffect then
-		if off + ITEM_EFFECT_BYTES > bufLen then
+		if off + ITEM_EFFECT_BASE_BYTES > bufLen then
 			return nil
 		end
 		local effType = buffer.readu8(buf, off)
 		local effFlags = buffer.readu8(buf, off + 1)
+		local ticksRemaining = buffer.readi16(buf, off + 2)
+		local totalTicks = buffer.readi16(buf, off + 4)
+		local invulnerableTicks = buffer.readi16(buf, off + 6)
+		local plungerFaceTicks = buffer.readi16(buf, off + 8)
+		local externalPullTicks = buffer.readi16(buf, off + 10)
+		off += ITEM_EFFECT_BASE_BYTES
+
+		local originPos = { 0, 0, 0 }
+		local originRot = { 1, 0, 0, 0 }
+		local normal = { 0, 1, 0 }
+		local initUpVel = 0.0
+		local gravity = 0.0
+		local addHeadingRate = 0.0
+		local addPitchRate = 0.0
+		local addRollRate = 0.0
+		if bit32.btest(effFlags, 64) then
+			if off + ITEM_EFFECT_EXPLOSION_BYTES > bufLen then
+				return nil
+			end
+			originPos = {
+				buffer.readf64(buf, off),
+				buffer.readf64(buf, off + 8),
+				buffer.readf64(buf, off + 16),
+			}
+			originRot = {
+				buffer.readf64(buf, off + 24),
+				buffer.readf64(buf, off + 32),
+				buffer.readf64(buf, off + 40),
+				buffer.readf64(buf, off + 48),
+			}
+			normal = {
+				buffer.readf32(buf, off + 56),
+				buffer.readf32(buf, off + 60),
+				buffer.readf32(buf, off + 64),
+			}
+			initUpVel = buffer.readf32(buf, off + 68)
+			gravity = buffer.readf32(buf, off + 72)
+			addHeadingRate = buffer.readf32(buf, off + 76)
+			addPitchRate = buffer.readf32(buf, off + 80)
+			addRollRate = buffer.readf32(buf, off + 84)
+			off += ITEM_EFFECT_EXPLOSION_BYTES
+		end
+
+		local slowdownFraction = 1.0
+		local externalPullAccel = { 0, 0, 0 }
+		if bit32.btest(effFlags, 128) then
+			if off + ITEM_EFFECT_PULL_BYTES > bufLen then
+				return nil
+			end
+			slowdownFraction = buffer.readf32(buf, off)
+			externalPullAccel = {
+				buffer.readf32(buf, off + 4),
+				buffer.readf32(buf, off + 8),
+				buffer.readf32(buf, off + 12),
+			}
+			off += ITEM_EFFECT_PULL_BYTES
+		end
+
 		itemEffect = {
 			effectType = effType,
-			ticksRemaining = buffer.readi16(buf, off + 2),
-			totalTicks = buffer.readi16(buf, off + 4),
+			ticksRemaining = ticksRemaining,
+			totalTicks = totalTicks,
 			suppressThrottle = bit32.btest(effFlags, 1),
 			suppressSteer = bit32.btest(effFlags, 2),
 			suppressDrift = bit32.btest(effFlags, 4),
 			suppressFire = bit32.btest(effFlags, 8),
 			torqueSign = bit32.btest(effFlags, 16),
 			parachuteDragActive = bit32.btest(effFlags, 32),
-			invulnerableTicks = buffer.readi16(buf, off + 6),
-			originPos = {
-				buffer.readf64(buf, off + 12),
-				buffer.readf64(buf, off + 20),
-				buffer.readf64(buf, off + 28),
-			},
-			originRot = {
-				buffer.readf64(buf, off + 36),
-				buffer.readf64(buf, off + 44),
-				buffer.readf64(buf, off + 52),
-				buffer.readf64(buf, off + 60),
-			},
-			normal = {
-				buffer.readf32(buf, off + 68),
-				buffer.readf32(buf, off + 72),
-				buffer.readf32(buf, off + 76),
-			},
-			initUpVel = buffer.readf32(buf, off + 80),
-			gravity = buffer.readf32(buf, off + 84),
-			addHeadingRate = buffer.readf32(buf, off + 88),
-			addPitchRate = buffer.readf32(buf, off + 92),
-			addRollRate = buffer.readf32(buf, off + 96),
-			slowdownFraction = buffer.readf32(buf, off + 100),
-			plungerFaceTicks = buffer.readi16(buf, off + 8),
-			externalPullAccel = {
-				buffer.readf32(buf, off + 104),
-				buffer.readf32(buf, off + 108),
-				buffer.readf32(buf, off + 112),
-			},
-			externalPullTicks = buffer.readi16(buf, off + 10),
+			invulnerableTicks = invulnerableTicks,
+			originPos = originPos,
+			originRot = originRot,
+			normal = normal,
+			initUpVel = initUpVel,
+			gravity = gravity,
+			addHeadingRate = addHeadingRate,
+			addPitchRate = addPitchRate,
+			addRollRate = addRollRate,
+			slowdownFraction = slowdownFraction,
+			plungerFaceTicks = plungerFaceTicks,
+			externalPullAccel = externalPullAccel,
+			externalPullTicks = externalPullTicks,
 		}
-		off += ITEM_EFFECT_BYTES
 	else
 		itemEffect = {
 			effectType = 0,
@@ -596,6 +786,38 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 			externalPullAccel = { 0, 0, 0 },
 			externalPullTicks = 0,
 		}
+	end
+
+	local slipstream: Slipstream.NetSlipstreamState? = nil
+	local prevPos: { number }? = nil
+	if hasSlipstream then
+		if off + SLIPSTREAM_BYTES > bufLen then
+			return nil
+		end
+		local ssFlags = buffer.readu8(buf, off)
+		local hasCur = bit32.btest(ssFlags, 4)
+		local hasPrev = bit32.btest(ssFlags, 8)
+		local chargeTicks = buffer.readi16(buf, off + 63)
+		slipstream = {
+			mode = if bit32.btest(ssFlags, 1) then "COLLECT" else "NONE",
+			inZone = bit32.btest(ssFlags, 64),
+			chargeTicks = chargeTicks,
+			slipstreamTime = buffer.readf64(buf, off + 1),
+			bonusTime = buffer.readf64(buf, off + 9),
+			bonusActive = bit32.btest(ssFlags, 2),
+			currentTargetId = if hasCur then buffer.readf64(buf, off + 17) else nil,
+			previousTargetId = if hasPrev then buffer.readf64(buf, off + 25) else nil,
+			speedIncreaseTick = buffer.readi32(buf, off + 33),
+			speedIncreaseDurationTicks = buffer.readi16(buf, off + 37),
+			inInnerQuad = bit32.btest(ssFlags, 16),
+			inOuterQuad = bit32.btest(ssFlags, 32),
+		}
+		prevPos = {
+			buffer.readf64(buf, off + 39),
+			buffer.readf64(buf, off + 47),
+			buffer.readf64(buf, off + 55),
+		}
+		off += SLIPSTREAM_BYTES
 	end
 
 	if off + 1 > bufLen then
@@ -682,56 +904,119 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		local nextId = buffer.readu16(buf, off)
 		local nFly = buffer.readu8(buf, off + 2)
 		off += 3
-		if off + nFly * FLYABLE_ENTRY_BYTES > bufLen then
-			return nil
-		end
 		local fEntries: { Flyable.NetFlyableEntry } = table.create(nFly)
 		for _ = 1, nFly do
-			local bFlags = buffer.readu8(buf, off + 95)
+			if off + FLYABLE_BASE_BYTES > bufLen then
+				return nil
+			end
+			local id = buffer.readu16(buf, off)
+			local kindId = buffer.readu8(buf, off + 2)
+			local kind: Flyable.FlyableKind = if kindId == 2
+				then "cake"
+				elseif kindId == 3 then "plunger"
+				elseif kindId == 4 then "rubber_ball"
+				else "bowling"
+			local bFlags = buffer.readu8(buf, off + 3)
+			local ownerId = buffer.readf64(buf, off + 4)
+			local ePos = {
+				buffer.readf64(buf, off + 12),
+				buffer.readf64(buf, off + 20),
+				buffer.readf64(buf, off + 28),
+			}
+			local eVel = {
+				buffer.readf64(buf, off + 36),
+				buffer.readf64(buf, off + 44),
+				buffer.readf64(buf, off + 52),
+			}
+			local eRot = {
+				buffer.readf32(buf, off + 60),
+				buffer.readf32(buf, off + 64),
+				buffer.readf32(buf, off + 68),
+				buffer.readf32(buf, off + 72),
+			}
+			local speedScalar = buffer.readf32(buf, off + 76)
+			local ticksSinceThrown = buffer.readi16(buf, off + 80)
+			local maxLifespanTicks = buffer.readi16(buf, off + 82)
+			off += FLYABLE_BASE_BYTES
+
+			local radius, gravity, restitution = defaultFlyablePhys(kind)
+			if bit32.btest(bFlags, 16) then
+				if off + FLYABLE_CUSTOM_PHYS_BYTES > bufLen then
+					return nil
+				end
+				radius = buffer.readf32(buf, off)
+				gravity = buffer.readf32(buf, off + 4)
+				restitution = buffer.readf32(buf, off + 8)
+				off += FLYABLE_CUSTOM_PHYS_BYTES
+			end
+
+			local targetKartId = 0
+			if bit32.btest(bFlags, 32) then
+				if off + FLYABLE_TARGET_BYTES > bufLen then
+					return nil
+				end
+				targetKartId = buffer.readf64(buf, off)
+				off += FLYABLE_TARGET_BYTES
+			end
+
+			local deleteTicks = -1
+			local drivelineIdx = 1
+			local bouncePhaseSec = 0.0
+			if bit32.btest(bFlags, 64) then
+				if off + FLYABLE_RUBBER_BYTES > bufLen then
+					return nil
+				end
+				deleteTicks = buffer.readi16(buf, off)
+				drivelineIdx = buffer.readi16(buf, off + 2)
+				bouncePhaseSec = buffer.readf32(buf, off + 4)
+				off += FLYABLE_RUBBER_BYTES
+			end
+
+			local keepAliveTicks = -1
+			local bandState = 0
+			local bandTargetKartId = 0
+			local bandAnchorPos = { 0, 0, 0 }
+			if bit32.btest(bFlags, 128) then
+				if off + FLYABLE_PLUNGER_BYTES > bufLen then
+					return nil
+				end
+				keepAliveTicks = buffer.readi16(buf, off)
+				bandState = buffer.readu8(buf, off + 2)
+				bandTargetKartId = buffer.readf64(buf, off + 3)
+				bandAnchorPos = {
+					buffer.readf32(buf, off + 11),
+					buffer.readf32(buf, off + 15),
+					buffer.readf32(buf, off + 19),
+				}
+				off += FLYABLE_PLUNGER_BYTES
+			end
+
 			table.insert(fEntries, {
-				id = buffer.readu16(buf, off),
-				kind = (FLYABLE_KINDS[buffer.readu8(buf, off + 2)] or "bowling") :: Flyable.FlyableKind,
-				ownerId = buffer.readf64(buf, off + 3),
-				pos = {
-					buffer.readf64(buf, off + 11),
-					buffer.readf64(buf, off + 19),
-					buffer.readf64(buf, off + 27),
-				},
-				vel = {
-					buffer.readf64(buf, off + 35),
-					buffer.readf64(buf, off + 43),
-					buffer.readf64(buf, off + 51),
-				},
-				rot = {
-					buffer.readf32(buf, off + 59),
-					buffer.readf32(buf, off + 63),
-					buffer.readf32(buf, off + 67),
-					buffer.readf32(buf, off + 71),
-				},
-				radius = buffer.readf32(buf, off + 75),
-				gravity = buffer.readf32(buf, off + 79),
-				restitution = buffer.readf32(buf, off + 83),
-				speedScalar = buffer.readf32(buf, off + 87),
-				ticksSinceThrown = buffer.readi16(buf, off + 91),
-				maxLifespanTicks = buffer.readi16(buf, off + 93),
+				id = id,
+				kind = kind,
+				ownerId = ownerId,
+				pos = ePos,
+				vel = eVel,
+				rot = eRot,
+				radius = radius,
+				gravity = gravity,
+				restitution = restitution,
+				speedScalar = speedScalar,
+				ticksSinceThrown = ticksSinceThrown,
+				maxLifespanTicks = maxLifespanTicks,
 				reverseMode = bit32.btest(bFlags, 1),
 				isBattle = bit32.btest(bFlags, 2),
 				hasHitSomething = bit32.btest(bFlags, 4),
 				movedToInfinity = bit32.btest(bFlags, 8),
-				keepAliveTicks = buffer.readi16(buf, off + 96),
-				targetKartId = buffer.readf64(buf, off + 98),
-				deleteTicks = buffer.readi16(buf, off + 106),
-				drivelineIdx = buffer.readi16(buf, off + 108),
-				bouncePhaseSec = buffer.readf32(buf, off + 110),
-				bandState = buffer.readu8(buf, off + 114),
-				bandTargetKartId = buffer.readf64(buf, off + 115),
-				bandAnchorPos = {
-					buffer.readf32(buf, off + 123),
-					buffer.readf32(buf, off + 127),
-					buffer.readf32(buf, off + 131),
-				},
+				keepAliveTicks = keepAliveTicks,
+				targetKartId = targetKartId,
+				deleteTicks = deleteTicks,
+				drivelineIdx = drivelineIdx,
+				bouncePhaseSec = bouncePhaseSec,
+				bandState = bandState,
+				bandTargetKartId = bandTargetKartId,
+				bandAnchorPos = bandAnchorPos,
 			})
-			off += FLYABLE_ENTRY_BYTES
 		end
 		flyableSnapshot = {
 			nextId = nextId,
@@ -780,6 +1065,9 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				rank = buffer.readu8(buf, rOff + 54),
 				lap = buffer.readu8(buf, rOff + 55),
 				trackNodeIdx = buffer.readu16(buf, rOff + 56),
+				slipstreamTime = buffer.readu8(buf, rOff + 58) * (8.0 / 255),
+				slipstreamBonusTime = buffer.readu8(buf, rOff + 59) * (8.0 / 255),
+				attachmentTicksLeft = buffer.readi16(buf, rOff + 60),
 			})
 			off = rOff + REMOTE_KART_FIXED_BYTES
 		end
@@ -788,6 +1076,7 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 
 	local netState: KartSolver.NetState = {
 		pos = pos,
+		prevPos = prevPos,
 		rot = rot,
 		linVel = linVel,
 		angVel = angVel,
@@ -812,6 +1101,7 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		timedRotationTicks = timedRotationTicks,
 		timedRotationRate = timedRotationRate,
 		bounceBackTicks = bounceBackTicks,
+		stuckTicks = stuckTicks,
 		terrainFraction = terrainFraction,
 		terrainTargetFraction = terrainTargetFraction,
 		terrainFadeTicks = terrainFadeTicks,
@@ -831,6 +1121,8 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		bubbleDurationTicks = bubbleDurationTicks,
 		itemEffect = itemEffect,
 		increases = increases,
+		slipstreamChargeTicks = if slipstream ~= nil then slipstream.chargeTicks else 0,
+		slipstream = slipstream,
 		itemWorldSnapshot = itemWorldSnapshot,
 		flyableSnapshot = flyableSnapshot,
 	}

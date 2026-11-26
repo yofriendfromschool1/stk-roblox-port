@@ -12,7 +12,7 @@ local Standings = require("./Standings")
 
 local TestDummyKart = {}
 
-TestDummyKart.DUMMY_KART_ID = -1
+TestDummyKart.DUMMY_KART_ID = -1001
 TestDummyKart.DUMMY_STRING_ID = "Dummy_1"
 -- First waypoint of GreyboxArenaData.drivelineQuadCenters: (0, 6) heading +X directly ahead of player spawn (0, 0).
 TestDummyKart.DEFAULT_SPAWN_X_METERS = 0.0

@@ -55,3 +55,7 @@ Consequences:
 - Players.CharacterAutoLoads = false; no Humanoid, no default character scripts.
 - Do NOT use Roblox Terrain (4-stud voxels = 4 m at this scale). Meshes only.
 - Optional avatar-display mode may be added later as an explicit divergence.
+
+## 8. Server-Authoritative Slipstream Detection & Snapshot Replication (`src/shared/sim/Slipstream.lua`)
+- **Decision:** Run STK 1.5 slipstream wake detection, credit accumulation/decay, and boost activation **server-authoritatively** on the 120 Hz simulation tick in `GreyboxKartServer.lua` alongside `KartSolver.resolveKartKartCollisions` (never on the client from snapshot-lagged `remoteKartStates`), replicating `MaxSpeed.increases["SLIPSTREAM"]` and the optional slipstream state block in `GreyboxProtocol.lua` (with `forceSnapshot = true` on boost trigger).
+- **Rationale:** Client `remoteKartStates` are frozen at the last 30 Hz server snapshot and do not advance tick-by-tick during client 120 Hz prediction/reconciliation, so the client cannot guarantee reading all kart poses at the same sim tick. Server-authoritative detection preserves exact same-tick multi-kart geometry while client prediction/reconciliation advances the replicated `SLIPSTREAM` `MaxSpeed` entry seamlessly.

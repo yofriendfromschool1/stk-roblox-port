@@ -14,6 +14,8 @@ local ItemTuning = require(Shared.ItemTuning)
 local ItemVisuals = require("../items/ItemVisuals")
 local KartTuning = require(Shared.KartTuning)
 local KartVisualMath = require(Shared.kart.KartVisualMath)
+local SlipstreamVfx = require("./SlipstreamVfx")
+local SlipstreamVfxMath = require(Shared.kart.SlipstreamVfxMath)
 local TuxBoundsData = require(Shared.kart.TuxBoundsData)
 local Units = require(Shared.Units)
 
@@ -58,6 +60,7 @@ export type VisualKart = {
 	nitroEmitterL: ParticleEmitter,
 	nitroEmitterR: ParticleEmitter,
 	nitroLight: PointLight,
+	slipstreamVfx: SlipstreamVfx.SlipstreamVfxInstance,
 }
 
 local TIER_COLORS: { [number]: Color3 } = {
@@ -490,6 +493,8 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 		plungerFacePart = pFace
 	end
 
+	local slipstreamVfx = SlipstreamVfx.create(model, profile)
+
 	model.Parent = folder
 
 	return {
@@ -513,6 +518,7 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 		nitroEmitterL = nitroEmitterL,
 		nitroEmitterR = nitroEmitterR,
 		nitroLight = nitroLight,
+		slipstreamVfx = slipstreamVfx,
 	}
 end
 
@@ -528,7 +534,9 @@ function KartPresentation.update(
 	nitroActive: boolean,
 	attachmentType: number?,
 	isSquashed: boolean?,
-	plungerFaceTicks: number?
+	plungerFaceTicks: number?,
+	slipstreamVfxInput: SlipstreamVfxMath.SlipstreamVfxInput?,
+	attachmentTicksLeft: number?
 )
 	local groundOffsetY = Units.metersToStuds(KartVisualMath.computeBodyGroundOffsetY())
 	local kartOriginCf = bodyCFrame * CFrame.new(0, groundOffsetY, 0)
@@ -579,12 +587,17 @@ function KartPresentation.update(
 	visuals.nitroEmitterR.Enabled = nitroActive
 	visuals.nitroLight.Enabled = nitroActive
 
-	-- Active kart attachment visual mesh (attachment.cpp:L570-L635)
+	-- Active kart attachment visual mesh + expiring shield flash (attachment.cpp:L570-L668)
 	local activeAttach = attachmentType or ItemTuning.ATTACHMENT_NONE
 	for atype, att in visuals.attachments do
 		if atype == activeAttach then
 			att.part.CFrame = kartOriginCf * att.localCf
-			att.part.Transparency = att.activeTransparency
+			if atype == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD and attachmentTicksLeft ~= nil then
+				local visible = KartVisualMath.isBubblegumShieldVisible(attachmentTicksLeft)
+				att.part.Transparency = if visible then att.activeTransparency else 1.0
+			else
+				att.part.Transparency = att.activeTransparency
+			end
 		else
 			att.part.Transparency = 1.0
 		end
@@ -598,6 +611,8 @@ function KartPresentation.update(
 			visuals.plungerFacePart.Transparency = 1.0
 		end
 	end
+
+	SlipstreamVfx.update(visuals.slipstreamVfx, kartOriginCf, slipstreamVfxInput)
 end
 
 return table.freeze(KartPresentation)

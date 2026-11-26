@@ -19,6 +19,7 @@ local suites = {
 	{ name = "RemoteInterp", tests = require("./RemoteInterp.spec") },
 	{ name = "ItemVisuals", tests = require("./ItemVisuals.spec") },
 	{ name = "FlyableCollision", tests = require("./FlyableCollision.spec") },
+	{ name = "Slipstream", tests = require("./Slipstream.spec") },
 }
 
 local passed = 0

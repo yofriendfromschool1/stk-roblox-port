@@ -708,4 +708,144 @@ return {
 			end
 		end,
 	},
+	{
+		name = "Flyable owner immunity (<2.0s), post-2.0s bowling self-hit, secondary splash exclusion, & sandtrack elevation",
+		fn = function()
+			local profile = KartTuning.buildProfile("medium", "best")
+			local flatWorld = makeFlatPlaneWorld(0.0)
+
+			-- 1) Bowling owner immunity < 240 ticks, then self-hit >= 240 ticks
+			local fw1 = Flyable.createWorld()
+			local owner = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local ownerProxy = KartSolver.makeFlyableProxy(1, owner, 1, "best")
+			local bowl = Flyable.spawnBowling(fw1, ownerProxy, false)
+			bowl.ticksSinceThrown = 100
+			bowl.pos = { x = owner.pos.x, y = owner.pos.y, z = owner.pos.z }
+			Flyable.step(fw1, { ownerProxy }, flatWorld, FixedStep.FIXED_DT, GreyboxArenaData.drivelineQuadCenters, 1)
+			assertEqual(owner.itemEffect.effectType, ItemEffectState.EFFECT_NONE, "owner immune before 2.0s")
+			assertEqual(#fw1.entries, 1, "bowling survives immune owner overlap")
+
+			bowl.ticksSinceThrown = 240
+			bowl.pos = { x = owner.pos.x, y = owner.pos.y, z = owner.pos.z }
+			Flyable.step(fw1, { ownerProxy }, flatWorld, FixedStep.FIXED_DT, GreyboxArenaData.drivelineQuadCenters, 2)
+			assertEqual(
+				owner.itemEffect.effectType,
+				ItemEffectState.EFFECT_EXPLOSION,
+				"bowling explodes owner after 2.0s"
+			)
+			assertEqual(#fw1.entries, 0, "bowling consumed on post-2.0s self-hit")
+
+			-- 2) Secondary splash excludes owner while hitting nearby bystander
+			local fw2 = Flyable.createWorld()
+			local cakeOwner = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
+			local bystander = KartSolver.createState(profile, { x = 2.5, y = 0.291, z = 0 }, 0)
+			local pCakeOwner = KartSolver.makeFlyableProxy(1, cakeOwner, 1, "best")
+			local pBystander = KartSolver.makeFlyableProxy(2, bystander, 2, "best")
+			local cake = Flyable.spawnCake(fw2, pCakeOwner, { pCakeOwner, pBystander }, false)
+			cake.pos = { x = 1.25, y = 0.1, z = 0 }
+			cake.vel = { x = 0, y = -20.0, z = 0 }
+			Flyable.step(
+				fw2,
+				{ pCakeOwner, pBystander },
+				flatWorld,
+				FixedStep.FIXED_DT,
+				GreyboxArenaData.drivelineQuadCenters,
+				3
+			)
+			assertEqual(
+				cakeOwner.itemEffect.effectType,
+				ItemEffectState.EFFECT_NONE,
+				"secondary cake splash excludes owner"
+			)
+			assertEqual(
+				bystander.itemEffect.effectType,
+				ItemEffectState.EFFECT_EXPLOSION,
+				"secondary cake splash hits bystander"
+			)
+
+			-- 3) Sandtrack elevation (y = -140.4 m) not culled by OOB check
+			local sandWorld = makeFlatPlaneWorld(-140.7)
+			local fw3 = Flyable.createWorld()
+			local sOwner = KartSolver.createState(profile, { x = 0, y = -140.4, z = 0 }, 0)
+			local psOwner = KartSolver.makeFlyableProxy(1, sOwner, 1, "best")
+			Flyable.spawnBowling(fw3, psOwner, false)
+			for t = 1, 30 do
+				Flyable.step(fw3, { psOwner }, sandWorld, FixedStep.FIXED_DT, nil, t)
+			end
+			assertEqual(#fw3.entries, 1, "bowling at y=-140.4m survives OOB check")
+			assertNear(
+				fw3.entries[1].pos.y,
+				-140.7 + ItemTuning.bowling.RADIUS,
+				0.05,
+				"bowling rolls on thin sandtrack road"
+			)
+
+			-- 4) Swept 3D OBB hit catches high-speed head-on bowling pass (70 m/s relative)
+			local fw4 = Flyable.createWorld()
+			local victim = KartSolver.createState(profile, { x = 0, y = 0.291, z = 10.0 }, 0)
+			local pVictim = KartSolver.makeFlyableProxy(2, victim, 1, "best")
+			local shooter = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0.0 }, 0)
+			local pShooter = KartSolver.makeFlyableProxy(1, shooter, 2, "best")
+			local fastBall = Flyable.spawnBowling(fw4, pShooter, false)
+			fastBall.pos = { x = 0, y = 0.75, z = 8.9 }
+			fastBall.vel = { x = 0, y = 0, z = 70.0 }
+			Flyable.step(fw4, { pShooter, pVictim }, flatWorld, FixedStep.FIXED_DT, nil, 1)
+			assertEqual(
+				victim.itemEffect.effectType,
+				ItemEffectState.EFFECT_EXPLOSION,
+				"swept OBB catches fast pass at hood height"
+			)
+
+			-- 5) 4 active bowling balls + active explosion stays well under Roblox 900-byte UnreliableRemoteEvent cap
+			local fw5 = Flyable.createWorld()
+			local p5 = KartSolver.makeFlyableProxy(1, victim, 1, "best")
+			for _ = 1, 4 do
+				Flyable.spawnBowling(fw5, p5, false)
+			end
+			local ns5 = KartSolver.captureNetState(victim, ItemWorld.createEmpty("NORMAL_RACE"), fw5)
+			local buf5 = GreyboxProtocol.packSnapshot(100, 50, 0, ns5, "", {
+				{
+					id = "Dummy_1",
+					pos = { 0, 0.29, 10 },
+					rot = { 1, 0, 0, 0 },
+					linVel = { 0, 0, 15 },
+					speed = 15,
+					steer = 0,
+					attachmentType = 0,
+					attachmentTicksLeft = 240,
+					plungerFaceTicks = 0,
+					timedImpulseTicks = 0,
+					isSquashed = false,
+					rank = 1,
+					lap = 0,
+					trackNodeIdx = 1,
+					slipstreamTime = 0,
+					slipstreamBonusTime = 0,
+				},
+			}, 1.0)
+			assert(
+				buffer.len(buf5) < 850,
+				string.format("4 bowling balls + explosion snapshot too large: %d bytes", buffer.len(buf5))
+			)
+			local unpacked5 = GreyboxProtocol.unpackSnapshot(buf5, nil)
+			assert(unpacked5 ~= nil, "compact 4-bowling snapshot unpacked")
+			if unpacked5 ~= nil then
+				assertEqual(
+					unpacked5.netState.itemEffect.effectType,
+					ItemEffectState.EFFECT_EXPLOSION,
+					"explosion preserved in compact snapshot"
+				)
+				assertEqual(
+					unpacked5.netState.flyableSnapshot ~= nil and #unpacked5.netState.flyableSnapshot.entries or 0,
+					4,
+					"all 4 bowling balls preserved in compact snapshot"
+				)
+				assertEqual(
+					unpacked5.remoteKarts ~= nil and unpacked5.remoteKarts[1].attachmentTicksLeft or 0,
+					240,
+					"remote kart attachmentTicksLeft preserved in compact snapshot"
+				)
+			end
+		end,
+	},
 }

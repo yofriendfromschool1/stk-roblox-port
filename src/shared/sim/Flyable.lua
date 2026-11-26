@@ -27,6 +27,8 @@ export type KartProxy = {
 	rot: Quat,
 	linVel: Vec3,
 	speed: number,
+	width: number?,
+	height: number?,
 	length: number,
 	rank: number,
 	baseMaxSpeed: number,
@@ -531,6 +533,9 @@ local function triggerExplosionHit(
 			continue
 		end
 		local isDirect = (k == directKart)
+		if not isDirect and k.id == entry.ownerId then
+			continue
+		end
 		if isDirect or Math3D.lenSq(Math3D.sub(k.pos, entry.pos)) <= radSq then
 			k.onExplode(isDirect, worldTicks)
 		end
@@ -786,6 +791,7 @@ function Flyable.step(
 		end
 
 		-- 2. Motion update
+		local prevBallPos = cloneVec3(entry.pos)
 		if entry.kind == "rubber_ball" then
 			stepRubberBall(entry, karts, worldQuery, dt, drivelineCenters)
 		else
@@ -807,43 +813,107 @@ function Flyable.step(
 			end
 
 			entry.vel.y -= entry.gravity * dt
-			local delta = Math3D.scale(entry.vel, dt)
-			local dist = Math3D.len(delta)
 			local hitObstacle = false
 			local hitPoint: Vec3? = nil
 
-			if worldQuery ~= nil and type(worldQuery.raycast) == "function" and dist > 1e-6 then
-				local dir = Math3D.scale(delta, 1.0 / dist)
-				local hit = worldQuery.raycast(entry.pos, dir, dist + entry.radius)
-				if hit ~= nil and hit.materialName ~= "oasis-water.png" then
-					local n = Math3D.normalize(hit.normal, { x = 0, y = 1, z = 0 })
-					entry.pos = Math3D.add(hit.point, Math3D.scale(n, entry.radius + 0.02))
-					hitPoint = hit.point
-					if entry.kind == "plunger" and not entry.reverseMode and not entry.isBattle then
-						hitObstacle = true
-					elseif entry.kind == "cake" then
-						-- Cake::hitTrack() -> hit(NULL) -> explode(NULL, NULL, secondary_hits=true)
-						-- (cake.hpp:L55-L60, cake.cpp:L62-L76, flyable.cpp:L571-L625)
-						entry.hasHitSomething = true
-						triggerExplosionHit(entry, nil, karts, true, ticksNow)
-					else
-						local vn = Math3D.dot(entry.vel, n)
-						if vn < 0 then
-							entry.vel = Math3D.sub(entry.vel, Math3D.scale(n, (1.0 + entry.restitution) * vn))
+			if entry.kind == "bowling" then
+				-- Separate horizontal wall cast + downward ground snap so rolling bowling balls
+				-- bounce cleanly off vertical walls and never sink through thin track meshes.
+				local hDelta: Vec3 = { x = entry.vel.x * dt, y = 0.0, z = entry.vel.z * dt }
+				local hDist = Math3D.len(hDelta)
+				if worldQuery ~= nil and type(worldQuery.raycast) == "function" and hDist > 1e-6 then
+					local hDir = Math3D.scale(hDelta, 1.0 / hDist)
+					local wHit = worldQuery.raycast(entry.pos, hDir, hDist + entry.radius)
+					if wHit ~= nil and wHit.materialName ~= "oasis-water.png" then
+						local n = Math3D.normalize(wHit.normal, { x = 0, y = 1, z = 0 })
+						if n.y < 0.5 then
+							-- Wall or steep obstacle: bounce with restitution
+							entry.pos = Math3D.add(wHit.point, Math3D.scale(n, entry.radius + 0.02))
+							local vn = Math3D.dot(entry.vel, n)
+							if vn < 0 then
+								entry.vel = Math3D.sub(entry.vel, Math3D.scale(n, (1.0 + entry.restitution) * vn))
+							end
+						else
+							-- Drivable upward slope ahead: advance smoothly over it
+							entry.pos.x += hDelta.x
+							entry.pos.z += hDelta.z
 						end
+					else
+						entry.pos.x += hDelta.x
+						entry.pos.z += hDelta.z
+					end
+				else
+					entry.pos.x += hDelta.x
+					entry.pos.z += hDelta.z
+				end
+
+				entry.pos.y += entry.vel.y * dt
+				if worldQuery ~= nil and type(worldQuery.raycast) == "function" then
+					local castTopY = math.max(prevBallPos.y, entry.pos.y) + entry.radius + 0.5
+					local castLen = (castTopY - entry.pos.y) + entry.radius + 0.6
+					local gHit = worldQuery.raycast(
+						{ x = entry.pos.x, y = castTopY, z = entry.pos.z },
+						{ x = 0, y = -1, z = 0 },
+						castLen
+					)
+					if gHit ~= nil and gHit.materialName ~= "oasis-water.png" then
+						local floorY = gHit.point.y + entry.radius
+						if entry.pos.y <= floorY + 0.01 then
+							local gMat = gHit.materialName
+							if gMat == "seabed.jpg" or gMat == "transparence2.png" or gMat == "water_light.png" then
+								entry.hasHitSomething = true
+							else
+								entry.pos.y = floorY
+								if entry.vel.y < 0.0 then
+									entry.vel.y = if math.abs(entry.vel.y) < 1.5
+										then 0.0
+										else -entry.vel.y * entry.restitution
+								end
+							end
+						end
+					end
+				elseif entry.pos.y < entry.radius then
+					entry.pos.y = entry.radius
+					if entry.vel.y < 0.0 then
+						entry.vel.y = if math.abs(entry.vel.y) < 1.5 then 0.0 else -entry.vel.y * entry.restitution
+					end
+				end
+			else
+				local delta = Math3D.scale(entry.vel, dt)
+				local dist = Math3D.len(delta)
+				if worldQuery ~= nil and type(worldQuery.raycast) == "function" and dist > 1e-6 then
+					local dir = Math3D.scale(delta, 1.0 / dist)
+					local hit = worldQuery.raycast(entry.pos, dir, dist + entry.radius)
+					if hit ~= nil and hit.materialName ~= "oasis-water.png" then
+						local n = Math3D.normalize(hit.normal, { x = 0, y = 1, z = 0 })
+						entry.pos = Math3D.add(hit.point, Math3D.scale(n, entry.radius + 0.02))
+						hitPoint = hit.point
+						if entry.kind == "plunger" and not entry.reverseMode and not entry.isBattle then
+							hitObstacle = true
+						elseif entry.kind == "cake" then
+							-- Cake::hitTrack() -> hit(NULL) -> explode(NULL, NULL, secondary_hits=true)
+							-- (cake.hpp:L55-L60, cake.cpp:L62-L76, flyable.cpp:L571-L625)
+							entry.hasHitSomething = true
+							triggerExplosionHit(entry, nil, karts, true, ticksNow)
+						else
+							local vn = Math3D.dot(entry.vel, n)
+							if vn < 0 then
+								entry.vel = Math3D.sub(entry.vel, Math3D.scale(n, (1.0 + entry.restitution) * vn))
+							end
+						end
+					else
+						entry.pos = Math3D.add(entry.pos, delta)
 					end
 				else
 					entry.pos = Math3D.add(entry.pos, delta)
-				end
-			else
-				entry.pos = Math3D.add(entry.pos, delta)
-				if entry.pos.y < entry.radius then
-					entry.pos.y = entry.radius
-					if entry.kind == "cake" then
-						entry.hasHitSomething = true
-						triggerExplosionHit(entry, nil, karts, true, ticksNow)
-					elseif entry.vel.y < 0 then
-						entry.vel.y = -entry.vel.y * entry.restitution
+					if entry.pos.y < entry.radius then
+						entry.pos.y = entry.radius
+						if entry.kind == "cake" then
+							entry.hasHitSomething = true
+							triggerExplosionHit(entry, nil, karts, true, ticksNow)
+						elseif entry.vel.y < 0 then
+							entry.vel.y = -entry.vel.y * entry.restitution
+						end
 					end
 				end
 			end
@@ -856,8 +926,8 @@ function Flyable.step(
 			end
 		end
 
-		-- Out-of-bounds cleanup (flyable.cpp:L474-L479)
-		if math.abs(entry.pos.x) > 265.0 or math.abs(entry.pos.z) > 265.0 or entry.pos.y < -20.0 then
+		-- Out-of-bounds cleanup (flyable.cpp:L474-L479); spacious enough for sandtrack (y ~ -140m, +-800m XZ)
+		if math.abs(entry.pos.x) > 2000.0 or math.abs(entry.pos.z) > 2000.0 or entry.pos.y < -500.0 then
 			table.remove(world.entries, i)
 			continue
 		end
@@ -866,12 +936,39 @@ function Flyable.step(
 			updateRubberBand(entry, karts)
 		end
 
-		-- 3. Kart collision check
+		-- 3. Swept segment vs 3D kart chassis OBB hit check (prevents tunneling and matches 3D kart silhouette)
 		local removed = false
-		local hitRad = entry.radius + ItemTuning.flyable.HIT_RADIUS_KART
-		local hitRadSq = hitRad * hitRad
+		local padRad = entry.radius + 0.25
+		local padRadSq = padRad * padRad
 		for _, k in karts do
-			if Math3D.lenSq(Math3D.sub(k.pos, entry.pos)) <= hitRadSq then
+			local kHalfX = 0.5 * (k.width or 0.85)
+			local kHalfY = 0.5 * (k.height or 0.75)
+			local kHalfZ = 0.5 * k.length
+			local _, kUp, _ = Math3D.quatBasis(k.rot)
+			local kCenter = Math3D.add(k.pos, Math3D.scale(kUp, kHalfY))
+			local invKRot = Math3D.quatConjugate(k.rot)
+			local p0 = Math3D.quatRotateVec(invKRot, Math3D.sub(prevBallPos, kCenter))
+			local p1 = Math3D.quatRotateVec(invKRot, Math3D.sub(entry.pos, kCenter))
+
+			local hitKart = false
+			for sIdx = 0, 2 do
+				local alpha = sIdx * 0.5
+				local sx = p0.x + (p1.x - p0.x) * alpha
+				local sy = p0.y + (p1.y - p0.y) * alpha
+				local sz = p0.z + (p1.z - p0.z) * alpha
+				local cx = math.clamp(sx, -kHalfX, kHalfX)
+				local cy = math.clamp(sy, -kHalfY, kHalfY)
+				local cz = math.clamp(sz, -kHalfZ, kHalfZ)
+				local dx = sx - cx
+				local dy = sy - cy
+				local dz = sz - cz
+				if (dx * dx + dy * dy + dz * dz) <= padRadSq then
+					hitKart = true
+					break
+				end
+			end
+
+			if hitKart then
 				if resolveProjectileKartHit(entry, k, karts, ticksNow) then
 					if entry.hasHitSomething then
 						removed = true
