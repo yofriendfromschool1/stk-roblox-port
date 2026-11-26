@@ -1,27 +1,19 @@
 --!strict
 -- tests/ItemVisuals.spec.luau
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- Permanent build assertion: no item MeshPart may exist with empty TextureID and no SurfaceAppearance ColorMap
--- (outside the documented unverified-texture exclusions in assets/CREDITS.md), and all item spawn paths
--- must route through ItemVisuals.create without direct Instance.new("MeshPart").
+-- Permanent build assertion: no item MeshPart may exist with empty TextureID and no SurfaceAppearance ColorMap,
+-- and all item spawn paths must route through ItemVisuals.create without direct Instance.new("MeshPart").
 
 local fs = require("@lune/fs")
-
--- Explicitly excluded in assets/CREDITS.md:L26 due to missing/typoed upstream licenses.txt entries:
-local UNVERIFIED_TEXTURE_ALLOWLIST: { [string]: boolean } = {
-	["parachute.rbxmx"] = true,
-	["plunger.rbxmx"] = true,
-	["rubber_ball.rbxmx"] = true,
-}
 
 local tests = {}
 
 table.insert(tests, {
-	name = "PERMANENT: all verified item .rbxmx MeshParts have TextureID or SurfaceAppearance ColorMap",
+	name = "PERMANENT: all item .rbxmx MeshParts have TextureID or SurfaceAppearance ColorMap",
 	fn = function()
 		local dir = "assets/roblox/items"
 		for _, entry in fs.readDir(dir) do
-			if string.sub(entry, -6) == ".rbxmx" and not UNVERIFIED_TEXTURE_ALLOWLIST[entry] then
+			if string.sub(entry, -6) == ".rbxmx" then
 				local content = fs.readFile(dir .. "/" .. entry)
 				local hasTex = string.find(content, '<Content name="TextureID"><url>rbxassetid://', 1, true) ~= nil
 				local hasSa = string.find(content, '<Item class="SurfaceAppearance"', 1, true) ~= nil

@@ -2,7 +2,7 @@
   "assets_revision": "18627",
   "meters_per_stud": 1.0,
   "creator_user_id": "7225229891",
-  "status": "ALL_19_MESHES_AND_15_VERIFIED_TEXTURES_UPLOADED",
+  "status": "ALL_19_MESHES_AND_18_TEXTURES_UPLOADED",
   "items": {
     "gift-box": {
       "spm_file": "gift-box.spm",
@@ -151,8 +151,7 @@
         "Main": {
           "glbFile": "build/items/plunger/plunger.glb",
           "meshId": "rbxassetid://126847769869106",
-          "textureId": "",
-          "unverifiedTexture": "plunger.png (unlisted in data/models/licenses.txt)",
+          "textureId": "rbxassetid://77801063391109",
           "importFlipY180": true,
           "robloxMaterial": "SmoothPlastic",
           "modelAssetId": "94188413923570"
@@ -165,8 +164,7 @@
         "Main": {
           "glbFile": "build/items/rubber_ball/rubber_ball.glb",
           "meshId": "rbxassetid://106998861157599",
-          "textureId": "",
-          "unverifiedTexture": "balldimpleddark.jpg (licenses.txt:L74 typo balldimpledark.jpg)",
+          "textureId": "rbxassetid://115659086556098",
           "importFlipY180": true,
           "robloxMaterial": "SmoothPlastic",
           "modelAssetId": "102976549375979"
@@ -179,8 +177,7 @@
         "Main": {
           "glbFile": "build/items/parachute/parachute.glb",
           "meshId": "rbxassetid://82137743983041",
-          "textureId": "",
-          "unverifiedTexture": "parachute.png (unlisted in data/models/licenses.txt)",
+          "textureId": "rbxassetid://106760158600072",
           "importFlipY180": true,
           "robloxMaterial": "SmoothPlastic",
           "modelAssetId": "94507501574308"

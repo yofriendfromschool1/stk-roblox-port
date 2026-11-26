@@ -1,15 +1,31 @@
 --!strict
 -- src/client/TouchControls.lua
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- Ported from src/states_screens/race_gui_multitouch.cpp:L203-L271 (STK 1.5).
--- On-screen touch steering wheel + action buttons, shown only when TouchEnabled and no gamepad connected.
+-- Ported from src/states_screens/race_gui_multitouch.cpp:L203-L271, L379-L523 and
+-- src/input/multitouch_device.cpp:L358-L504 (STK 1.5).
+-- On-screen touch drag-angle steering wheel + action buttons with real STK Android textures
+-- (audited in assets/CREDITS.md, CC-BY-SA 4.0), shown only when TouchEnabled and no gamepad connected.
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local InputMapper = require("./InputMapper")
 
 local TouchControls = {}
+
+-- Verified CC-BY-SA 4.0 STK 1.5 Android multitouch textures (data/gui/icons/android/licenses.txt)
+local TEX_STEERING_WHEEL = "rbxassetid://121527397863037"
+local TEX_WHEEL_MASK_UP = "rbxassetid://106020955046968"
+local TEX_WHEEL_MASK_DOWN = "rbxassetid://88639413454443"
+local TEX_BG_BUTTON = "rbxassetid://138056251155457"
+local TEX_BG_BUTTON_FOCUS = "rbxassetid://95283772383405"
+local TEX_DRIFT = "rbxassetid://130967942117194"
+local TEX_NITRO = "rbxassetid://83998478837258"
+local TEX_WING_MIRROR = "rbxassetid://96145198722298"
+local TEX_RESET = "rbxassetid://87263946566326"
+local TEX_PAUSE = "rbxassetid://86852632601328"
+local TEX_ACCELERATOR = "rbxassetid://137205787253998"
 
 -- STK multitouch layout constants (race_gui_multitouch.cpp:L203-L238, user_config.hpp:L584 scale=1.2)
 local SCALE = 1.2
@@ -60,7 +76,8 @@ function TouchControls.create(): Controller
 
 	local function updateVisibility()
 		local hasGamepad = #UserInputService:GetConnectedGamepads() > 0
-		gui.Enabled = UserInputService.TouchEnabled and not hasGamepad
+		local forcePreview = RunService:IsStudio() and localPlayer:GetAttribute("ForceTouchPreview") == true
+		gui.Enabled = forcePreview or (UserInputService.TouchEnabled and not hasGamepad)
 		if not gui.Enabled then
 			state.wheelAxisX = 0.0
 			state.wheelAxisY = 0.0
@@ -75,95 +92,89 @@ function TouchControls.create(): Controller
 		end
 	end
 
-	-- Steering Wheel (bottom-left, race_gui_multitouch.cpp:L221-L224, L249-L251)
+	-- Steering Wheel (bottom-left, race_gui_multitouch.cpp:L221-L224, L249-L251, L379-L400)
 	local wheelFrame = Instance.new("Frame")
 	wheelFrame.Name = "SteeringWheel"
 	wheelFrame.SizeConstraint = Enum.SizeConstraint.RelativeYY
 	wheelFrame.AnchorPoint = Vector2.new(0, 1)
 	wheelFrame.Position = UDim2.fromScale(0.03, 1.0 - WHEEL_MARGIN)
 	wheelFrame.Size = UDim2.fromScale(BTN2_SIZE, BTN2_SIZE)
-	wheelFrame.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-	wheelFrame.BackgroundTransparency = 0.45
+	wheelFrame.BackgroundTransparency = 1
 	wheelFrame.BorderSizePixel = 0
 	wheelFrame.Parent = gui
 
-	local wheelCorner = Instance.new("UICorner")
-	wheelCorner.CornerRadius = UDim.new(0.5, 0)
-	wheelCorner.Parent = wheelFrame
+	local wheelImage = Instance.new("ImageLabel")
+	wheelImage.Name = "WheelImage"
+	wheelImage.AnchorPoint = Vector2.new(0.5, 0.5)
+	wheelImage.Position = UDim2.fromScale(0.5, 0.5)
+	wheelImage.Size = UDim2.fromScale(1, 1)
+	wheelImage.BackgroundTransparency = 1
+	wheelImage.BorderSizePixel = 0
+	wheelImage.Image = TEX_STEERING_WHEEL
+	wheelImage.ScaleType = Enum.ScaleType.Fit
+	wheelImage.ZIndex = 2
+	wheelImage.Parent = wheelFrame
 
-	local wheelStroke = Instance.new("UIStroke")
-	wheelStroke.Color = Color3.fromRGB(165, 200, 255)
-	wheelStroke.Thickness = 2
-	wheelStroke.Transparency = 0.25
-	wheelStroke.Parent = wheelFrame
+	local wheelMaskUp = Instance.new("ImageLabel")
+	wheelMaskUp.Name = "MaskUp"
+	wheelMaskUp.Size = UDim2.fromScale(1, 1)
+	wheelMaskUp.BackgroundTransparency = 1
+	wheelMaskUp.Image = TEX_WHEEL_MASK_UP
+	wheelMaskUp.ImageTransparency = 1.0
+	wheelMaskUp.ScaleType = Enum.ScaleType.Fit
+	wheelMaskUp.ZIndex = 3
+	wheelMaskUp.Parent = wheelImage
 
-	local wheelKnob = Instance.new("Frame")
-	wheelKnob.Name = "Knob"
-	wheelKnob.AnchorPoint = Vector2.new(0.5, 0.5)
-	wheelKnob.Position = UDim2.fromScale(0.5, 0.5)
-	wheelKnob.Size = UDim2.fromScale(0.32, 0.32)
-	wheelKnob.BackgroundColor3 = Color3.fromRGB(185, 215, 255)
-	wheelKnob.BackgroundTransparency = 0.25
-	wheelKnob.BorderSizePixel = 0
-	wheelKnob.Parent = wheelFrame
+	local wheelMaskDown = Instance.new("ImageLabel")
+	wheelMaskDown.Name = "MaskDown"
+	wheelMaskDown.Size = UDim2.fromScale(1, 1)
+	wheelMaskDown.BackgroundTransparency = 1
+	wheelMaskDown.Image = TEX_WHEEL_MASK_DOWN
+	wheelMaskDown.ImageTransparency = 1.0
+	wheelMaskDown.ScaleType = Enum.ScaleType.Fit
+	wheelMaskDown.ZIndex = 3
+	wheelMaskDown.Parent = wheelImage
 
-	local knobCorner = Instance.new("UICorner")
-	knobCorner.CornerRadius = UDim.new(0.5, 0)
-	knobCorner.Parent = wheelKnob
-
-	local wheelLabel = Instance.new("TextLabel")
-	wheelLabel.Name = "Label"
-	wheelLabel.AnchorPoint = Vector2.new(0.5, 1)
-	wheelLabel.Position = UDim2.fromScale(0.5, 0.92)
-	wheelLabel.Size = UDim2.fromScale(0.7, 0.14)
-	wheelLabel.BackgroundTransparency = 1
-	wheelLabel.Font = Enum.Font.GothamBold
-	wheelLabel.TextScaled = true
-	wheelLabel.TextColor3 = Color3.fromRGB(210, 225, 245)
-	wheelLabel.Text = "STEER"
-	wheelLabel.Parent = wheelFrame
-
-	local function makeButton(
+	local function makeTexturedButton(
 		parent: Instance,
 		name: string,
-		label: string,
+		iconAsset: string,
 		pos: UDim2,
 		size: UDim2,
-		accent: Color3
-	): (Frame, UIStroke)
+		iconRotDeg: number?
+	): (Frame, ImageLabel)
 		local btn = Instance.new("Frame")
 		btn.Name = name
 		btn.AnchorPoint = Vector2.new(1, 1)
 		btn.Position = pos
 		btn.Size = size
-		btn.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-		btn.BackgroundTransparency = 0.4
+		btn.BackgroundTransparency = 1
 		btn.BorderSizePixel = 0
 		btn.Parent = parent
 
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0.5, 0)
-		corner.Parent = btn
+		-- race_gui_multitouch.cpp:L372-L375, L515-L523: bg is 1.4x button size centered behind icon
+		local bg = Instance.new("ImageLabel")
+		bg.Name = "Bg"
+		bg.AnchorPoint = Vector2.new(0.5, 0.5)
+		bg.Position = UDim2.fromScale(0.5, 0.5)
+		bg.Size = UDim2.fromScale(1.4, 1.4)
+		bg.BackgroundTransparency = 1
+		bg.Image = TEX_BG_BUTTON
+		bg.ScaleType = Enum.ScaleType.Fit
+		bg.ZIndex = 1
+		bg.Parent = btn
 
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = accent
-		stroke.Thickness = 2
-		stroke.Transparency = 0.2
-		stroke.Parent = btn
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.Size = UDim2.fromScale(1, 1)
+		icon.BackgroundTransparency = 1
+		icon.Image = iconAsset
+		icon.ScaleType = Enum.ScaleType.Fit
+		icon.Rotation = iconRotDeg or 0
+		icon.ZIndex = 2
+		icon.Parent = btn
 
-		local txt = Instance.new("TextLabel")
-		txt.Name = "Label"
-		txt.AnchorPoint = Vector2.new(0.5, 0.5)
-		txt.Position = UDim2.fromScale(0.5, 0.5)
-		txt.Size = UDim2.fromScale(0.78, 0.42)
-		txt.BackgroundTransparency = 1
-		txt.Font = Enum.Font.GothamBold
-		txt.TextScaled = true
-		txt.TextColor3 = Color3.fromRGB(240, 244, 250)
-		txt.Text = label
-		txt.Parent = btn
-
-		return btn, stroke
+		return btn, bg
 	end
 
 	-- Right-hand columns container in RelativeYY coordinates (race_gui_multitouch.cpp:L219-L271)
@@ -182,76 +193,65 @@ function TouchControls.create(): Controller
 	local colStepX = COL_SIZE / gridW
 	local rowStepY = COL_SIZE / gridH
 
-	local nitroBtn, nitroStroke = makeButton(
-		rightGrid,
-		"Nitro",
-		"NITRO",
-		UDim2.fromScale(1.0, 1.0 - rowStepY),
-		cellBtnSize,
-		Color3.fromRGB(90, 185, 255)
-	)
-	local driftBtn, driftStroke =
-		makeButton(rightGrid, "Drift", "DRIFT", UDim2.fromScale(1.0, 1.0), cellBtnSize, Color3.fromRGB(255, 190, 90))
-	local fireBtn, fireStroke = makeButton(
+	local nitroBtn, nitroBg =
+		makeTexturedButton(rightGrid, "Nitro", TEX_NITRO, UDim2.fromScale(1.0, 1.0 - rowStepY), cellBtnSize)
+	local driftBtn, driftBg = makeTexturedButton(rightGrid, "Drift", TEX_DRIFT, UDim2.fromScale(1.0, 1.0), cellBtnSize)
+	local fireBtn, fireBg = makeTexturedButton(
 		rightGrid,
 		"Fire",
-		"ITEM",
+		TEX_BG_BUTTON_FOCUS,
 		UDim2.fromScale(1.0 - colStepX, 1.0 - rowStepY),
-		cellBtnSize,
-		Color3.fromRGB(255, 115, 115)
+		cellBtnSize
 	)
-	local lookBackBtn, lookBackStroke = makeButton(
-		rightGrid,
-		"LookBack",
-		"LOOK",
-		UDim2.fromScale(1.0 - colStepX, 1.0),
-		cellBtnSize,
-		Color3.fromRGB(190, 200, 220)
-	)
-	local accelBtn, accelStroke = makeButton(
-		rightGrid,
-		"Accel",
-		"GAS",
-		UDim2.fromScale(1.0 - 2.0 * colStepX, 1.0),
-		cellBtnSize,
-		Color3.fromRGB(115, 240, 145)
-	)
-	local brakeBtn, brakeStroke = makeButton(
+	local lookBackBtn, lookBackBg =
+		makeTexturedButton(rightGrid, "LookBack", TEX_WING_MIRROR, UDim2.fromScale(1.0 - colStepX, 1.0), cellBtnSize)
+	local accelBtn, accelBg =
+		makeTexturedButton(rightGrid, "Accel", TEX_ACCELERATOR, UDim2.fromScale(1.0 - 2.0 * colStepX, 1.0), cellBtnSize)
+	local brakeBtn, brakeBg = makeTexturedButton(
 		rightGrid,
 		"Brake",
-		"BRAKE",
+		TEX_ACCELERATOR,
 		UDim2.fromScale(1.0 - 2.0 * colStepX, 1.0 - rowStepY),
 		cellBtnSize,
-		Color3.fromRGB(240, 130, 130)
+		180
 	)
 
-	-- Top rescue/reset button (race_gui_multitouch.cpp:L257-L259)
-	local resetBtn, resetStroke = makeButton(
+	-- Top pause & rescue/reset buttons (race_gui_multitouch.cpp:L254-L259)
+	local pauseBtn, _pauseBg = makeTexturedButton(
+		gui,
+		"Pause",
+		TEX_PAUSE,
+		UDim2.fromScale(0.30, MARGIN_SMALL + BTN_SMALL_SIZE),
+		UDim2.fromScale(BTN_SMALL_SIZE, BTN_SMALL_SIZE)
+	)
+	pauseBtn.SizeConstraint = Enum.SizeConstraint.RelativeYY
+	pauseBtn.AnchorPoint = Vector2.new(0, 1)
+
+	local resetBtn, resetBg = makeTexturedButton(
 		gui,
 		"Reset",
-		"RESET",
-		UDim2.fromScale(0.35, MARGIN_SMALL + BTN_SMALL_SIZE),
-		UDim2.fromScale(BTN_SMALL_SIZE, BTN_SMALL_SIZE),
-		Color3.fromRGB(220, 220, 235)
+		TEX_RESET,
+		UDim2.fromScale(0.30 + COL_SIZE * SMALL_RATIO, MARGIN_SMALL + BTN_SMALL_SIZE),
+		UDim2.fromScale(BTN_SMALL_SIZE, BTN_SMALL_SIZE)
 	)
 	resetBtn.SizeConstraint = Enum.SizeConstraint.RelativeYY
 	resetBtn.AnchorPoint = Vector2.new(0, 1)
 
 	type ButtonBinding = {
 		frame: Frame,
-		stroke: UIStroke,
+		bg: ImageLabel,
 		key: "accel" | "brake" | "drift" | "nitro" | "fire" | "lookBack" | "reset",
 		activeTouch: InputObject?,
 	}
 
 	local buttons: { ButtonBinding } = {
-		{ frame = accelBtn, stroke = accelStroke, key = "accel", activeTouch = nil },
-		{ frame = brakeBtn, stroke = brakeStroke, key = "brake", activeTouch = nil },
-		{ frame = driftBtn, stroke = driftStroke, key = "drift", activeTouch = nil },
-		{ frame = nitroBtn, stroke = nitroStroke, key = "nitro", activeTouch = nil },
-		{ frame = fireBtn, stroke = fireStroke, key = "fire", activeTouch = nil },
-		{ frame = lookBackBtn, stroke = lookBackStroke, key = "lookBack", activeTouch = nil },
-		{ frame = resetBtn, stroke = resetStroke, key = "reset", activeTouch = nil },
+		{ frame = accelBtn, bg = accelBg, key = "accel", activeTouch = nil },
+		{ frame = brakeBtn, bg = brakeBg, key = "brake", activeTouch = nil },
+		{ frame = driftBtn, bg = driftBg, key = "drift", activeTouch = nil },
+		{ frame = nitroBtn, bg = nitroBg, key = "nitro", activeTouch = nil },
+		{ frame = fireBtn, bg = fireBg, key = "fire", activeTouch = nil },
+		{ frame = lookBackBtn, bg = lookBackBg, key = "lookBack", activeTouch = nil },
+		{ frame = resetBtn, bg = resetBg, key = "reset", activeTouch = nil },
 	}
 
 	local wheelTouch: InputObject? = nil
@@ -262,12 +262,21 @@ function TouchControls.create(): Controller
 		if absSize.X <= 0 or absSize.Y <= 0 then
 			return
 		end
-		local ax = math.clamp((pos.X - absPos.X) / (absSize.X * 0.5) - 1.0, -1.0, 1.0)
-		local ay = math.clamp((pos.Y - absPos.Y) / (absSize.Y * 0.5) - 1.0, -1.0, 1.0)
-		state.wheelAxisX = ax
-		state.wheelAxisY = ay
+		local cx = absPos.X + absSize.X * 0.5
+		local cy = absPos.Y + absSize.Y * 0.5
+		local dx = pos.X - cx
+		local dy = pos.Y - cy
+		local steer, rotDeg = InputMapper.computeTouchWheelSteer(dx, dy)
+		local angle =
+			math.clamp(math.atan2(dx, math.abs(dy)), -InputMapper.MAX_WHEEL_ANGLE_RAD, InputMapper.MAX_WHEEL_ANGLE_RAD)
+		state.wheelAxisX = angle / InputMapper.MAX_WHEEL_ANGLE_RAD
+		state.wheelAxisY = math.clamp(dy / (absSize.Y * 0.5), -1.0, 1.0)
 		state.wheelActive = true
-		wheelKnob.Position = UDim2.fromScale(0.5 + ax * 0.32, 0.5 + ay * 0.32)
+		wheelImage.Rotation = rotDeg
+		wheelMaskUp.ImageTransparency = if state.wheelAxisY < -InputMapper.TOUCH_DEADZONE then 0.35 else 1.0
+		wheelMaskDown.ImageTransparency = if state.wheelAxisY > InputMapper.TOUCH_DEADZONE then 0.35 else 1.0
+		gui:SetAttribute("LastWheelSteer", steer)
+		gui:SetAttribute("LastWheelRotationDeg", rotDeg)
 	end
 
 	local function clearWheel()
@@ -275,13 +284,32 @@ function TouchControls.create(): Controller
 		state.wheelActive = false
 		state.wheelAxisX = 0.0
 		state.wheelAxisY = 0.0
-		wheelKnob.Position = UDim2.fromScale(0.5, 0.5)
+		wheelImage.Rotation = 0
+		wheelMaskUp.ImageTransparency = 1.0
+		wheelMaskDown.ImageTransparency = 1.0
+		gui:SetAttribute("LastWheelSteer", 0.0)
+		gui:SetAttribute("LastWheelRotationDeg", 0.0)
 	end
 
 	local function setButtonPressed(binding: ButtonBinding, pressed: boolean)
 		(state :: any)[binding.key] = pressed
-		binding.frame.BackgroundTransparency = if pressed then 0.15 else 0.4
-		binding.stroke.Transparency = if pressed then 0.0 else 0.2
+		binding.bg.Image = if pressed then TEX_BG_BUTTON_FOCUS else TEX_BG_BUTTON
+	end
+
+	local simConn: RBXScriptConnection? = nil
+	if RunService:IsStudio() then
+		simConn = gui:GetAttributeChangedSignal("SimulatedDragOffset"):Connect(function()
+			local off = gui:GetAttribute("SimulatedDragOffset")
+			if typeof(off) == "Vector2" then
+				local absPos = wheelFrame.AbsolutePosition
+				local absSize = wheelFrame.AbsoluteSize
+				local cx = absPos.X + absSize.X * 0.5
+				local cy = absPos.Y + absSize.Y * 0.5
+				updateWheelFromPos(Vector3.new(cx + off.X, cy + off.Y, 0))
+			else
+				clearWheel()
+			end
+		end)
 	end
 
 	local beganConn = UserInputService.InputBegan:Connect(function(inputObj: InputObject)
@@ -329,6 +357,7 @@ function TouchControls.create(): Controller
 	local gpConn = UserInputService.GamepadConnected:Connect(updateVisibility)
 	local gpDiscConn = UserInputService.GamepadDisconnected:Connect(updateVisibility)
 	local touchPropConn = UserInputService:GetPropertyChangedSignal("TouchEnabled"):Connect(updateVisibility)
+	local previewConn = localPlayer:GetAttributeChangedSignal("ForceTouchPreview"):Connect(updateVisibility)
 
 	updateVisibility()
 
@@ -348,18 +377,21 @@ function TouchControls.create(): Controller
 			lookBack = state.lookBack,
 			reset = state.reset,
 		}
-		-- Reset is a pulse
 		state.reset = false
 		return snapshot
 	end
 
 	local function destroy()
+		if simConn then
+			simConn:Disconnect()
+		end
 		beganConn:Disconnect()
 		movedConn:Disconnect()
 		endedConn:Disconnect()
 		gpConn:Disconnect()
 		gpDiscConn:Disconnect()
 		touchPropConn:Disconnect()
+		previewConn:Disconnect()
 		gui:Destroy()
 	end
 

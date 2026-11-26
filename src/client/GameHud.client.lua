@@ -299,10 +299,10 @@ local function getOrCreatePlayerIconRow(idx: number): PlayerIconRow
 	highlight.Name = "LocalHighlight"
 	highlight.BackgroundTransparency = 1
 	highlight.BorderSizePixel = 0
-	highlight.Position = UDim2.fromOffset(-4, -4)
-	highlight.Size = UDim2.new(1, 8, 1, 8)
+	highlight.Position = UDim2.fromOffset(-6, -6)
+	highlight.Size = UDim2.new(1, 12, 1, 12)
 	highlight.Image = ICONS_FRAME_ASSET
-	highlight.ImageColor3 = Color3.fromRGB(255, 225, 90)
+	highlight.ImageColor3 = Color3.fromRGB(255, 70, 70)
 	highlight.ScaleType = Enum.ScaleType.Fit
 	highlight.ZIndex = 2
 	highlight.Visible = false
@@ -606,6 +606,15 @@ local lastVisPlayerIcons: boolean? = nil
 local lastVisMiniMap: boolean? = nil
 local lastVisPowerups: boolean? = nil
 
+local function getIsTouchLayout(): boolean
+	if RunService:IsStudio() and localPlayer:GetAttribute("ForceTouchPreview") == true then
+		return true
+	end
+	return UserInputService.TouchEnabled and #UserInputService:GetConnectedGamepads() == 0
+end
+
+local lastTouchLayout: boolean? = nil
+
 local function layoutStaticElements(vw: number, vh: number, minimapVisible: boolean, totalKarts: number, _rank: number)
 	cachedSpeedRect = RaceHudMath.computeSpeedometerRect(vw, vh)
 	cachedRankAnchor = RaceHudMath.computeRankAnchor(cachedSpeedRect)
@@ -613,7 +622,8 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 	applyRect(energyRoot, RaceHudMath.computeEnergyMeterRect(vw, vh))
 	applyRect(timerLabel, RaceHudMath.computeTimerRect(vw, vh))
 
-	local isTouchMode = UserInputService.TouchEnabled and #UserInputService:GetConnectedGamepads() == 0
+	local isTouchMode = getIsTouchLayout()
+	lastTouchLayout = isTouchMode
 	cachedMinimapLayout = RaceHudMath.computeMinimapLayout(vw, vh, 0, isTouchMode)
 	minimapRoot.Position = UDim2.fromOffset(cachedMinimapLayout.x, cachedMinimapLayout.y)
 	minimapRoot.Size = UDim2.fromOffset(cachedMinimapLayout.width, cachedMinimapLayout.height)
@@ -678,6 +688,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		hasNavMesh = true,
 	})
 
+	local currentTouchLayout = getIsTouchLayout()
 	local camera = Workspace.CurrentCamera
 	if camera then
 		local vp = camera.ViewportSize
@@ -692,6 +703,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 				or vh ~= lastViewportH
 				or mmFlag ~= lastMinimapMode
 				or totalKarts ~= lastTotalKarts
+				or currentTouchLayout ~= lastTouchLayout
 			)
 		then
 			lastViewportW = vw
@@ -703,16 +715,18 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 	end
 
 	-- Apply mode-conditional visibility only on changes (race_gui.cpp:L314-L407)
-	if lastVisSpeedEnergy ~= vis.showSpeedAndEnergy then
-		lastVisSpeedEnergy = vis.showSpeedAndEnergy
-		speedRoot.Visible = vis.showSpeedAndEnergy
-		energyRoot.Visible = vis.showSpeedAndEnergy
+	-- Upstream hides speed/energy/rank when multitouch controls are active (race_gui.cpp:L399-L402).
+	local showSpeedEnergy = vis.showSpeedAndEnergy and not currentTouchLayout
+	if lastVisSpeedEnergy ~= showSpeedEnergy then
+		lastVisSpeedEnergy = showSpeedEnergy
+		speedRoot.Visible = showSpeedEnergy
+		energyRoot.Visible = showSpeedEnergy
 	end
 	if lastVisTimer ~= vis.showTimer then
 		lastVisTimer = vis.showTimer
 		timerLabel.Visible = vis.showTimer
 	end
-	local showRank = vis.showSpeedAndEnergy and vis.showRankDigit
+	local showRank = showSpeedEnergy and vis.showRankDigit
 	if lastVisRankDigit ~= showRank then
 		lastVisRankDigit = showRank
 		rankLabel.Visible = showRank
@@ -755,7 +769,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 	end
 
 	-- 2) Speedometer CanvasGroup masks updated only when snapped ratio changes
-	if vis.showSpeedAndEnergy then
+	if showSpeedEnergy then
 		local speedRatio = RaceHudMath.snapSpeedRatio(renderHud.speedMps)
 		if math.abs(speedRatio - lastSpeedRatio) > 1e-4 then
 			lastSpeedRatio = speedRatio
@@ -899,9 +913,12 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 
 	-- 5b) PlayerIconsList ordered by Standings.compute rank (1st at top) with local-player highlight
 	if vis.showPlayerIcons and lastViewportW > 0 and lastViewportH > 0 then
-		local entries = renderHud.standingsEntries
-		local count = if entries then #entries else 1
-		local isTouchMode = UserInputService.TouchEnabled and #UserInputService:GetConnectedGamepads() == 0
+		local sortedEntries = if renderHud.standingsEntries then Standings.compute(renderHud.standingsEntries) else nil
+		local count = if sortedEntries then #sortedEntries else 1
+		local isTouchMode = getIsTouchLayout()
+		if lastTouchLayout ~= isTouchMode then
+			layoutStaticElements(lastViewportW, lastViewportH, vis.showMiniMap, count, shownRank)
+		end
 		local bottomMargin = if vis.showMiniMap and not isTouchMode
 			then (cachedMinimapLayout.height + cachedMinimapLayout.mapBottom)
 			else 0
@@ -910,8 +927,8 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		local aiW = math.floor(playerW * 5 / 6)
 		local yOff = 0
 		for idx = 1, count do
-			local entry = if entries then entries[idx] else nil
-			local isLocal = if entry then (entry.id == tostring(renderHud.localKartId)) else true
+			local entry = if sortedEntries then sortedEntries[idx] else nil
+			local isLocal = if entry then (entry.id == "local" or entry.id == tostring(renderHud.localKartId)) else true
 			local w = if isLocal then playerW else aiW
 			local row = getOrCreatePlayerIconRow(idx)
 			row.rowFrame.Visible = true
@@ -919,8 +936,8 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			row.rowFrame.Size = UDim2.fromOffset(w, w)
 			row.highlightFrame.Visible = isLocal
 			if isLocal then
-				local pulse = 0.5 + 0.5 * math.cos(os.clock() * 4.0)
-				row.highlightFrame.ImageTransparency = 0.1 + 0.35 * (1.0 - pulse)
+				local pulse = 0.5 + 0.5 * math.cos(os.clock() * 2.0)
+				row.highlightFrame.ImageTransparency = 0.05 + 0.30 * (1.0 - pulse)
 			end
 			yOff += playerW + 2
 		end

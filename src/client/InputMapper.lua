@@ -16,6 +16,7 @@ InputMapper.TRIGGER_THRESHOLD = 0.25
 InputMapper.TOUCH_DEADZONE = 0.1
 InputMapper.TOUCH_SENSITIVITY_X = 0.2
 InputMapper.TOUCH_SENSITIVITY_Y = 0.65
+InputMapper.MAX_WHEEL_ANGLE_RAD = math.pi * 0.5
 
 export type KartInput = {
 	accel: number,
@@ -92,6 +93,32 @@ function InputMapper.getTouchSteeringFactor(value: number, deadzone: number?, se
 	local factor = (value - dz) / (1.0 - dz)
 	factor *= 1.0 / (1.0 - sens)
 	return math.clamp(factor, 0.0, 1.0)
+end
+
+-- Drag-angle wheel mapping: touch offset (dx, dy) from wheel center -> (steer in [-1, 1], wheelAngleDeg)
+-- Uses STK touch deadzone (0.1), sensitivity_x (0.2), and max deflection (+-90 deg).
+function InputMapper.computeTouchWheelSteer(
+	dx: number,
+	dy: number,
+	deadzone: number?,
+	sensitivityX: number?,
+	maxAngleRad: number?
+): (number, number)
+	if dx == 0.0 and dy == 0.0 then
+		return 0.0, 0.0
+	end
+	local dz = deadzone or InputMapper.TOUCH_DEADZONE
+	local sens = sensitivityX or InputMapper.TOUCH_SENSITIVITY_X
+	local maxAng = maxAngleRad or InputMapper.MAX_WHEEL_ANGLE_RAD
+	local rawAngle = math.atan2(dx, math.abs(dy))
+	local clampedAngle = math.clamp(rawAngle, -maxAng, maxAng)
+	local norm = clampedAngle / maxAng
+	local rotDeg = math.deg(clampedAngle)
+	if math.abs(norm) <= dz then
+		return 0.0, rotDeg
+	end
+	local mag = InputMapper.getTouchSteeringFactor(math.abs(norm), dz, sens)
+	return if norm < 0.0 then -mag else mag, rotDeg
 end
 
 -- Default keyboard bindings from src/input/keyboard_config.cpp:L54-L65 (STK 1.5)

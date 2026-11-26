@@ -148,4 +148,37 @@ table.insert(tests, {
 	end,
 })
 
+table.insert(tests, {
+	name = "touch steering wheel drag-angle mapping matches STK deadzone and sensitivity at boundary angles",
+	fn = function()
+		-- 0 deg -> deadzone -> 0
+		local s0, r0 = InputMapper.computeTouchWheelSteer(0, -100)
+		assertNear(s0, 0.0, 1e-6, "0 deg steer")
+		assertNear(r0, 0.0, 1e-6, "0 deg rot")
+
+		-- 9 deg (norm = 0.10 <= TOUCH_DEADZONE) -> 0
+		local rad9 = math.rad(9)
+		local s9, _ = InputMapper.computeTouchWheelSteer(math.sin(rad9) * 100, -math.cos(rad9) * 100)
+		assertNear(s9, 0.0, 1e-6, "9 deg boundary deadzone")
+
+		-- +/-45 deg -> norm = 0.5 -> factor = ((0.5 - 0.1)/0.9)/(1 - 0.2) = 0.555556
+		local sPos45, rPos45 = InputMapper.computeTouchWheelSteer(100, -100)
+		assertNear(sPos45, (0.5 - 0.1) / 0.9 / 0.8, 1e-5, "+45 deg steer")
+		assertNear(rPos45, 45.0, 1e-4, "+45 deg rot")
+
+		local sNeg45, rNeg45 = InputMapper.computeTouchWheelSteer(-100, -100)
+		assertNear(sNeg45, -((0.5 - 0.1) / 0.9 / 0.8), 1e-5, "-45 deg steer")
+		assertNear(rNeg45, -45.0, 1e-4, "-45 deg rot")
+
+		-- +/-90 deg -> full +/-1.0
+		local sPos90, rPos90 = InputMapper.computeTouchWheelSteer(100, 0)
+		assertNear(sPos90, 1.0, 1e-6, "+90 deg steer")
+		assertNear(rPos90, 90.0, 1e-4, "+90 deg rot")
+
+		local sNeg90, rNeg90 = InputMapper.computeTouchWheelSteer(-100, 0)
+		assertNear(sNeg90, -1.0, 1e-6, "-90 deg steer")
+		assertNear(rNeg90, -90.0, 1e-4, "-90 deg rot")
+	end,
+})
+
 return tests

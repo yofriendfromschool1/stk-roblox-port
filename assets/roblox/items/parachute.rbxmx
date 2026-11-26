@@ -13,7 +13,7 @@
         <bool name="CanQuery">false</bool>
         <bool name="Massless">true</bool>
         <Content name="MeshId"><url>rbxassetid://82137743983041</url></Content>
-        <Content name="TextureID"><url></url></Content>
+        <Content name="TextureID"><url>rbxassetid://106760158600072</url></Content>
         <token name="Material">256</token>
         <token name="RenderFidelity">1</token>
         <token name="CollisionFidelity">2</token>
