@@ -16,6 +16,9 @@ local suites = {
 	{ name = "InputMapper", tests = require("./InputMapper.spec") },
 	{ name = "GamepadSelect", tests = require("./GamepadSelect.spec") },
 	{ name = "SfxEvents", tests = require("./SfxEvents.spec") },
+	{ name = "RemoteInterp", tests = require("./RemoteInterp.spec") },
+	{ name = "ItemVisuals", tests = require("./ItemVisuals.spec") },
+	{ name = "FlyableCollision", tests = require("./FlyableCollision.spec") },
 }
 
 local passed = 0

@@ -11,6 +11,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local ItemTuning = require(Shared.ItemTuning)
+local ItemVisuals = require("../items/ItemVisuals")
 local KartTuning = require(Shared.KartTuning)
 local KartVisualMath = require(Shared.kart.KartVisualMath)
 local TuxBoundsData = require(Shared.kart.TuxBoundsData)
@@ -450,48 +451,28 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 		{ atype = ItemTuning.ATTACHMENT_SWATTER, itemId = "swatter", trans = 0.0 },
 	}
 	local attachments: { [number]: AttachmentVisual } = {}
-	local assetsRoot = ReplicatedStorage:FindFirstChild("Assets")
-	local itemsAssets = if assetsRoot then assetsRoot:FindFirstChild("Items") else nil
-	if itemsAssets then
-		for _, def in attachmentDefs do
-			local tmpl = itemsAssets:FindFirstChild(def.itemId)
-			if tmpl and tmpl:IsA("Model") and tmpl:GetAttribute("HasUploadedMeshes") == true then
-				local srcMp = tmpl:FindFirstChildWhichIsA("MeshPart")
-				if srcMp and srcMp.MeshId ~= "" then
-					local mp = srcMp:Clone()
-					mp.Name = "Attach_" .. def.itemId
-					mp.Anchored = true
-					mp.CanCollide = false
-					mp.CanTouch = false
-					mp.CanQuery = false
-					mp.Massless = true
-					mp.Transparency = 1.0
-					local orient = if mp:GetAttribute("ImportFlipY180") == true then FLIP_Y180_CF else CFrame.identity
-					local localCf: CFrame
-					if def.atype == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD then
-						-- attachment.cpp:L614-L615 scale = max(1.0, kart.highestPoint * 1.1)
-						local shieldScale = math.max(1.0, profile.collisionHeight * 1.1)
-						mp.Size = mp.Size * shieldScale
-						localCf = CFrame.new(0, 0.35, 0) * orient
-					else
-						local lx = mp:GetAttribute("LocalPosX")
-						local ly = mp:GetAttribute("LocalPosY")
-						local lz = mp:GetAttribute("LocalPosZ")
-						local pos = if type(lx) == "number"
-								and type(ly) == "number"
-								and type(lz) == "number"
-							then Vector3.new(lx, ly, lz)
-							else mp.Position
-						localCf = CFrame.new(pos) * orient
-					end
-					mp.Parent = model
-					attachments[def.atype] = {
-						part = mp,
-						localCf = localCf,
-						activeTransparency = def.trans,
-					}
-				end
+	for _, def in attachmentDefs do
+		local created = ItemVisuals.create(def.itemId, "attachment")
+		if created then
+			local mp = created.subparts[1].part
+			mp.Name = "Attach_" .. def.itemId
+			mp.Transparency = 1.0
+			local localCf: CFrame
+			if def.atype == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD then
+				-- attachment.cpp:L614-L615 scale = max(1.0, kart.highestPoint * 1.1)
+				local shieldScale = math.max(1.0, profile.collisionHeight * 1.1)
+				mp.Size = mp.Size * shieldScale
+				localCf = CFrame.new(0, 0.35, 0) * created.subparts[1].baseRot
+			else
+				localCf = CFrame.new(created.subparts[1].localPos) * created.subparts[1].baseRot
 			end
+			mp.Parent = model
+			created.model:Destroy()
+			attachments[def.atype] = {
+				part = mp,
+				localCf = localCf,
+				activeTransparency = def.trans,
+			}
 		end
 	end
 
@@ -499,23 +480,14 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 	-- Measured from tux.spm frame-20 Driver submesh eye/face surface (docs/kart-spec.md:L59-L83); rigid approximation.
 	-- Unflipped plunger mesh places the +Z suction cup against Tux's beak/eyes (~z=-0.20) with handle extending -Z.
 	local plungerFaceLocalCf = CFrame.new(0, 0.58, -0.62)
-	if itemsAssets then
-		local plungerTmpl = itemsAssets:FindFirstChild("plunger")
-		if plungerTmpl and plungerTmpl:IsA("Model") and plungerTmpl:GetAttribute("HasUploadedMeshes") == true then
-			local srcMp = plungerTmpl:FindFirstChildWhichIsA("MeshPart")
-			if srcMp and srcMp.MeshId ~= "" then
-				local pFace = srcMp:Clone()
-				pFace.Name = "Attach_plunger_face"
-				pFace.Anchored = true
-				pFace.CanCollide = false
-				pFace.CanTouch = false
-				pFace.CanQuery = false
-				pFace.Massless = true
-				pFace.Transparency = 1.0
-				pFace.Parent = model
-				plungerFacePart = pFace
-			end
-		end
+	local createdPlunger = ItemVisuals.create("plunger", "attachment")
+	if createdPlunger then
+		local pFace = createdPlunger.subparts[1].part
+		pFace.Name = "Attach_plunger_face"
+		pFace.Transparency = 1.0
+		pFace.Parent = model
+		createdPlunger.model:Destroy()
+		plungerFacePart = pFace
 	end
 
 	model.Parent = folder

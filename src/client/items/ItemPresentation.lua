@@ -14,16 +14,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ItemBoundsData = require(Shared.items.ItemBoundsData)
+local ItemVisuals = require("./ItemVisuals")
 local ItemWorld = require(Shared.items.ItemWorld)
 local Units = require(Shared.Units)
 
-export type VisualSubpart = {
-	part: MeshPart,
-	localPos: Vector3,
-	baseRot: CFrame,
-	baseSize: Vector3,
-}
+export type VisualSubpart = ItemVisuals.VisualSubpart
 
 export type ItemVisualInstance = {
 	id: number,
@@ -49,125 +44,20 @@ local TYPE_TO_MODEL_ID: { [ItemWorld.ItemType]: string } = {
 
 local ItemPresentation = {}
 
--- Strictly non-yielding lookup so BindToRenderStep never stalls waiting on missing assets.
-local function resolveReadyItemTemplate(modelId: string): Model?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if not assets then
-		return nil
-	end
-	local items = assets:FindFirstChild("Items")
-	if not items then
-		return nil
-	end
-	local template = items:FindFirstChild(modelId)
-	if not (template and template:IsA("Model")) then
-		return nil
-	end
-	if template:GetAttribute("HasUploadedMeshes") ~= true then
-		error(string.format("[OpenKart] Item template %s missing HasUploadedMeshes=true", modelId))
-	end
-	if template:GetAttribute("MeshesHydrated") ~= true then
-		return nil
-	end
-	return template
-end
-
-local function assertItemLiveBounds(model: Model, modelId: string)
-	local expectedParts = ItemBoundsData.items[modelId]
-	if expectedParts == nil then
-		return
-	end
-	local tol = ItemBoundsData.TOLERANCE_STUDS
-	for _, child in model:GetChildren() do
-		if child:IsA("BasePart") and not child:IsA("MeshPart") then
-			error(string.format("[OpenKart] Primitive BasePart '%s' forbidden in item %s", child.Name, modelId))
-		end
-	end
-	for partName, expected in expectedParts do
-		local child = model:FindFirstChild(partName)
-		if not (child and child:IsA("MeshPart")) then
-			error(string.format("[OpenKart] Item %s missing MeshPart '%s'", modelId, partName))
-		end
-		local mp = child :: MeshPart
-		local expSize = expected.size
-		if
-			mp.MeshId == ""
-			or mp.MeshSize.Magnitude <= 1e-4
-			or math.abs(mp.Size.X - expSize[1]) > tol
-			or math.abs(mp.Size.Y - expSize[2]) > tol
-			or math.abs(mp.Size.Z - expSize[3]) > tol
-			or math.abs(mp.MeshSize.X - expSize[1]) > tol
-			or math.abs(mp.MeshSize.Y - expSize[2]) > tol
-			or math.abs(mp.MeshSize.Z - expSize[3]) > tol
-		then
-			error(
-				string.format(
-					"[OpenKart] Item %s.%s Size/MeshSize mismatch: Size=(%.4f,%.4f,%.4f) MeshSize=(%.4f,%.4f,%.4f) expected=(%.4f,%.4f,%.4f)",
-					modelId,
-					partName,
-					mp.Size.X,
-					mp.Size.Y,
-					mp.Size.Z,
-					mp.MeshSize.X,
-					mp.MeshSize.Y,
-					mp.MeshSize.Z,
-					expSize[1],
-					expSize[2],
-					expSize[3]
-				)
-			)
-		end
-	end
-end
-
 local function instantiateVisual(entry: ItemWorld.ItemEntry, folder: Folder): ItemVisualInstance?
 	local modelId = TYPE_TO_MODEL_ID[entry.itemType]
 	if modelId == nil then
 		error(string.format("[OpenKart] Unmapped ItemType '%s' for MeshPart lookup", tostring(entry.itemType)))
 	end
 	local initiallyAvailable = entry.ticksTillReturn <= 0
-	local template = resolveReadyItemTemplate(modelId)
-	if template == nil then
+	local created = ItemVisuals.create(modelId, "pickup")
+	if created == nil then
 		return nil
 	end
 
-	local cloned = template:Clone()
+	local cloned = created.model
 	cloned.Name = string.format("Item_%d_%s", entry.id, modelId)
-	assertItemLiveBounds(cloned, modelId)
-
-	local subparts: { VisualSubpart } = {}
-	for _, child in cloned:GetChildren() do
-		if child:IsA("MeshPart") then
-			local mp = child :: MeshPart
-			mp.Anchored = true
-			mp.CanCollide = false
-			mp.CanTouch = false
-			mp.CanQuery = false
-			mp.Massless = true
-			local lx = mp:GetAttribute("LocalPosX")
-			local ly = mp:GetAttribute("LocalPosY")
-			local lz = mp:GetAttribute("LocalPosZ")
-			local localPos = if type(lx) == "number"
-					and type(ly) == "number"
-					and type(lz) == "number"
-				then Vector3.new(lx, ly, lz)
-				else mp.Position
-			local baseRot = if mp:GetAttribute("ImportFlipY180") == true
-				then CFrame.Angles(0, math.pi, 0)
-				else CFrame.identity
-			table.insert(subparts, {
-				part = mp,
-				localPos = localPos,
-				baseRot = baseRot,
-				baseSize = mp.Size,
-			})
-		elseif child:IsA("BasePart") then
-			error(string.format("[OpenKart] Non-MeshPart '%s' inside cloned item %s", child.Name, modelId))
-		end
-	end
-	if #subparts == 0 then
-		error(string.format("[OpenKart] Cloned item %s has zero MeshPart children", modelId))
-	end
+	local subparts = created.subparts
 
 	cloned.Parent = folder
 	return {

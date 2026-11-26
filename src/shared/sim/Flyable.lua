@@ -68,9 +68,16 @@ export type FlyableEntry = {
 	bandAnchorPos: Vec3,
 }
 
+export type CancelEffect = {
+	kind: FlyableKind,
+	pos: Vec3,
+	sfxId: string?,
+}
+
 export type FlyableWorldState = {
 	nextId: number,
 	entries: { FlyableEntry },
+	cancelEffects: { CancelEffect }?,
 }
 
 export type NetFlyableEntry = {
@@ -814,6 +821,11 @@ function Flyable.step(
 					hitPoint = hit.point
 					if entry.kind == "plunger" and not entry.reverseMode and not entry.isBattle then
 						hitObstacle = true
+					elseif entry.kind == "cake" then
+						-- Cake::hitTrack() -> hit(NULL) -> explode(NULL, NULL, secondary_hits=true)
+						-- (cake.hpp:L55-L60, cake.cpp:L62-L76, flyable.cpp:L571-L625)
+						entry.hasHitSomething = true
+						triggerExplosionHit(entry, nil, karts, true, ticksNow)
 					else
 						local vn = Math3D.dot(entry.vel, n)
 						if vn < 0 then
@@ -827,7 +839,10 @@ function Flyable.step(
 				entry.pos = Math3D.add(entry.pos, delta)
 				if entry.pos.y < entry.radius then
 					entry.pos.y = entry.radius
-					if entry.vel.y < 0 then
+					if entry.kind == "cake" then
+						entry.hasHitSomething = true
+						triggerExplosionHit(entry, nil, karts, true, ticksNow)
+					elseif entry.vel.y < 0 then
 						entry.vel.y = -entry.vel.y * entry.restitution
 					end
 				end
@@ -867,6 +882,64 @@ function Flyable.step(
 		end
 
 		if removed or entry.hasHitSomething then
+			table.remove(world.entries, i)
+		end
+	end
+
+	-- 4. General flyable-vs-flyable collision (physics.cpp:L405-L411, L702-L711; bowling.cpp:L155-L198; cake.cpp:L62-L76)
+	-- Stable pair iteration sorted by id; mark destroyed immediately and skip dead flyables in subsequent pairs.
+	local active: { FlyableEntry } = {}
+	for _, entry in world.entries do
+		if not entry.hasHitSomething and not entry.movedToInfinity then
+			table.insert(active, entry)
+		end
+	end
+	table.sort(active, function(a: FlyableEntry, b: FlyableEntry): boolean
+		return a.id < b.id
+	end)
+
+	for idxA = 1, #active - 1 do
+		local a = active[idxA]
+		if a.hasHitSomething then
+			continue
+		end
+		for idxB = idxA + 1, #active do
+			local b = active[idxB]
+			if b.hasHitSomething then
+				continue
+			end
+			local pairRad = a.radius + b.radius
+			if Math3D.lenSq(Math3D.sub(a.pos, b.pos)) <= pairRad * pairRad then
+				a.hasHitSomething = true
+				b.hasHitSomething = true
+				if a.kind == "cake" then
+					triggerExplosionHit(a, nil, karts, true, ticksNow)
+				end
+				if b.kind == "cake" then
+					triggerExplosionHit(b, nil, karts, true, ticksNow)
+				end
+				if world.cancelEffects == nil then
+					world.cancelEffects = {}
+				end
+				local effects = world.cancelEffects :: { CancelEffect }
+				for _, dead in { a, b } do
+					local sfxId: string? = if dead.kind == "bowling"
+						then "crash"
+						elseif dead.kind == "cake" or dead.kind == "rubber_ball" then "explosion"
+						else nil
+					table.insert(effects, {
+						kind = dead.kind,
+						pos = cloneVec3(dead.pos),
+						sfxId = sfxId,
+					})
+				end
+				break
+			end
+		end
+	end
+
+	for i = #world.entries, 1, -1 do
+		if world.entries[i].hasHitSomething then
 			table.remove(world.entries, i)
 		end
 	end

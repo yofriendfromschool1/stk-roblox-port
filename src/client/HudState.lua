@@ -9,6 +9,12 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RaceHudMath = require(Shared.hud.RaceHudMath)
 local Standings = require(Shared.race.Standings)
 
+export type RemoteMinimapPose = {
+	id: string,
+	x: number,
+	z: number,
+}
+
 export type InterpolatedHudState = {
 	ready: boolean,
 	pos: RaceHudMath.Point2D,
@@ -22,6 +28,8 @@ export type InterpolatedHudState = {
 	heldPowerupCount: number,
 	plungerFaceTicks: number,
 	standingsEntries: { Standings.StandingsEntry }?,
+	remotePoses: { RemoteMinimapPose }?,
+	localKartId: number,
 	raceMode: RaceHudMath.RaceMode,
 	raceStartServerTime: number,
 	lap: number,
@@ -42,6 +50,8 @@ local currentState: InterpolatedHudState = {
 	heldPowerupCount = 0,
 	plungerFaceTicks = 0,
 	standingsEntries = nil,
+	remotePoses = nil,
+	localKartId = 1,
 	raceMode = "TIME_TRIAL",
 	raceStartServerTime = 0.0,
 	lap = 0,
@@ -68,7 +78,9 @@ function HudState.publish(
 	heldPowerupCount: number?,
 	nitroGateOpen: boolean?,
 	plungerFaceTicks: number?,
-	standingsEntries: { Standings.StandingsEntry }?
+	standingsEntries: { Standings.StandingsEntry }?,
+	remotePoses: { RemoteMinimapPose }?,
+	localKartId: number?
 )
 	currentState.ready = true
 	currentState.pos.x = posX
@@ -83,6 +95,8 @@ function HudState.publish(
 	currentState.heldPowerupCount = heldPowerupCount or 0
 	currentState.plungerFaceTicks = plungerFaceTicks or 0
 	currentState.standingsEntries = standingsEntries
+	currentState.remotePoses = remotePoses
+	currentState.localKartId = localKartId or 1
 	currentState.raceMode = raceMode
 	currentState.raceStartServerTime = raceStartServerTime
 	currentState.lap = lap

@@ -59,7 +59,7 @@ function TouchControls.create(): Controller
 	}
 
 	local function updateVisibility()
-		local hasGamepad = UserInputService:GetGamepadConnected(Enum.UserInputType.Gamepad1)
+		local hasGamepad = #UserInputService:GetConnectedGamepads() > 0
 		gui.Enabled = UserInputService.TouchEnabled and not hasGamepad
 		if not gui.Enabled then
 			state.wheelAxisX = 0.0

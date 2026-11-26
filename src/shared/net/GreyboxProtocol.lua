@@ -42,6 +42,7 @@ export type TelemetryPacket = {
 	tick: number,
 	lastInputSeq: number,
 	resetSeq: number,
+	serverTime: number?,
 	resetNotice: string,
 	netState: KartSolver.NetState,
 	remoteKarts: { RemoteKartState }?,
@@ -91,7 +92,7 @@ for idx, name in FLYABLE_KINDS do
 	FLYABLE_KIND_TO_ID[name :: Flyable.FlyableKind] = idx
 end
 
-local CORE_HEADER_BYTES = 221
+local CORE_HEADER_BYTES = 229
 local ITEM_EFFECT_BYTES = 116
 local INCREASE_ENTRY_BYTES = 17
 local COOLDOWN_ENTRY_BYTES = 6
@@ -150,7 +151,8 @@ function GreyboxProtocol.packSnapshot(
 	resetSeq: number,
 	ns: KartSolver.NetState,
 	resetNotice: string,
-	remoteKarts: { RemoteKartState }?
+	remoteKarts: { RemoteKartState }?,
+	serverTime: number?
 ): (buffer, string?)
 	local eff = ns.itemEffect
 	local hasItemEffect = isItemEffectActive(eff)
@@ -200,6 +202,8 @@ function GreyboxProtocol.packSnapshot(
 	off += 4
 	buffer.writeu16(buf, off, clampU16(resetSeq))
 	off += 2
+	buffer.writef64(buf, off, serverTime or 0.0)
+	off += 8
 
 	-- 13 f64 kinematics for exact deterministic replay (104 B)
 	buffer.writef64(buf, off, ns.pos[1])
@@ -449,7 +453,8 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 	local tick = buffer.readu32(buf, off)
 	local lastInputSeq = buffer.readu32(buf, off + 4)
 	local resetSeq = buffer.readu16(buf, off + 8)
-	off += 10
+	local serverTime = buffer.readf64(buf, off + 10)
+	off += 18
 
 	local pos = { buffer.readf64(buf, off), buffer.readf64(buf, off + 8), buffer.readf64(buf, off + 16) }
 	local rot = {
@@ -834,6 +839,7 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		tick = tick,
 		lastInputSeq = lastInputSeq,
 		resetSeq = resetSeq,
+		serverTime = serverTime,
 		resetNotice = if type(rawNotice) == "string" then rawNotice else "",
 		netState = netState,
 		remoteKarts = remoteKarts,

@@ -9,6 +9,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
@@ -29,6 +30,7 @@ local GAUGE_FULL_BRIGHT_ASSET = "rbxassetid://103689241713508"
 -- Verified GPL 2.0 kart icon (author: Anthony "yeKcim" Carré, karts/tux/licenses.txt:L7-L9, rev 18627;
 -- Tux character by Larry Ewing using The GIMP; audited in assets/CREDITS.md)
 local TUX_ICON_ASSET = "rbxassetid://106784086588016"
+local ICONS_FRAME_ASSET = "rbxassetid://128866264800446"
 
 -- Powerup HUD icons mapped per data/powerup.xml & DEP-5 re-audit (data/gui/icons/licenses.txt:L13-L24 + data/models/licenses.txt;
 -- audited in assets/CREDITS.md, uploaded via upload_image).
@@ -268,24 +270,63 @@ timerLabel.ZIndex = 4
 timerLabel.Parent = gui
 createBlockedSlot(timerLabel, "LapSplitsSlot", "Blocked: CheckManager lap splits unbuilt (P0)")
 
--- Bindable Element #5: Top-Left Player Icon (race_gui_base.cpp:L785-L1054)
+-- Bindable Element #5: Top-Left Player Icon List (race_gui_base.cpp:L785-L1096)
 local playerIconRoot = Instance.new("Frame")
 playerIconRoot.Name = "PlayerIconsList"
 playerIconRoot.BackgroundTransparency = 1
 playerIconRoot.BorderSizePixel = 0
 playerIconRoot.Parent = gui
 
-local localPlayerIcon = Instance.new("ImageLabel")
-localPlayerIcon.Name = "LocalKartIcon"
-localPlayerIcon.BackgroundTransparency = 1
-localPlayerIcon.BorderSizePixel = 0
-localPlayerIcon.Size = UDim2.fromScale(1, 1)
-localPlayerIcon.Image = TUX_ICON_ASSET
-localPlayerIcon.ScaleType = Enum.ScaleType.Fit
-localPlayerIcon.ZIndex = 3
-localPlayerIcon.Parent = playerIconRoot
+type PlayerIconRow = {
+	rowFrame: Frame,
+	highlightFrame: ImageLabel,
+	icon: ImageLabel,
+}
+local playerIconRows: { PlayerIconRow } = {}
 
-createBlockedSlot(playerIconRoot, "IconsFrameSlot", "Ready for icons-frame.png upload (DEP-5 CC-BY-SA 3.0+)")
+local function getOrCreatePlayerIconRow(idx: number): PlayerIconRow
+	local existing = playerIconRows[idx]
+	if existing then
+		return existing
+	end
+	local rowFrame = Instance.new("Frame")
+	rowFrame.Name = "PlayerRow_" .. tostring(idx)
+	rowFrame.BackgroundTransparency = 1
+	rowFrame.BorderSizePixel = 0
+	rowFrame.Parent = playerIconRoot
+
+	local highlight = Instance.new("ImageLabel")
+	highlight.Name = "LocalHighlight"
+	highlight.BackgroundTransparency = 1
+	highlight.BorderSizePixel = 0
+	highlight.Position = UDim2.fromOffset(-4, -4)
+	highlight.Size = UDim2.new(1, 8, 1, 8)
+	highlight.Image = ICONS_FRAME_ASSET
+	highlight.ImageColor3 = Color3.fromRGB(255, 225, 90)
+	highlight.ScaleType = Enum.ScaleType.Fit
+	highlight.ZIndex = 2
+	highlight.Visible = false
+	highlight.Parent = rowFrame
+
+	local icon = Instance.new("ImageLabel")
+	icon.Name = "KartIcon"
+	icon.BackgroundTransparency = 1
+	icon.BorderSizePixel = 0
+	icon.Size = UDim2.fromScale(1, 1)
+	icon.Image = TUX_ICON_ASSET
+	icon.ScaleType = Enum.ScaleType.Fit
+	icon.ZIndex = 3
+	icon.Parent = rowFrame
+
+	local row: PlayerIconRow = {
+		rowFrame = rowFrame,
+		highlightFrame = highlight,
+		icon = icon,
+	}
+	playerIconRows[idx] = row
+	return row
+end
+
 createBlockedSlot(playerIconRoot, "PlungerBadgeSlot", "Blocked: Plunger / Attachment unbuilt (P1)")
 createBlockedSlot(playerIconRoot, "AttachmentBadgeSlot", "Blocked: Attachment unbuilt (P1)")
 createBlockedSlot(playerIconRoot, "FinishedFlagSlot", "Blocked: CheckManager race finish unbuilt (P0)")
@@ -316,14 +357,15 @@ for i = 1, RaceHudMath.POWERUP_MAX_STACK do
 	slotFrame.ZIndex = 4 + i
 	slotFrame.Parent = powerupRoot
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = slotFrame
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(255, 215, 70)
-	stroke.Thickness = 2
-	stroke.Parent = slotFrame
+	local frameBg = Instance.new("ImageLabel")
+	frameBg.Name = "IconsFrame"
+	frameBg.BackgroundTransparency = 1
+	frameBg.BorderSizePixel = 0
+	frameBg.Size = UDim2.fromScale(1, 1)
+	frameBg.Image = ICONS_FRAME_ASSET
+	frameBg.ScaleType = Enum.ScaleType.Fit
+	frameBg.ZIndex = 4 + i
+	frameBg.Parent = slotFrame
 
 	local img = Instance.new("ImageLabel")
 	img.Name = "Icon"
@@ -456,7 +498,39 @@ mmKartIcon.ScaleType = Enum.ScaleType.Fit
 mmKartIcon.ZIndex = 5
 mmKartIcon.Parent = mmKartMarker
 
-createBlockedSlot(minimapRoot, "AIKartMarkersSlot", "Blocked: AI / Multiplayer opponent karts unbuilt (P1-P2)")
+local remoteMinimapMarkers: { [string]: Frame } = {}
+
+local function getOrCreateRemoteMinimapMarker(id: string): Frame
+	local existing = remoteMinimapMarkers[id]
+	if existing then
+		return existing
+	end
+	local marker = Instance.new("Frame")
+	marker.Name = "RemoteKartDot_" .. id
+	marker.AnchorPoint = Vector2.new(0.5, 0.5)
+	marker.BackgroundColor3 = Color3.fromRGB(115, 195, 255)
+	marker.BorderSizePixel = 0
+	marker.ZIndex = 4
+	marker.Parent = minimapRoot
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = marker
+
+	local icon = Instance.new("ImageLabel")
+	icon.Name = "KartIcon"
+	icon.BackgroundTransparency = 1
+	icon.BorderSizePixel = 0
+	icon.Size = UDim2.fromScale(1, 1)
+	icon.Image = TUX_ICON_ASSET
+	icon.ScaleType = Enum.ScaleType.Fit
+	icon.ZIndex = 5
+	icon.Parent = marker
+
+	remoteMinimapMarkers[id] = marker
+	return marker
+end
+
 createBlockedSlot(minimapRoot, "CTFFlagMarkersSlot", "Blocked: CaptureTheFlag mode unbuilt (P2)")
 createBlockedSlot(minimapRoot, "SoccerBallMarkerSlot", "Blocked: SoccerWorld mode unbuilt (P2)")
 createBlockedSlot(minimapRoot, "BasketballMarkersSlot", "Blocked: ProjectileManager / RubberBall unbuilt (P1)")
@@ -532,20 +606,25 @@ local lastVisPlayerIcons: boolean? = nil
 local lastVisMiniMap: boolean? = nil
 local lastVisPowerups: boolean? = nil
 
-local function layoutStaticElements(vw: number, vh: number, minimapVisible: boolean, totalKarts: number, rank: number)
+local function layoutStaticElements(vw: number, vh: number, minimapVisible: boolean, totalKarts: number, _rank: number)
 	cachedSpeedRect = RaceHudMath.computeSpeedometerRect(vw, vh)
 	cachedRankAnchor = RaceHudMath.computeRankAnchor(cachedSpeedRect)
 	applyRect(speedRoot, cachedSpeedRect)
 	applyRect(energyRoot, RaceHudMath.computeEnergyMeterRect(vw, vh))
 	applyRect(timerLabel, RaceHudMath.computeTimerRect(vw, vh))
 
-	cachedMinimapLayout = RaceHudMath.computeMinimapLayout(vw, vh, 0)
+	local isTouchMode = UserInputService.TouchEnabled and #UserInputService:GetConnectedGamepads() == 0
+	cachedMinimapLayout = RaceHudMath.computeMinimapLayout(vw, vh, 0, isTouchMode)
 	minimapRoot.Position = UDim2.fromOffset(cachedMinimapLayout.x, cachedMinimapLayout.y)
 	minimapRoot.Size = UDim2.fromOffset(cachedMinimapLayout.width, cachedMinimapLayout.height)
 	mmKartMarker.Size = UDim2.fromOffset(cachedMinimapLayout.playerIconSize, cachedMinimapLayout.playerIconSize)
 
-	local bottomMargin = if minimapVisible then (cachedMinimapLayout.height + cachedMinimapLayout.mapBottom) else 0
-	applyRect(playerIconRoot, RaceHudMath.computePlayerIconRect(vw, vh, totalKarts, bottomMargin, rank, true))
+	local bottomMargin = if minimapVisible and not isTouchMode
+		then (cachedMinimapLayout.height + cachedMinimapLayout.mapBottom)
+		else 0
+	local topRect = RaceHudMath.computePlayerIconRect(vw, vh, totalKarts, bottomMargin, 1, true)
+	playerIconRoot.Position = UDim2.fromOffset(topRect.x, topRect.y)
+	playerIconRoot.Size = UDim2.fromOffset(topRect.width, math.max(topRect.height, totalKarts * (topRect.height + 2)))
 
 	-- Project canonical driveline quad centers through RaceHudMath.projectToMinimap
 	local centers = GreyboxArenaData.drivelineQuadCenters
@@ -777,7 +856,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		end
 	end
 
-	-- 5) Minimap interpolated kart dot (updated only on >= 0.25 px movement)
+	-- 5) Minimap interpolated kart dots (local + RemoteInterp remote karts)
 	if vis.showMiniMap then
 		local kx, ky = RaceHudMath.projectToMinimap(
 			renderHud.pos.x,
@@ -791,6 +870,62 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			lastMmX = kx
 			lastMmY = ky
 			mmKartMarker.Position = UDim2.fromOffset(kx, ky)
+		end
+
+		local seenRemoteMm: { [string]: boolean } = {}
+		if renderHud.remotePoses ~= nil then
+			for _, rp in renderHud.remotePoses do
+				seenRemoteMm[rp.id] = true
+				local marker = getOrCreateRemoteMinimapMarker(rp.id)
+				marker.Visible = true
+				marker.Size = UDim2.fromOffset(cachedMinimapLayout.aiIconSize, cachedMinimapLayout.aiIconSize)
+				local rx, ry = RaceHudMath.projectToMinimap(
+					rp.x,
+					rp.z,
+					arenaBounds,
+					cachedMinimapLayout.width,
+					cachedMinimapLayout.height,
+					false
+				)
+				marker.Position = UDim2.fromOffset(rx, ry)
+			end
+		end
+		for rid, marker in remoteMinimapMarkers do
+			if not seenRemoteMm[rid] then
+				marker.Visible = false
+			end
+		end
+	end
+
+	-- 5b) PlayerIconsList ordered by Standings.compute rank (1st at top) with local-player highlight
+	if vis.showPlayerIcons and lastViewportW > 0 and lastViewportH > 0 then
+		local entries = renderHud.standingsEntries
+		local count = if entries then #entries else 1
+		local isTouchMode = UserInputService.TouchEnabled and #UserInputService:GetConnectedGamepads() == 0
+		local bottomMargin = if vis.showMiniMap and not isTouchMode
+			then (cachedMinimapLayout.height + cachedMinimapLayout.mapBottom)
+			else 0
+		local playerW =
+			RaceHudMath.computePlayerIconRect(lastViewportW, lastViewportH, count, bottomMargin, 1, true).width
+		local aiW = math.floor(playerW * 5 / 6)
+		local yOff = 0
+		for idx = 1, count do
+			local entry = if entries then entries[idx] else nil
+			local isLocal = if entry then (entry.id == tostring(renderHud.localKartId)) else true
+			local w = if isLocal then playerW else aiW
+			local row = getOrCreatePlayerIconRow(idx)
+			row.rowFrame.Visible = true
+			row.rowFrame.Position = UDim2.fromOffset(0, yOff)
+			row.rowFrame.Size = UDim2.fromOffset(w, w)
+			row.highlightFrame.Visible = isLocal
+			if isLocal then
+				local pulse = 0.5 + 0.5 * math.cos(os.clock() * 4.0)
+				row.highlightFrame.ImageTransparency = 0.1 + 0.35 * (1.0 - pulse)
+			end
+			yOff += playerW + 2
+		end
+		for idx = count + 1, #playerIconRows do
+			playerIconRows[idx].rowFrame.Visible = false
 		end
 	end
 

@@ -277,8 +277,13 @@ function RaceHudMath.computeTimerRect(viewportW: number, viewportH: number): Hud
 	}
 end
 
--- Minimap screen rect & icon sizes (race_gui.cpp:L194-L244, L584-L588)
-function RaceHudMath.computeMinimapLayout(viewportW: number, viewportH: number, displayMode: number?): MinimapLayout
+-- Minimap screen rect & icon sizes (race_gui.cpp:L194-L265, L584-L588)
+function RaceHudMath.computeMinimapLayout(
+	viewportW: number,
+	viewportH: number,
+	displayMode: number?,
+	isMultitouch: boolean?
+): MinimapLayout
 	local scaling = math.min(viewportW, viewportH) / RaceHudMath.MINIMAP_REF_DIM
 	local mapWidth = math.floor(RaceHudMath.MINIMAP_SIZE_DEFAULT * scaling)
 	local mapHeight = mapWidth
@@ -288,7 +293,12 @@ function RaceHudMath.computeMinimapLayout(viewportW: number, viewportH: number, 
 
 	local mapLeft: number
 	local mapBottom: number
-	if mode == 1 then
+	if isMultitouch == true then
+		-- race_gui.cpp:L259-L265: on touch, minimap sits on the right side above the right-hand buttons
+		local topMargin = math.max(24, math.floor(viewportH * 0.08))
+		mapLeft = math.floor((viewportW - mapWidth) * 0.95)
+		mapBottom = math.floor(viewportH - topMargin - mapHeight)
+	elseif mode == 1 then
 		mapLeft = math.floor(viewportW - mapWidth - RaceHudMath.MINIMAP_MARGIN * scaling)
 		mapBottom = math.floor(3 * viewportH / 4 - mapHeight)
 	elseif mode == 3 then

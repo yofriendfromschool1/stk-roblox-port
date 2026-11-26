@@ -56,6 +56,10 @@ local function hydrateMeshPart(placeholder: MeshPart): MeshPart?
 		created:SetAttribute(attrName, attrVal)
 	end
 
+	for _, child in placeholder:GetChildren() do
+		child.Parent = created
+	end
+
 	created.Parent = placeholder.Parent
 	placeholder:Destroy()
 	return created

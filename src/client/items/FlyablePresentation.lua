@@ -8,7 +8,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Flyable = require(Shared.sim.Flyable)
-local ItemBoundsData = require(Shared.items.ItemBoundsData)
+local ItemVisuals = require("./ItemVisuals")
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local Units = require(Shared.Units)
 
@@ -26,69 +26,18 @@ export type FlyablePresentationController = {
 	instances: { [number]: FlyableVisual },
 }
 
-local FLIP_Y180_CF = CFrame.Angles(0, math.pi, 0)
-
 local FlyablePresentation = {}
 
-local function resolveItemTemplate(modelId: string): Model?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	local items = if assets then assets:FindFirstChild("Items") else nil
-	local tmpl = if items then items:FindFirstChild(modelId) else nil
-	if not (tmpl and tmpl:IsA("Model")) then
-		return nil
-	end
-	if tmpl:GetAttribute("HasUploadedMeshes") ~= true or tmpl:GetAttribute("MeshesHydrated") ~= true then
-		return nil
-	end
-	return tmpl
-end
-
 local function createVisual(entry: Flyable.FlyableEntry, folder: Folder): FlyableVisual?
-	local tmpl = resolveItemTemplate(entry.kind)
-	if tmpl == nil then
+	local created = ItemVisuals.create(entry.kind, "flyable")
+	if created == nil then
 		return nil
 	end
 
-	local expectedParts = ItemBoundsData.items[entry.kind]
-	local cloned = tmpl:Clone()
+	local cloned = created.model
 	cloned.Name = string.format("Fly_%d_%s", entry.id, entry.kind)
-
-	local mainPart: MeshPart? = nil
-	local baseRot = CFrame.identity
-	for _, child in cloned:GetChildren() do
-		if child:IsA("BasePart") and not child:IsA("MeshPart") then
-			error(string.format("[OpenKart] Primitive BasePart '%s' forbidden in flyable %s", child.Name, entry.kind))
-		end
-		if child:IsA("MeshPart") then
-			local mp = child :: MeshPart
-			if expectedParts ~= nil and expectedParts[mp.Name] ~= nil then
-				local exp = expectedParts[mp.Name].size
-				local tol = ItemBoundsData.TOLERANCE_STUDS
-				if
-					mp.MeshId == ""
-					or math.abs(mp.Size.X - exp[1]) > tol
-					or math.abs(mp.Size.Y - exp[2]) > tol
-					or math.abs(mp.Size.Z - exp[3]) > tol
-				then
-					error(string.format("[OpenKart] Flyable %s live MeshPart bounds mismatch", entry.kind))
-				end
-			end
-			mp.Anchored = true
-			mp.CanCollide = false
-			mp.CanTouch = false
-			mp.CanQuery = false
-			mp.Massless = true
-			if mp:GetAttribute("ImportFlipY180") == true then
-				baseRot = FLIP_Y180_CF
-			end
-			mainPart = mp
-		end
-	end
-
-	if mainPart == nil then
-		cloned:Destroy()
-		return nil
-	end
+	local mainPart = created.subparts[1].part
+	local baseRot = created.subparts[1].baseRot
 
 	local bandPart: Part? = nil
 	if entry.kind == "plunger" then

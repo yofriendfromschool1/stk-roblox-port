@@ -290,7 +290,8 @@ local function fireSnapshotPacket(
 		entry.resetSeq,
 		KartSolver.captureNetState(entry.state, itemWorld, flyableWorld),
 		notice,
-		remoteKarts
+		remoteKarts,
+		Workspace:GetServerTimeNow()
 	)
 	telemetryRemote:FireClient(entry.player, payload, noticeArg)
 end
@@ -325,6 +326,22 @@ function GreyboxKartServer.start()
 	local entries: { [Player]: PlayerKartEntry } = {}
 	local totalDroppedDebt = 0.0
 	local snapshotAccum = 0.0
+
+	if RunService:IsStudio() then
+		local debugItemRemote = Instance.new("RemoteEvent")
+		debugItemRemote.Name = "OpenKartDebugGrantItem"
+		debugItemRemote.Parent = remotesFolder
+		debugItemRemote.OnServerEvent:Connect(function(player: Player, itemType: any, itemCount: any)
+			local entry = entries[player]
+			if not entry or type(itemType) ~= "number" then
+				return
+			end
+			local clampedType = math.clamp(math.floor(itemType), 0, 10)
+			local count = if type(itemCount) == "number" then math.clamp(math.floor(itemCount), 0, 3) else 1
+			entry.state.heldPowerup = clampedType
+			entry.state.heldPowerupCount = if clampedType == 0 then 0 else math.max(1, count)
+		end)
+	end
 
 	local stepper: FixedStep.Accumulator
 	stepper = FixedStep.new({

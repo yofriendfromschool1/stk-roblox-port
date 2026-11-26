@@ -7,6 +7,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
@@ -27,6 +28,7 @@ local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local Math3D = require(Shared.sim.Math3D)
 local ReconciliationSmoother = require(Shared.net.ReconciliationSmoother)
+local RemoteInterp = require(Shared.net.RemoteInterp)
 local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SfxEvents = require(Shared.audio.SfxEvents)
 local SfxPlayer = require("./SfxPlayer")
@@ -124,10 +126,26 @@ local function createDebugHud()
 
 	local controlsLbl = makeRow("Controls", 10, 12, Color3.fromRGB(165, 172, 185))
 	controlsLbl.Text = if IS_STUDIO
-		then "Arrows/WASD: Drive | V/Shift: Drift | N: Nitro | Space: Fire | B: Look-Back | G: +3 Nitro | R: Reset | F3: Debug | F8: Local"
+		then "Arrows/WASD: Drive | V/Shift: Drift | N: Nitro | Space: Fire | B: Look-Back | G: +3 Nitro | [/]: Cycle Item | R: Reset | F3: Debug | F8: Local"
 		else "Arrows/WASD: Drive | V/Shift: Drift | N: Nitro | Space: Fire | B: Look-Back | Backspace/R: Reset | F3: Debug HUD"
 
-	local creditLbl = makeRow("Attribution", 11, 11, Color3.fromRGB(125, 132, 145))
+	local switcherFrame: Frame? = nil
+	if IS_STUDIO then
+		local sf = Instance.new("Frame")
+		sf.Name = "DebugItemSwitcher"
+		sf.LayoutOrder = 11
+		sf.Size = UDim2.new(1, 0, 0, 50)
+		sf.BackgroundTransparency = 1
+		sf.Parent = panel
+
+		local grid = Instance.new("UIGridLayout")
+		grid.CellSize = UDim2.fromOffset(72, 22)
+		grid.CellPadding = UDim2.fromOffset(4, 4)
+		grid.Parent = sf
+		switcherFrame = sf
+	end
+
+	local creditLbl = makeRow("Attribution", 12, 11, Color3.fromRGB(125, 132, 145))
 	creditLbl.Text = "Unofficial SuperTuxKart 1.5 port (supertuxkart.net)"
 
 	return {
@@ -141,6 +159,7 @@ local function createDebugHud()
 		mat = matLbl,
 		air = airLbl,
 		camDiag = camDiagLbl,
+		switcherFrame = switcherFrame,
 	}
 end
 
@@ -167,6 +186,7 @@ local flyableVisuals = FlyablePresentation.create()
 local latestRemoteKarts: { GreyboxProtocol.RemoteKartState } = {}
 local remoteKartStates: { [string]: KartSolver.KartState } = {}
 local remoteKartVisuals: { [string]: KartPresentation.VisualKart } = {}
+local remoteInterpBuffers: { [string]: RemoteInterp.Buffer } = {}
 local sfxPlayer = SfxPlayer.create()
 local localAudioTracker = SfxEvents.createTracker()
 local remoteAudioTrackers: { [string]: SfxEvents.AudioTracker } = {}
@@ -191,6 +211,57 @@ local function resolveWorldQuery(): KartSolver.WorldQuery?
 end
 
 local localOnlyMode = false
+
+if IS_STUDIO and hud.switcherFrame then
+	local debugItemRemote = remotesFolder:FindFirstChild("OpenKartDebugGrantItem")
+	local allItems = {
+		ItemTuning.POWERUP_BUBBLEGUM,
+		ItemTuning.POWERUP_CAKE,
+		ItemTuning.POWERUP_BOWLING,
+		ItemTuning.POWERUP_ZIPPER,
+		ItemTuning.POWERUP_PLUNGER,
+		ItemTuning.POWERUP_SWITCH,
+		ItemTuning.POWERUP_SWATTER,
+		ItemTuning.POWERUP_RUBBERBALL,
+		ItemTuning.POWERUP_PARACHUTE,
+		ItemTuning.POWERUP_ANVIL,
+	}
+	local debugItemIdx = 1
+	local function grantDebugItem(itemType: number)
+		local count = if itemType == ItemTuning.POWERUP_CAKE or itemType == ItemTuning.POWERUP_BOWLING then 3 else 1
+		if localOnlyMode then
+			localState.heldPowerup = itemType
+			localState.heldPowerupCount = count
+		elseif debugItemRemote and debugItemRemote:IsA("RemoteEvent") then
+			(debugItemRemote :: RemoteEvent):FireServer(itemType, count)
+		end
+	end
+	for _, itemType in allItems do
+		local btn = Instance.new("TextButton")
+		btn.Name = "ItemBtn_" .. tostring(itemType)
+		btn.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+		btn.TextColor3 = Color3.fromRGB(240, 240, 245)
+		btn.Font = Enum.Font.Code
+		btn.TextSize = 11
+		btn.Text = string.sub(ItemTuning.POWERUP_NAMES[itemType] or "?", 1, 8)
+		btn.Parent = hud.switcherFrame
+		btn.Activated:Connect(function()
+			grantDebugItem(itemType)
+		end)
+	end
+	UserInputService.InputBegan:Connect(function(inputObj: InputObject, gameProcessed: boolean)
+		if gameProcessed then
+			return
+		end
+		if inputObj.KeyCode == Enum.KeyCode.RightBracket then
+			debugItemIdx = (debugItemIdx % #allItems) + 1
+			grantDebugItem(allItems[debugItemIdx])
+		elseif inputObj.KeyCode == Enum.KeyCode.LeftBracket then
+			debugItemIdx = ((debugItemIdx - 2) % #allItems) + 1
+			grantDebugItem(allItems[debugItemIdx])
+		end
+	end)
+end
 local inputSeq = 0
 local lastReceivedServerTick = 0
 local lastAppliedServerTick = 0
@@ -397,6 +468,22 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			lastAppliedServerTick = snapshot.tick
 			latestRemoteKarts = snapshot.remoteKarts or {}
 			syncRemoteKartStates(latestRemoteKarts)
+			local snapServerTime = snapshot.serverTime or Workspace:GetServerTimeNow()
+			for _, rk in latestRemoteKarts do
+				local ibuf = remoteInterpBuffers[rk.id]
+				if not ibuf then
+					ibuf = RemoteInterp.createBuffer()
+					remoteInterpBuffers[rk.id] = ibuf
+				end
+				RemoteInterp.push(ibuf, {
+					serverTime = snapServerTime,
+					pos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] },
+					rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] },
+					vel = if rk.linVel then { x = rk.linVel[1], y = rk.linVel[2], z = rk.linVel[3] } else nil,
+					speed = rk.speed,
+					steer = rk.steer,
+				})
+			end
 			local preAlpha = localStepper:getAlpha()
 			local preInterpPos = Math3D.vecLerp(prevPose.pos, currPose.pos, preAlpha)
 			local preInterpRot = Math3D.quatSlerp(prevPose.rot, currPose.rot, preAlpha)
@@ -559,6 +646,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 
 	-- Sync remote karts (including TestDummyKart) and Flyable projectiles
 	local kartPositionsById: { [number]: Vector3 } = {}
+	local remoteMinimapPoses: { HudState.RemoteMinimapPose } = {}
 	local seenRemotes: { [string]: boolean } = {}
 	local defaultSusp = {
 		KartTuning.suspension.rest,
@@ -566,6 +654,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		KartTuning.suspension.rest,
 		KartTuning.suspension.rest,
 	}
+	local remoteRenderTime = Workspace:GetServerTimeNow() - RemoteInterp.DEFAULT_INTERP_DELAY_SEC
 	for idx, rk in latestRemoteKarts do
 		seenRemotes[rk.id] = true
 		local rv = remoteKartVisuals[rk.id]
@@ -573,15 +662,19 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			rv = KartPresentation.create(rk.id, profile, "tux")
 			remoteKartVisuals[rk.id] = rv
 		end
-		local rPos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
-		local rRot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] }
+		local ibuf = remoteInterpBuffers[rk.id]
+		local sampled = if ibuf then RemoteInterp.sample(ibuf, remoteRenderTime) else nil
+		local rPos = if sampled then sampled.pos else { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
+		local rRot = if sampled then sampled.rot else { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] }
+		local rSpeed = if sampled then sampled.speed else rk.speed
+		local rSteer = if sampled then sampled.steer else rk.steer
 		local rCf = RobloxWorldQuery.stkPoseToRobloxCFrame(rPos, rRot, 0, 0)
 		KartPresentation.update(
 			rv,
 			rCf,
-			rk.speed,
+			rSpeed,
 			dt,
-			rk.steer,
+			rSteer,
 			defaultSusp,
 			0,
 			"SKID_NONE",
@@ -592,7 +685,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		)
 		local numericId = tonumber(rk.id) or -idx
 		kartPositionsById[numericId] =
-			Vector3.new(Units.metersToStuds(rk.pos[1]), Units.metersToStuds(rk.pos[2]), Units.metersToStuds(-rk.pos[3]))
+			Vector3.new(Units.metersToStuds(rPos.x), Units.metersToStuds(rPos.y), Units.metersToStuds(-rPos.z))
+		table.insert(remoteMinimapPoses, { id = rk.id, x = rPos.x, z = rPos.z })
 
 		local rTr = remoteAudioTrackers[rk.id]
 		if not rTr then
@@ -622,6 +716,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			rv.model:Destroy()
 			remoteKartVisuals[id] = nil
 			remoteAudioTrackers[id] = nil
+			remoteInterpBuffers[id] = nil
 		end
 	end
 
@@ -697,6 +792,14 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 	)
 	kartPositionsById[localKartId] = bodyCFrame.Position
 	FlyablePresentation.sync(flyableVisuals, localFlyableWorld, now, kartPositionsById)
+	if localFlyableWorld.cancelEffects and #localFlyableWorld.cancelEffects > 0 then
+		for _, ce in localFlyableWorld.cancelEffects do
+			if ce.sfxId then
+				SfxPlayer.playOneShot(sfxPlayer, ce.sfxId, visuals.model.PrimaryPart or visuals.sparkLeft, 1.0)
+			end
+		end
+		table.clear(localFlyableWorld.cancelEffects)
+	end
 	local localAudioStep = SfxEvents.step(localAudioTracker, {
 		speedMps = interpSpeedMps,
 		maxSpeedMps = profile.maxSpeed,
@@ -736,7 +839,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		localState.heldPowerupCount,
 		nitroGateOpen,
 		tel.plungerFaceTicks,
-		standingsEntries
+		standingsEntries,
+		remoteMinimapPoses,
+		localKartId
 	)
 
 	-- STK CameraNormal speed-proportional pull-back + skid_angle/2 offset + constant 80 deg vertical FOV
