@@ -155,18 +155,16 @@ local function createDebugHud()
 	camTuneLbl.TextSize = 12
 	camTuneLbl.TextColor3 = Color3.fromRGB(170, 235, 210)
 	camTuneLbl.TextXAlignment = Enum.TextXAlignment.Left
-	camTuneLbl.Text = "CAM TUNE: dz=0.35 k=28.0 c=10.6 vMax=26.0"
+	camTuneLbl.Text = "CAM TUNE: dz=0.55 tau=0.35 vMax=14.0"
 	camTuneLbl.Parent = camTuneRow
 
 	local camTuneButtons: { { label: string, field: string, delta: number, order: number } } = {
 		{ label = "dz-", field = "deadzone", delta = -0.05, order = 2 },
 		{ label = "dz+", field = "deadzone", delta = 0.05, order = 3 },
-		{ label = "k-", field = "stiffness", delta = -2.0, order = 4 },
-		{ label = "k+", field = "stiffness", delta = 2.0, order = 5 },
-		{ label = "c-", field = "damping", delta = -0.5, order = 6 },
-		{ label = "c+", field = "damping", delta = 0.5, order = 7 },
-		{ label = "v-", field = "maxVel", delta = -2.0, order = 8 },
-		{ label = "v+", field = "maxVel", delta = 2.0, order = 9 },
+		{ label = "tau-", field = "tau", delta = -0.05, order = 4 },
+		{ label = "tau+", field = "tau", delta = 0.05, order = 5 },
+		{ label = "v-", field = "maxVel", delta = -2.0, order = 6 },
+		{ label = "v+", field = "maxVel", delta = 2.0, order = 7 },
 	}
 	local camTuneBtnRefs: { { btn: TextButton, field: string, delta: number } } = {}
 	for _, spec in camTuneButtons do
@@ -246,8 +244,7 @@ local smoothedCamYaw: number? = nil
 local camComfortState = CameraComfort.createState()
 local camComfortCfg: CameraComfort.CameraComfortConfig = {
 	deadzone = KartTuning.camera.verticalDeadzoneStuds,
-	stiffness = KartTuning.camera.verticalStiffness,
-	damping = KartTuning.camera.verticalDamping,
+	tau = KartTuning.camera.verticalTauSec,
 	maxVel = KartTuning.camera.verticalMaxVelStudsPerSec,
 	lookSmoothSec = KartTuning.camera.lookTargetSmoothSec,
 }
@@ -256,10 +253,8 @@ for _, ref in hud.camTuneBtnRefs do
 	ref.btn.Activated:Connect(function()
 		if ref.field == "deadzone" then
 			camComfortCfg.deadzone = math.clamp(camComfortCfg.deadzone + ref.delta, 0.0, 3.0)
-		elseif ref.field == "stiffness" then
-			camComfortCfg.stiffness = math.clamp(camComfortCfg.stiffness + ref.delta, 2.0, 120.0)
-		elseif ref.field == "damping" then
-			camComfortCfg.damping = math.clamp(camComfortCfg.damping + ref.delta, 0.5, 40.0)
+		elseif ref.field == "tau" then
+			camComfortCfg.tau = math.clamp(camComfortCfg.tau + ref.delta, 0.05, 2.0)
 		elseif ref.field == "maxVel" then
 			camComfortCfg.maxVel = math.clamp(camComfortCfg.maxVel + ref.delta, 2.0, 80.0)
 		end
@@ -505,6 +500,55 @@ ClientSettingsState.subscribe(function(settings)
 end)
 ClientSettingsState.loadFromServerAsync()
 
+local function teardownClientMatch(destroyLocalVisuals: boolean)
+	if destroyLocalVisuals and visuals.model then
+		visuals.model:Destroy()
+	elseif visuals.model then
+		visuals.model.Parent = nil
+	end
+	if startReferee ~= nil then
+		startReferee.model.Parent = nil
+	end
+	for _, rv in remoteKartVisuals do
+		rv.model:Destroy()
+	end
+	table.clear(remoteKartVisuals)
+	table.clear(remoteInterpBuffers)
+	table.clear(remoteKartStates)
+	table.clear(latestRemoteKarts)
+	local kartsFolder = Workspace:FindFirstChild(GreyboxProtocol.LOCAL_KARTS_FOLDER)
+	if kartsFolder then
+		for _, child in kartsFolder:GetChildren() do
+			if destroyLocalVisuals or child ~= visuals.model then
+				child:Destroy()
+			end
+		end
+	end
+	FlyablePresentation.clear(flyableVisuals)
+	ItemPresentation.clear(itemVisuals)
+	localFlyableWorld = Flyable.createWorld()
+	SfxPlayer.clearMatchSounds(sfxPlayer)
+	for _, child in game:GetService("SoundService"):GetChildren() do
+		if
+			child:IsA("Sound")
+			and (string.sub(child.Name, 1, 8) == "OneShot_" or string.sub(child.Name, 1, 5) == "Loop_")
+		then
+			child:Destroy()
+		end
+	end
+	SfxEvents.resetTracker(localAudioTracker)
+	table.clear(remoteAudioTrackers)
+	table.clear(inputHistory)
+	pendingSnapshot = nil
+	lastAppliedServerTick = 0
+	lastReceivedServerTick = 0
+	smoothedCamYaw = nil
+	camComfortState = CameraComfort.createState()
+	ReconciliationSmoother.reset(reconciler)
+	HudState.setPaused(false)
+	HudState.setFastestLap(nil)
+end
+
 if sessionStateRemote then
 	sessionStateRemote.OnClientEvent:Connect(function(payload: any)
 		if type(payload) ~= "table" then
@@ -520,27 +564,12 @@ if sessionStateRemote then
 			})
 			inputMapper.setSuppressed(true)
 			inputMapper.setLocalTwoPlayer(cfg ~= nil and cfg.playMode == "LOCAL_2P")
-			visuals.model.Parent = nil
-			if startReferee ~= nil then
-				startReferee.model.Parent = nil
-			end
-			for _, rv in remoteKartVisuals do
-				rv.model:Destroy()
-			end
-			table.clear(remoteKartVisuals)
-			table.clear(remoteInterpBuffers)
-			table.clear(remoteKartStates)
-			SfxPlayer.clearMatchSounds(sfxPlayer)
-			SfxEvents.resetTracker(localAudioTracker)
-			table.clear(remoteAudioTrackers)
-			HudState.setPaused(false)
-			HudState.setFastestLap(nil)
+			teardownClientMatch(false)
 			HudState.get().ready = false
 		else
 			-- Keep input/render suppressed while hydrating and rebuilding models (prevents re-entrant yield/Parent-locked errors)
 			inputMapper.setSuppressed(true)
-			HudState.setPaused(false)
-			HudState.setFastestLap(nil)
+			teardownClientMatch(true)
 			localItemWorld = ItemWorld.fromArenaSpec(
 				activeTrack :: any,
 				if cfg and cfg.raceType then cfg.raceType else "NORMAL_RACE"
@@ -566,18 +595,6 @@ if sessionStateRemote then
 				end)
 			end
 			profile = KartTuning.buildProfileForKart(selectedKartId, selectedDiff)
-			if visuals.model then
-				visuals.model:Destroy()
-			end
-			for _, rv in remoteKartVisuals do
-				rv.model:Destroy()
-			end
-			table.clear(remoteKartVisuals)
-			table.clear(remoteInterpBuffers)
-			table.clear(remoteKartStates)
-			SfxPlayer.clearMatchSounds(sfxPlayer)
-			SfxEvents.resetTracker(localAudioTracker)
-			table.clear(remoteAudioTrackers)
 			SfxPlayer.applyAudioSettings(sfxPlayer, ClientSettingsState.get().audio)
 			visuals = KartPresentation.create(
 				localPlayer,
@@ -590,7 +607,8 @@ if sessionStateRemote then
 			KartPresentation.applyVisualSettings(
 				visuals,
 				sInit.graphics.shadows,
-				SettingsSchema.getParticleRateMultiplier(sInit.graphics.particles)
+				SettingsSchema.getParticleRateMultiplier(sInit.graphics.particles),
+				sInit.graphics.kartHighlight
 			)
 			visuals.model.Parent = Workspace
 			localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
@@ -600,13 +618,6 @@ if sessionStateRemote then
 				KartSolver.setPowerup(localState, defPowerup, defCount)
 			end
 			localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
-			table.clear(inputHistory)
-			pendingSnapshot = nil
-			lastAppliedServerTick = 0
-			lastReceivedServerTick = 0
-			smoothedCamYaw = nil
-			camComfortState = CameraComfort.createState()
-			ReconciliationSmoother.reset(reconciler)
 			prevPose = capturePose(localState)
 			currPose = capturePose(localState)
 			ClientSessionState.set({
@@ -1256,7 +1267,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			KartPresentation.applyVisualSettings(
 				rv,
 				sNow.graphics.shadows,
-				SettingsSchema.getParticleRateMultiplier(sNow.graphics.particles)
+				SettingsSchema.getParticleRateMultiplier(sNow.graphics.particles),
+				sNow.graphics.kartHighlight
 			)
 		else
 			KartPresentation.applySkinVariant(rv, rk.skinVariantIdx)
@@ -1534,8 +1546,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		local wantedOffsetY = wantedUp
 		local wantedOffsetZ = camDist * math.cos(skidAngle * 0.5)
 
-		local posLerp = math.clamp(dt / camCfg.smoothPosition, 0.0, 1.0)
-		local rotLerp = math.clamp(dt / camCfg.smoothRotation, 0.0, 1.0)
+		local posLerp = 1.0 - math.exp(-dt / math.max(1e-4, camCfg.smoothPosition))
+		local rotLerp = 1.0 - math.exp(-dt / math.max(1e-4, camCfg.smoothRotation))
 		camOffsetX += (wantedOffsetX - camOffsetX) * posLerp
 		camOffsetY += (wantedOffsetY - camOffsetY) * posLerp
 		camOffsetZ += (wantedOffsetZ - camOffsetZ) * posLerp
@@ -1581,23 +1593,17 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				camOffsetY = camCfg.reverseReturnUp
 				camOffsetZ = -camCfg.reverseReturnBack
 			end
-			if IS_STUDIO then
-				local dzOv = localPlayer:GetAttribute("CamTuneDeadzone")
-				if type(dzOv) == "number" then
-					camComfortCfg.deadzone = math.max(0.0, dzOv)
-				end
-				local kOv = localPlayer:GetAttribute("CamTuneStiffness")
-				if type(kOv) == "number" then
-					camComfortCfg.stiffness = math.max(0.1, kOv)
-				end
-				local cOv = localPlayer:GetAttribute("CamTuneDamping")
-				if type(cOv) == "number" then
-					camComfortCfg.damping = math.max(0.0, cOv)
-				end
-				local vOv = localPlayer:GetAttribute("CamTuneMaxVel")
-				if type(vOv) == "number" then
-					camComfortCfg.maxVel = math.max(0.5, vOv)
-				end
+			local dzOv = localPlayer:GetAttribute("CamTuneDeadzone")
+			if type(dzOv) == "number" then
+				camComfortCfg.deadzone = math.max(0.0, dzOv)
+			end
+			local tauOv = localPlayer:GetAttribute("CamTuneTau")
+			if type(tauOv) == "number" then
+				camComfortCfg.tau = math.clamp(tauOv, 0.05, 2.0)
+			end
+			local vOv = localPlayer:GetAttribute("CamTuneMaxVel")
+			if type(vOv) == "number" then
+				camComfortCfg.maxVel = math.max(0.5, vOv)
 			end
 			local smoothCamY, smoothLookY, camVelY =
 				CameraComfort.step(camComfortState, renderPose.Position.Y, rawLookY, dt, camComfortCfg)
@@ -1761,10 +1767,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		lastCamVelY
 	)
 	hud.camTuneLbl.Text = string.format(
-		"CAM TUNE: dz=%.2f k=%.1f c=%.1f vMax=%.1f",
+		"CAM TUNE: dz=%.2f tau=%.2f vMax=%.1f",
 		camComfortCfg.deadzone,
-		camComfortCfg.stiffness,
-		camComfortCfg.damping,
+		camComfortCfg.tau,
 		camComfortCfg.maxVel
 	)
 end)

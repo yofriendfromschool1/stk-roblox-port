@@ -21,52 +21,52 @@ ItemBoundsData.items = table.freeze({
 			texture = "gift-box.png",
 		}),
 		["Ribbon"] = table.freeze({
-			size = table.freeze({ 0.89864, 0.9857, 0.89864 }),
+			size = table.freeze({ 0.8986, 0.9857, 0.8986 }),
 			center = table.freeze({ 0.0, 0.58153, 0.0 }),
 			texture = "gift-loop.png",
 		}),
 	}),
 	["banana"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 2.24253, 1.24308, 2.24214 }),
+			size = table.freeze({ 2.2425, 1.2431, 2.2421 }),
 			center = table.freeze({ -0.02013, 0.77343, 0.0 }),
 			texture = "banana.png",
 		}),
 	}),
 	["nitrotank-big"] = table.freeze({
 		["Barrel"] = table.freeze({
-			size = table.freeze({ 0.80722, 1.394, 1.394 }),
+			size = table.freeze({ 0.8072, 1.394, 1.394 }),
 			center = table.freeze({ 0.0, 0.79749, -0.03796 }),
 			texture = "stk_mod_nitroBarrel.png",
 		}),
 		["Logo"] = table.freeze({
-			size = table.freeze({ 0.80282, 0.85709, 0.85709 }),
+			size = table.freeze({ 0.8028, 0.8571, 0.8571 }),
 			center = table.freeze({ -0.0, 0.79749, -0.03796 }),
 			texture = "stk_mod_nitroLogo.png",
 		}),
 	}),
 	["nitrotank-small"] = table.freeze({
 		["Bottle"] = table.freeze({
-			size = table.freeze({ 0.40034, 0.71903, 0.71903 }),
+			size = table.freeze({ 0.4003, 0.719, 0.719 }),
 			center = table.freeze({ -0.0, 0.44541, -0.03884 }),
 			texture = "stk_mod_nitroBottle.png",
 		}),
 		["Logo"] = table.freeze({
-			size = table.freeze({ 0.28308, 0.57753, 0.57753 }),
+			size = table.freeze({ 0.2831, 0.5775, 0.5775 }),
 			center = table.freeze({ -0.0, 0.43153, -0.02496 }),
 			texture = "stk_mod_nitroLogo.png",
 		}),
 	}),
 	["bubblegum"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 2.19902, 0.31964, 2.19063 }),
+			size = table.freeze({ 2.199, 0.3196, 2.1906 }),
 			center = table.freeze({ -0.00617, 0.15982, 0.0606 }),
 			texture = "bubblegum.png",
 		}),
 	}),
 	["bubblegum-nolok"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 2.19902, 0.51767, 2.19063 }),
+			size = table.freeze({ 2.199, 0.5177, 2.1906 }),
 			center = table.freeze({ -0.00617, 0.25883, 0.0606 }),
 			texture = "bubblegum_nolok.jpg",
 		}),
@@ -87,68 +87,73 @@ ItemBoundsData.items = table.freeze({
 	}),
 	["cake"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 0.688, 0.66807, 0.68453 }),
+			size = table.freeze({ 0.688, 0.6681, 0.6845 }),
 			center = table.freeze({ 0.00855, 0.11848, -0.01029 }),
 			texture = "cake.png",
 		}),
 	}),
 	["anchor"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 0.88256, 1.11602, 0.576 }),
+			size = table.freeze({ 0.8826, 1.116, 0.576 }),
 			center = table.freeze({ 0.0, 0.5119, 0.9 }),
 			texture = "anchor.png",
 		}),
 	}),
 	["rubber_ball"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 1.84012, 1.84012, 1.84068 }),
+			size = table.freeze({ 1.8401, 1.8401, 1.8407 }),
 			center = table.freeze({ 0.0, -0.00011, 0.00131 }),
 			texture = "balldimpleddark.jpg",
 		}),
 	}),
 	["parachute"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 0.94791, 0.93237, 1.46978 }),
+			size = table.freeze({ 0.9479, 0.9324, 1.4698 }),
 			center = table.freeze({ 0.0, 0.57436, 0.87352 }),
 			texture = "parachute.png",
 		}),
 	}),
 	["plunger"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 0.39242, 0.39242, 0.83877 }),
+			size = table.freeze({ 0.3924, 0.3924, 0.8388 }),
 			center = table.freeze({ 0.0103, 0.01939, -0.00823 }),
 			texture = "plunger.png",
 		}),
 	}),
 	["swatter"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 0.77614, 2.00261, 0.21815 }),
+			size = table.freeze({ 0.7761, 2.0026, 0.2182 }),
 			center = table.freeze({ -0.28246, 1.00179, -0.00346 }),
 			texture = "swatter.png",
 		}),
 	}),
 	["bomb"] = table.freeze({
-		["Main"] = table.freeze({
-			size = table.freeze({ 0.5, 0.31119, 0.41926 }),
+		["Body"] = table.freeze({
+			size = table.freeze({ 0.5, 0.3112, 0.4193 }),
 			center = table.freeze({ -0.0, 0.39963, 0.83452 }),
+			texture = "tnt-bomb.png",
+		}),
+		["Hand"] = table.freeze({
+			size = table.freeze({ 0.05, 0.1256, 0.05 }),
+			center = table.freeze({ -0.0, 0.47635, 1.01267 }),
 			texture = "tnt-bomb.png",
 		}),
 	}),
 	["bubblegum_shield"] = table.freeze({
 		["Main"] = table.freeze({
-			size = table.freeze({ 2.0, 2.0, 1.94985 }),
+			size = table.freeze({ 2.0, 2.0, 1.9499 }),
 			center = table.freeze({ -0.0, 0.0, -0.0 }),
 			texture = "bubblegum_shield.png",
 		}),
 	}),
 	["referee"] = table.freeze({
 		["Body"] = table.freeze({
-			size = table.freeze({ 2.33735, 0.75507, 0.92775 }),
+			size = table.freeze({ 2.3373, 0.7551, 0.9277 }),
 			center = table.freeze({ -0.0, -0.25977, 0.12416 }),
 			texture = "thunderbird.png",
 		}),
 		["TrafficLight"] = table.freeze({
-			size = table.freeze({ 0.5472, 0.49046, 0.26386 }),
+			size = table.freeze({ 0.5472, 0.4905, 0.2639 }),
 			center = table.freeze({ -0.0, -0.2708, 0.44128 }),
 			texture = "traffic_light.png",
 		}),

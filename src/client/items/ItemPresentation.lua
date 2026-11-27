@@ -84,6 +84,17 @@ function ItemPresentation.create(): ItemPresentationController
 	}
 end
 
+function ItemPresentation.clear(ctrl: ItemPresentationController): ()
+	for id, vis in ctrl.instances do
+		vis.container:Destroy()
+		ctrl.instances[id] = nil
+	end
+	table.clear(ctrl.instances)
+	for _, child in ctrl.folder:GetChildren() do
+		child:Destroy()
+	end
+end
+
 function ItemPresentation.sync(ctrl: ItemPresentationController, itemWorld: ItemWorld.ItemWorldState, nowSec: number)
 	debug.profilebegin("OpenKart_ItemSync")
 	local seen: { [number]: boolean } = {}

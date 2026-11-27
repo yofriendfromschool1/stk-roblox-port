@@ -860,8 +860,9 @@ class TestStk2Rbx(unittest.TestCase):
                         self.assertAlmostEqual(emitted["size_studs"][ax], src_size, delta=0.001)
 
                     # Also verify every exported GLB file accessor bounds match its subpart size
-                    self.assertEqual(len(emitted["subparts"]), len(audit.submeshes))
-                    for sp, src_sub in zip(emitted["subparts"], audit.submeshes):
+                    expected_parts = 2 if (item_def.item_id == "bomb" and audit.mesh_format == "SPMA") else len(audit.submeshes)
+                    self.assertEqual(len(emitted["subparts"]), expected_parts)
+                    for idx, sp in enumerate(emitted["subparts"]):
                         glb_path = Path(tmp) / "glbs" / sp["glb_file"]
                         data = glb_path.read_bytes()
                         jlen = struct.unpack_from("<I", data, 12)[0]
@@ -869,9 +870,11 @@ class TestStk2Rbx(unittest.TestCase):
                         pos_acc = next(a for a in gltf["accessors"] if a.get("type") == "VEC3" and "min" in a)
                         for ax in range(3):
                             glb_size = pos_acc["max"][ax] - pos_acc["min"][ax]
-                            src_sub_size = (src_sub.bbox_max_m[ax] - src_sub.bbox_min_m[ax]) * STUDS_PER_METER * item_def.scale
                             self.assertAlmostEqual(glb_size, sp["size_studs"][ax], delta=0.001)
-                            self.assertAlmostEqual(glb_size, src_sub_size, delta=0.001)
+                            if expected_parts == len(audit.submeshes):
+                                src_sub = audit.submeshes[idx]
+                                src_sub_size = (src_sub.bbox_max_m[ax] - src_sub.bbox_min_m[ax]) * STUDS_PER_METER * item_def.scale
+                                self.assertAlmostEqual(glb_size, src_sub_size, delta=0.001)
 
     def test_fetch_models_delegates_to_svn_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

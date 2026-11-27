@@ -200,13 +200,21 @@
     "bomb": {
       "spm_file": "bomb.spm",
       "parts": {
-        "Main": {
-          "glbFile": "build/items/bomb/bomb.glb",
-          "meshId": "rbxassetid://84863425496993",
+        "Body": {
+          "glbFile": "build/items/bomb/bomb_0_body.glb",
+          "meshId": "rbxassetid://99400531046648",
           "textureId": "rbxassetid://97844507669944",
           "importFlipY180": true,
           "robloxMaterial": "SmoothPlastic",
-          "modelAssetId": "112983099415632"
+          "modelAssetId": "99403409883585"
+        },
+        "Hand": {
+          "glbFile": "build/items/bomb/bomb_1_hand.glb",
+          "meshId": "rbxassetid://110498625784960",
+          "textureId": "rbxassetid://97844507669944",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "78022515570028"
         }
       }
     },

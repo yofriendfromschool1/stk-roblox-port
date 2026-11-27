@@ -139,7 +139,7 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 	local videoScroll = Instance.new("ScrollingFrame")
 	videoScroll.Name = "VideoScroll"
 	videoScroll.Size = UDim2.fromScale(1, 1)
-	videoScroll.CanvasSize = UDim2.fromOffset(0, 420)
+	videoScroll.CanvasSize = UDim2.fromOffset(0, 470)
 	videoScroll.ScrollBarThickness = 6
 	videoScroll.BackgroundTransparency = 1
 	videoScroll.BorderSizePixel = 0
@@ -242,7 +242,17 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 		trackConn
 	)
 
-	local persistNote = makeRowLabel(videoScroll, "Persistence: Checking...", 378, 18, "EmphasisText")
+	makeRowLabel(videoScroll, "Kart Outline Highlight", 378)
+	local kartHighlightBtn = ClassicSkin.makeGlassButton(
+		videoScroll,
+		"KartHighlightToggleBtn",
+		"Off",
+		UDim2.fromOffset(260, 376),
+		UDim2.fromOffset(140, 34),
+		trackConn
+	)
+
+	local persistNote = makeRowLabel(videoScroll, "Persistence: Checking...", 424, 18, "EmphasisText")
 	persistNote.Size = UDim2.new(1, -36, 0, 28)
 
 	-- 2) Audio page (options_audio.stkgui)
@@ -598,6 +608,7 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 		)
 		ClassicSkin.setButtonText(shadowsBtn, if s.graphics.shadows then "On" else "Off")
 		ClassicSkin.setButtonText(trackDetailBtn, s.graphics.trackDetail)
+		ClassicSkin.setButtonText(kartHighlightBtn, if s.graphics.kartHighlight then "On" else "Off")
 		persistNote.Text = if ClientSettingsState.isPersisted()
 			then "Persistence: Saved to Roblox DataStore"
 			else "Persistence: Session-only (DataStore unavailable)"
@@ -683,6 +694,11 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 	trackConn(trackDetailBtn.Activated:Connect(function()
 		ClientSettingsState.update(function(s)
 			s.graphics.trackDetail = cycleInList(SettingsSchema.TRACK_DETAIL_ORDER, s.graphics.trackDetail) :: any
+		end)
+	end))
+	trackConn(kartHighlightBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.graphics.kartHighlight = not s.graphics.kartHighlight
 		end)
 	end))
 

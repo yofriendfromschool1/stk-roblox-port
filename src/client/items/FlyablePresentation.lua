@@ -81,6 +81,17 @@ function FlyablePresentation.create(): FlyablePresentationController
 	}
 end
 
+function FlyablePresentation.clear(ctrl: FlyablePresentationController): ()
+	for id, vis in ctrl.instances do
+		vis.container:Destroy()
+		ctrl.instances[id] = nil
+	end
+	table.clear(ctrl.instances)
+	for _, child in ctrl.folder:GetChildren() do
+		child:Destroy()
+	end
+end
+
 function FlyablePresentation.sync(
 	ctrl: FlyablePresentationController,
 	flyWorld: Flyable.FlyableWorldState,

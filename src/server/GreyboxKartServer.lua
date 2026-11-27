@@ -643,21 +643,29 @@ function GreyboxKartServer.start()
 		return candidate
 	end
 
-	local function applySessionStart(rawConfig: any, requestingPlayer: Player?, fromLobby: boolean?)
-		inLobbySession = (fromLobby == true)
+	local function teardownMatchWorld()
 		lobbyFinishReturnAt = nil
-		sessionConfig = MenuFlow.sanitizeSessionConfig(rawConfig)
-		Workspace:SetAttribute("OpenKartActiveTrack", sessionConfig.trackId)
-		Workspace:SetAttribute("OpenKartActiveTrackReverse", sessionConfig.reverse == true)
-		activeTrack = TrackRegistry.getOriented(sessionConfig.trackId, sessionConfig.reverse)
-		profile = KartTuning.buildProfileForKart(sessionConfig.kartId, sessionConfig.difficulty)
-		KartAssetHydrator.hydrateKart(profile.kartId)
-		raceClock = RaceState.create(sessionConfig.laps)
 		fastestLapTicks = -1
 		fastestLapKartId = ""
 		fastestLapHolderName = ""
 		itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, sessionConfig.raceType)
 		flyableWorld = Flyable.createWorld()
+		extraAIs = {}
+		localP2State = nil
+		localP2AI = nil
+		localP2Owner = nil
+	end
+
+	local function applySessionStart(rawConfig: any, requestingPlayer: Player?, fromLobby: boolean?)
+		inLobbySession = (fromLobby == true)
+		sessionConfig = MenuFlow.sanitizeSessionConfig(rawConfig)
+		Workspace:SetAttribute("OpenKartActiveTrack", sessionConfig.trackId)
+		Workspace:SetAttribute("OpenKartActiveTrackReverse", sessionConfig.reverse == true)
+		activeTrack = TrackRegistry.getOriented(sessionConfig.trackId, sessionConfig.reverse)
+		teardownMatchWorld()
+		profile = KartTuning.buildProfileForKart(sessionConfig.kartId, sessionConfig.difficulty)
+		KartAssetHydrator.hydrateKart(profile.kartId)
+		raceClock = RaceState.create(sessionConfig.laps)
 		local playerTotal = 0
 		for _ in entries do
 			playerTotal += 1
@@ -793,12 +801,8 @@ function GreyboxKartServer.start()
 			applySessionStart(payload, player, false)
 		elseif cmd == "RETURN_TO_MENU" then
 			inLobbySession = false
-			lobbyFinishReturnAt = nil
+			teardownMatchWorld()
 			sessionPhase = "MENU"
-			localP2State = nil
-			localP2AI = nil
-			localP2Owner = nil
-			extraAIs = {}
 			broadcastSessionState(nil)
 		end
 	end)
@@ -809,12 +813,8 @@ function GreyboxKartServer.start()
 
 	local function handleReturnToLobby()
 		LobbyState.returnToLobby(lobby)
+		teardownMatchWorld()
 		sessionPhase = "LOBBY"
-		lobbyFinishReturnAt = nil
-		localP2State = nil
-		localP2AI = nil
-		localP2Owner = nil
-		extraAIs = {}
 		broadcastLobbyState(nil)
 		broadcastSessionState(nil)
 	end
@@ -1170,6 +1170,40 @@ function GreyboxKartServer.start()
 					return true
 				end
 				return false
+			elseif op == "getMatchCounts" then
+				local dynCount = 0
+				for _, it in itemWorld.items do
+					if not it.original then
+						dynCount += 1
+					end
+				end
+				return {
+					flyables = #flyableWorld.entries,
+					dynamicItems = dynCount,
+				}
+			elseif op == "spawnTestHazards" and firstEntry ~= nil then
+				local st: KartSolver.KartState = firstEntry.state
+				local proxy = KartSolver.makeFlyableProxy(firstEntry.player.UserId, st, 1, sessionConfig.difficulty)
+				local proxies = { proxy }
+				Flyable.spawnBowling(flyableWorld, proxy, false)
+				Flyable.spawnCake(flyableWorld, proxy, proxies, false)
+				Flyable.spawnPlunger(flyableWorld, proxy, proxies, false, false)
+				ItemWorld.dropNewItem(itemWorld, "banana", st.pos, firstEntry.player.UserId, worldQuery)
+				ItemWorld.dropBubblegum(itemWorld, st.pos, firstEntry.player.UserId, worldQuery)
+				firstEntry.forceSnapshot = true
+				return true
+			elseif op == "restartRace" then
+				resetFullRace()
+				return true
+			elseif op == "attachBomb" and firstEntry ~= nil then
+				local targetSt: KartSolver.KartState = if a == TestDummyKart.DUMMY_STRING_ID
+					then dummyState
+					else firstEntry.state
+				local ticks = math.max(0, math.floor(tonumber(b) or 7200))
+				targetSt.attachmentType = ItemTuning.ATTACHMENT_BOMB
+				targetSt.attachmentTicksLeft = ticks
+				firstEntry.forceSnapshot = true
+				return ticks
 			end
 			return nil
 		end

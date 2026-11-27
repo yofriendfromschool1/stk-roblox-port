@@ -35,10 +35,18 @@ export type WheelVisual = {
 	spinRad: number,
 }
 
+export type AttachmentSubpart = {
+	name: string,
+	part: MeshPart,
+	localPos: Vector3,
+	baseRot: CFrame,
+}
+
 export type AttachmentVisual = {
 	part: MeshPart,
 	localCf: CFrame,
 	activeTransparency: number,
+	subparts: { AttachmentSubpart }?,
 }
 
 export type VisualKart = {
@@ -64,9 +72,6 @@ export type VisualKart = {
 	nitroLight: PointLight,
 	slipstreamVfx: SlipstreamVfx.SlipstreamVfxInstance,
 	rescueBird: RefereePresentation.RescueBirdHandle?,
-	bombGui: BillboardGui?,
-	bombHand: Frame?,
-	bombSecLabel: TextLabel?,
 	nametagGui: BillboardGui?,
 	nametagLabel: TextLabel?,
 	variantHighlight: Highlight?,
@@ -478,24 +483,35 @@ function KartPresentation.create(
 	for _, def in attachmentDefs do
 		local created = ItemVisuals.create(def.itemId, "attachment")
 		if created then
-			local mp = created.subparts[1].part
-			mp.Name = "Attach_" .. def.itemId
-			mp.Transparency = 1.0
+			local subList: { AttachmentSubpart } = {}
+			local firstPart = created.subparts[1].part
 			local localCf: CFrame
 			if def.atype == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD then
 				-- attachment.cpp:L614-L615 scale = max(1.0, kart.highestPoint * 1.1)
 				local shieldScale = math.max(1.0, profile.collisionHeight * 1.1)
-				mp.Size = mp.Size * shieldScale
+				firstPart.Size = firstPart.Size * shieldScale
 				localCf = CFrame.new(0, 0.35, 0) * created.subparts[1].baseRot
 			else
 				localCf = CFrame.new(created.subparts[1].localPos) * created.subparts[1].baseRot
 			end
-			mp.Parent = model
+			for _, sp in created.subparts do
+				local mp = sp.part
+				mp.Name = "Attach_" .. def.itemId .. "_" .. mp.Name
+				mp.Transparency = 1.0
+				mp.Parent = model
+				table.insert(subList, {
+					name = mp.Name,
+					part = mp,
+					localPos = sp.localPos,
+					baseRot = sp.baseRot,
+				})
+			end
 			created.model:Destroy()
 			attachments[def.atype] = {
-				part = mp,
+				part = firstPart,
 				localCf = localCf,
 				activeTransparency = def.trans,
+				subparts = subList,
 			}
 		end
 	end
@@ -517,82 +533,15 @@ function KartPresentation.create(
 	local slipstreamVfx = SlipstreamVfx.create(model, profile)
 	local rescueBird = RefereePresentation.createRescueBird(model)
 
-	local bombGui: BillboardGui? = nil
-	local bombHand: Frame? = nil
-	local bombSecLabel: TextLabel? = nil
-	local bombAttach = attachments[ItemTuning.ATTACHMENT_BOMB]
-	if bombAttach ~= nil then
-		local bg = Instance.new("BillboardGui")
-		bg.Name = "BombCountdownGui"
-		bg.Adornee = bombAttach.part
-		bg.Size = UDim2.fromOffset(46, 46)
-		bg.StudsOffsetWorldSpace = Vector3.new(0, 1.45, 0)
-		bg.AlwaysOnTop = false
-		bg.MaxDistance = 120
-		bg.Enabled = false
-		bg.Parent = bombAttach.part
-
-		local dial = Instance.new("Frame")
-		dial.Name = "Dial"
-		dial.Size = UDim2.fromScale(1, 1)
-		dial.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
-		dial.BackgroundTransparency = 0.15
-		dial.BorderSizePixel = 0
-		dial.Parent = bg
-
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(1, 0)
-		corner.Parent = dial
-
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = Color3.fromRGB(255, 190, 40)
-		stroke.Thickness = 2
-		stroke.Parent = dial
-
-		local handPivot = Instance.new("Frame")
-		handPivot.Name = "ArrowPivot"
-		handPivot.AnchorPoint = Vector2.new(0.5, 0.5)
-		handPivot.Position = UDim2.fromScale(0.5, 0.5)
-		handPivot.Size = UDim2.fromScale(1, 1)
-		handPivot.BackgroundTransparency = 1
-		handPivot.Parent = dial
-
-		local hand = Instance.new("Frame")
-		hand.Name = "ArrowHand"
-		hand.AnchorPoint = Vector2.new(0.5, 1)
-		hand.Position = UDim2.fromScale(0.5, 0.5)
-		hand.Size = UDim2.fromOffset(4, 17)
-		hand.BackgroundColor3 = Color3.fromRGB(255, 70, 50)
-		hand.BorderSizePixel = 0
-		hand.Parent = handPivot
-
-		local secLbl = Instance.new("TextLabel")
-		secLbl.Name = "SecondsLabel"
-		secLbl.AnchorPoint = Vector2.new(0.5, 0.5)
-		secLbl.Position = UDim2.fromScale(0.5, 0.5)
-		secLbl.Size = UDim2.fromOffset(26, 16)
-		secLbl.BackgroundTransparency = 1
-		secLbl.Font = Enum.Font.FredokaOne
-		secLbl.TextSize = 12
-		secLbl.TextColor3 = Color3.fromRGB(255, 240, 190)
-		secLbl.TextStrokeTransparency = 0.1
-		secLbl.Text = "30"
-		secLbl.Parent = dial
-
-		bombGui = bg
-		bombHand = handPivot
-		bombSecLabel = secLbl
-	end
-
 	-- Nametag BillboardGui attached after hydration completes (world.cpp:L563-L564: nil for local kart)
-	-- Constant screen-pixel size with UITextSizeConstraint + world-space 1.5 m offset (kart.cpp:L3436)
+	-- World-space stud Size (Scale) + world-space 1.5 m offset (kart.cpp:L3436) so text never grows at distance.
 	local nametagGui: BillboardGui? = nil
 	local nametagLabel: TextLabel? = nil
 	if type(nametagText) == "string" and #nametagText > 0 and model.PrimaryPart ~= nil then
 		local nt = Instance.new("BillboardGui")
 		nt.Name = "KartNametag"
 		nt.Adornee = model.PrimaryPart
-		nt.Size = UDim2.fromOffset(180, 26)
+		nt.Size = UDim2.fromScale(4.5, 0.85)
 		nt.StudsOffsetWorldSpace = Vector3.new(0, 1.5, 0)
 		nt.MaxDistance = 250
 		nt.AlwaysOnTop = false
@@ -610,11 +559,6 @@ function KartPresentation.create(
 		ntLbl.Text = nametagText
 		ntLbl.Parent = nt
 
-		local sizeConstraint = Instance.new("UITextSizeConstraint")
-		sizeConstraint.MinTextSize = 14
-		sizeConstraint.MaxTextSize = 22
-		sizeConstraint.Parent = ntLbl
-
 		nametagGui = nt
 		nametagLabel = ntLbl
 	end
@@ -623,8 +567,9 @@ function KartPresentation.create(
 	variantHighlight.Name = "OpenKartVariantTint"
 	variantHighlight.Adornee = model
 	variantHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
-	variantHighlight.FillTransparency = 0.72
-	variantHighlight.OutlineTransparency = 0.15
+	variantHighlight.FillTransparency = 0.80
+	variantHighlight.OutlineTransparency = 0.25
+	variantHighlight.Enabled = false
 	variantHighlight.Parent = model
 
 	model.Parent = folder
@@ -652,9 +597,6 @@ function KartPresentation.create(
 		nitroLight = nitroLight,
 		slipstreamVfx = slipstreamVfx,
 		rescueBird = rescueBird,
-		bombGui = bombGui,
-		bombHand = bombHand,
-		bombSecLabel = bombSecLabel,
 		nametagGui = nametagGui,
 		nametagLabel = nametagLabel,
 		variantHighlight = variantHighlight,
@@ -756,7 +698,23 @@ function KartPresentation.update(
 		)
 	end
 
+	-- Exact bomb.spm Hand bone pivot & dial normal in Roblox studs (STK z -> -z):
+	local BOMB_HAND_PIVOT_RBX = Vector3.new(0.0, 0.4136, 1.0295)
+	local BOMB_DIAL_NORMAL_RBX = Vector3.new(0.0, 0.258819, 0.965926).Unit
+
+	local function poseBombHand(baseCf: CFrame, sp: AttachmentSubpart, ticksLeft: number)
+		local secLeft = math.clamp(ticksLeft / 120.0, 0.0, 60.0)
+		local angleRad = (60.0 - secLeft) * (math.pi / 30.0)
+		local rotCf = CFrame.fromAxisAngle(BOMB_DIAL_NORMAL_RBX, angleRad)
+		sp.part.CFrame = baseCf
+			* CFrame.new(BOMB_HAND_PIVOT_RBX)
+			* rotCf
+			* CFrame.new(sp.localPos - BOMB_HAND_PIVOT_RBX)
+			* sp.baseRot
+	end
+
 	for atype, att in visuals.attachments do
+		local subList = att.subparts
 		if atype == activeAttach then
 			if atype == ItemTuning.ATTACHMENT_SWATTER and swatterPose ~= nil then
 				local swOff = ItemTuning.swatter.POS_OFFSET
@@ -776,18 +734,51 @@ function KartPresentation.update(
 				att.part.CFrame = kartOriginCf * att.localCf
 				local visible = KartVisualMath.isBubblegumShieldVisible(attachmentTicksLeft)
 				att.part.Transparency = if visible then att.activeTransparency else 1.0
+			elseif atype == ItemTuning.ATTACHMENT_BOMB and subList ~= nil then
+				for _, sp in subList do
+					if string.find(sp.name, "_Hand$") then
+						poseBombHand(kartOriginCf, sp, attachmentTicksLeft or 0)
+					else
+						sp.part.CFrame = kartOriginCf * CFrame.new(sp.localPos) * sp.baseRot
+					end
+					sp.part.Transparency = att.activeTransparency
+				end
 			else
-				att.part.CFrame = kartOriginCf * att.localCf
-				att.part.Transparency = att.activeTransparency
+				if subList ~= nil then
+					for _, sp in subList do
+						sp.part.CFrame = kartOriginCf * CFrame.new(sp.localPos) * sp.baseRot
+						sp.part.Transparency = att.activeTransparency
+					end
+				else
+					att.part.CFrame = kartOriginCf * att.localCf
+					att.part.Transparency = att.activeTransparency
+				end
 			end
 		elseif atype == ItemTuning.ATTACHMENT_BOMB and swatterPose ~= nil and swatterPose.showBomb then
-			att.part.CFrame = kartOriginCf
+			local bombThrowCf = kartOriginCf
 				* CFrame.new(Units.metersToStuds(swatterPose.bombOffsetXMeters), 0, 0)
 				* CFrame.Angles(swatterPose.bombRotXRad, 0, 0)
-				* att.localCf
-			att.part.Transparency = att.activeTransparency
+			if subList ~= nil then
+				for _, sp in subList do
+					if string.find(sp.name, "_Hand$") then
+						poseBombHand(bombThrowCf, sp, attachmentTicksLeft or 0)
+					else
+						sp.part.CFrame = bombThrowCf * CFrame.new(sp.localPos) * sp.baseRot
+					end
+					sp.part.Transparency = att.activeTransparency
+				end
+			else
+				att.part.CFrame = bombThrowCf * att.localCf
+				att.part.Transparency = att.activeTransparency
+			end
 		else
-			att.part.Transparency = 1.0
+			if subList ~= nil then
+				for _, sp in subList do
+					sp.part.Transparency = 1.0
+				end
+			else
+				att.part.Transparency = 1.0
+			end
 		end
 	end
 
@@ -802,18 +793,6 @@ function KartPresentation.update(
 
 	SlipstreamVfx.update(visuals.slipstreamVfx, kartOriginCf, slipstreamVfxInput)
 	RefereePresentation.updateRescueBird(visuals.rescueBird, kartOriginCf, visuals.kartHeightM, rescueTicks or 0)
-	if visuals.bombGui ~= nil and visuals.bombHand ~= nil and visuals.bombSecLabel ~= nil then
-		local showBombDial = activeAttach == ItemTuning.ATTACHMENT_BOMB
-		visuals.bombGui.Enabled = showBombDial
-		if showBombDial then
-			local bState = KartVisualMath.computeBombArrowState(attachmentTicksLeft or 0)
-			visuals.bombHand.Rotation = bState.angleDeg
-			visuals.bombSecLabel.Text = tostring(math.ceil(bState.timeLeftSec))
-			visuals.bombSecLabel.TextColor3 = if bState.urgentFlash
-				then Color3.fromRGB(255, 65, 55)
-				else Color3.fromRGB(255, 240, 190)
-		end
-	end
 end
 
 local function applyEmitterSettings(emitter: ParticleEmitter, particleMultiplier: number)
@@ -851,8 +830,16 @@ function KartPresentation.applySkinVariant(visual: VisualKart, variantOrIdx: (st
 	end
 end
 
-function KartPresentation.applyVisualSettings(visual: VisualKart, shadowsEnabled: boolean, particleMultiplier: number)
+function KartPresentation.applyVisualSettings(
+	visual: VisualKart,
+	shadowsEnabled: boolean,
+	particleMultiplier: number,
+	highlightEnabled: boolean?
+)
 	visual.model:SetAttribute("OpenKartParticleMult", math.clamp(particleMultiplier, 0, 1))
+	if visual.variantHighlight ~= nil then
+		visual.variantHighlight.Enabled = (highlightEnabled == true)
+	end
 	for _, sub in ipairs(visual.staticParts) do
 		sub.part.CastShadow = shadowsEnabled
 	end

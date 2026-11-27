@@ -88,7 +88,12 @@ function SettingsApplier.applyGraphicsToWorkspace(
 	SettingsApplier.applyTrackDetail(settings.graphics.trackDetail)
 	local mult = SettingsSchema.getParticleRateMultiplier(settings.graphics.particles)
 	for _, visual in pairs(visualKarts) do
-		kartPresentationModule.applyVisualSettings(visual, settings.graphics.shadows, mult)
+		kartPresentationModule.applyVisualSettings(
+			visual,
+			settings.graphics.shadows,
+			mult,
+			settings.graphics.kartHighlight
+		)
 	end
 end
 

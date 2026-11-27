@@ -1,16 +1,15 @@
 --!strict
 -- src/shared/camera/CameraComfort.lua
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- Camera vertical comfort filter: deadzone, critically-damped vertical spring,
--- vertical velocity clamp, and separate look-target low-pass filter.
+-- Camera vertical comfort filter: deadzone, framerate-independent exponential follow
+-- (alpha = 1 - exp(-dt / tau)), vertical velocity clamp, and separate look-target low-pass filter.
 -- Upstream STK 1.5 baseline (src/graphics/camera/camera_normal.cpp:L121-L146,
 -- src/config/user_config.hpp:L1046,L1051) uses 1st-order exponential lag without
 -- deadzone or look-target filtering; comfort additions logged in docs/divergences.md.
 
 export type CameraComfortConfig = {
 	deadzone: number,
-	stiffness: number,
-	damping: number,
+	tau: number,
 	maxVel: number,
 	lookSmoothSec: number,
 }
@@ -22,8 +21,6 @@ export type CameraComfortState = {
 	camVelY: number,
 	lookY: number,
 }
-
-local MAX_SUBSTEP_DT = 1 / 120
 
 local CameraComfort = {}
 
@@ -58,34 +55,31 @@ function CameraComfort.step(
 	end
 
 	local deadzone = math.max(0.0, cfg.deadzone)
-	local stiffness = math.max(0.1, cfg.stiffness)
-	local damping = math.max(0.0, cfg.damping)
+	local tau = math.max(0.0, cfg.tau)
 	local maxVel = math.max(0.5, cfg.maxVel)
 
-	-- 1) Vertical deadzone: bumps within +/- deadzone around anchor do not move the spring target.
+	-- 1) Vertical deadzone: bumps within +/- deadzone around anchor do not move the target.
 	local err = targetY - state.deadzoneAnchorY
 	if math.abs(err) > deadzone then
 		state.deadzoneAnchorY = targetY - math.sign(err) * deadzone
 	end
 
-	-- 2) Critically-damped vertical spring (sub-stepped at <= 1/120 s for stability).
-	local remaining = math.min(dt, 0.25)
-	while remaining > 1e-6 do
-		local subDt = math.min(remaining, MAX_SUBSTEP_DT)
-		local accelY = stiffness * (state.deadzoneAnchorY - state.camY) - damping * state.camVelY
-		state.camVelY = math.clamp(state.camVelY + accelY * subDt, -maxVel, maxVel)
-		state.camY += state.camVelY * subDt
-		remaining -= subDt
-	end
+	-- 2) Framerate-independent exponential position follow with vertical velocity clamp.
+	local alphaY = if tau > 1e-4 then 1.0 - math.exp(-dt / tau) else 1.0
+	local desiredY = state.camY + (state.deadzoneAnchorY - state.camY) * alphaY
+	local maxStep = maxVel * dt
+	local deltaY = math.clamp(desiredY - state.camY, -maxStep, maxStep)
+	state.camVelY = if dt > 1e-6 then deltaY / dt else 0.0
+	state.camY += deltaY
 
 	if math.abs(state.deadzoneAnchorY - state.camY) < 1e-4 and math.abs(state.camVelY) < 1e-4 then
 		state.camY = state.deadzoneAnchorY
 		state.camVelY = 0.0
 	end
 
-	-- 3) Separate exponential low-pass on vertical look target.
-	local alpha = if cfg.lookSmoothSec > 1e-4 then 1.0 - math.exp(-dt / cfg.lookSmoothSec) else 1.0
-	state.lookY += (targetLookY - state.lookY) * alpha
+	-- 3) Separate framerate-independent exponential low-pass on vertical look target.
+	local alphaLook = if cfg.lookSmoothSec > 1e-4 then 1.0 - math.exp(-dt / cfg.lookSmoothSec) else 1.0
+	state.lookY += (targetLookY - state.lookY) * alphaLook
 
 	return state.camY, state.lookY, state.camVelY
 end

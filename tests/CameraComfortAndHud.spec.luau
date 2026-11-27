@@ -26,11 +26,10 @@ return {
 		fn = function()
 			local st = CameraComfort.createState()
 			local cfg: CameraComfort.CameraComfortConfig = {
-				deadzone = 0.35,
-				stiffness = 28.0,
-				damping = 10.6,
-				maxVel = 26.0,
-				lookSmoothSec = 0.12,
+				deadzone = 0.55,
+				tau = 0.35,
+				maxVel = 14.0,
+				lookSmoothSec = 0.22,
 			}
 			local y0, _, v0 = CameraComfort.step(st, 10.0, 11.0, 1 / 60, cfg)
 			assertEqual(y0, 10.0, "initializes at targetY")
@@ -49,23 +48,66 @@ return {
 		fn = function()
 			local st = CameraComfort.createState()
 			local cfg: CameraComfort.CameraComfortConfig = {
-				deadzone = 0.35,
-				stiffness = 28.0,
-				damping = 10.6,
-				maxVel = 26.0,
-				lookSmoothSec = 0.12,
+				deadzone = 0.55,
+				tau = 0.35,
+				maxVel = 14.0,
+				lookSmoothSec = 0.22,
 			}
 			CameraComfort.step(st, 0.0, 1.0, 1 / 60, cfg)
 			local maxObservedVel = 0.0
 			local maxObservedY = -math.huge
-			for _ = 1, 120 do
+			for _ = 1, 180 do
 				local cy, _, vy = CameraComfort.step(st, 20.0, 21.0, 1 / 60, cfg)
 				maxObservedVel = math.max(maxObservedVel, math.abs(vy))
 				maxObservedY = math.max(maxObservedY, cy)
 				assertTrue(math.abs(vy) <= cfg.maxVel + 1e-6, "velocity clamped within maxVel")
 			end
-			assertTrue(maxObservedVel > 10.0, "camera climbs ramp")
+			assertTrue(maxObservedVel > 8.0, "camera climbs ramp")
 			assertTrue(maxObservedY <= 20.0 - cfg.deadzone + 0.05, "no significant overshoot oscillation")
+		end,
+	},
+	{
+		name = "CameraComfort: 30 fps vs 60 fps vs 120 fps equivalence on temple descent",
+		fn = function()
+			local cfg: CameraComfort.CameraComfortConfig = {
+				deadzone = 0.55,
+				tau = 0.35,
+				maxVel = 14.0,
+				lookSmoothSec = 0.22,
+			}
+			local function simulateDescent(fps: number): (number, number)
+				local st = CameraComfort.createState()
+				local dt = 1.0 / fps
+				CameraComfort.step(st, 0.0, 0.5, dt, cfg)
+				local totalSteps = fps * 2
+				local camY = 0.0
+				local lookY = 0.0
+				for s = 1, totalSteps do
+					local t = s * dt
+					local kartY = -6.0 * t
+					camY, lookY = CameraComfort.step(st, kartY, kartY + 0.5, dt, cfg)
+				end
+				return camY, lookY
+			end
+			local y30, l30 = simulateDescent(30)
+			local y60, l60 = simulateDescent(60)
+			local y120, l120 = simulateDescent(120)
+			assertTrue(
+				math.abs(y30 - y60) < 0.08,
+				string.format("30 vs 60 camY drift too large: %.4f vs %.4f", y30, y60)
+			)
+			assertTrue(
+				math.abs(y60 - y120) < 0.04,
+				string.format("60 vs 120 camY drift too large: %.4f vs %.4f", y60, y120)
+			)
+			assertTrue(
+				math.abs(l30 - l60) < 0.05,
+				string.format("30 vs 60 lookY drift too large: %.4f vs %.4f", l30, l60)
+			)
+			assertTrue(
+				math.abs(l60 - l120) < 0.03,
+				string.format("60 vs 120 lookY drift too large: %.4f vs %.4f", l60, l120)
+			)
 		end,
 	},
 	{

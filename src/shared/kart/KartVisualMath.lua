@@ -7,6 +7,7 @@
 -- and expiring bubblegum-shield flash helpers.
 
 local FixedStep = require("../sim/FixedStep")
+local Math3D = require("../sim/Math3D")
 local ItemTuning = require("../ItemTuning")
 
 local KartVisualMath = {}
@@ -160,6 +161,33 @@ function KartVisualMath.computeBombArrowState(ticksLeft: number): BombArrowState
 		angleDeg = angleDeg,
 		urgentFlash = urgentFlash,
 	}
+end
+
+-- Exact STK 1.5 bomb.spm Hand bone keyframes at frames [0, 15, 30, 45, 60] (attachment.cpp:L684-L692).
+-- Frame advances 0 -> 60 as time_left counts down 60 s -> 0 s: frame = 60 - clamp(timeLeftSec, 0, 60).
+local BOMB_HAND_KEYFRAMES: { { frame: number, q: Math3D.Quat } } = {
+	{ frame = 0, q = { w = 0.79335, x = -0.60876, y = 0.0, z = 0.0 } },
+	{ frame = 15, q = { w = 0.56099, x = -0.43046, y = -0.56099, z = 0.43046 } },
+	{ frame = 30, q = { w = 0.0, x = 0.0, y = -0.79335, z = 0.60876 } },
+	{ frame = 45, q = { w = 0.56099, x = -0.43046, y = 0.56099, z = -0.43046 } },
+	{ frame = 60, q = { w = 0.79335, x = -0.60876, y = 0.0, z = 0.0 } },
+}
+
+KartVisualMath.BOMB_HAND_PIVOT_STK = { x = 0.0, y = 0.46325, z = -1.1002 }
+
+function KartVisualMath.computeBombHandQuatStk(ticksLeft: number): Math3D.Quat
+	local timeLeftSec = FixedStep.ticksToTime(math.max(0, ticksLeft))
+	local frame = math.clamp(60.0 - math.clamp(timeLeftSec, 0.0, 60.0), 0.0, 60.0)
+	for i = 1, #BOMB_HAND_KEYFRAMES - 1 do
+		local a = BOMB_HAND_KEYFRAMES[i]
+		local b = BOMB_HAND_KEYFRAMES[i + 1]
+		if frame <= b.frame or i == #BOMB_HAND_KEYFRAMES - 1 then
+			local span = math.max(1e-6, b.frame - a.frame)
+			local t = math.clamp((frame - a.frame) / span, 0.0, 1.0)
+			return Math3D.quatSlerp(a.q, b.q, t)
+		end
+	end
+	return BOMB_HAND_KEYFRAMES[1].q
 end
 
 return table.freeze(KartVisualMath)

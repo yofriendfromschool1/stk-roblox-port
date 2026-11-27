@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -13,6 +14,9 @@ from .kart_emit import (
     FLIP_Y180_MAT3,
     GlbNodeSpec,
     RbxSubmeshGeom,
+    SpmMeshData,
+    SpmSubmeshGeom,
+    _bbox_from_points,
     _make_mesh_part,
     _part_metrics,
     convert_submesh_to_rbx,
@@ -73,6 +77,99 @@ def _subpart_name(texture_1: str, index: int, total: int) -> str:
     return f"Part_{index}"
 
 
+def _split_bomb_spm(spm_path: Path, spm: SpmMeshData) -> list[tuple[str, SpmSubmeshGeom]]:
+    """Split SPMA bomb.spm into rigid Body (261 tris) and Hand arrow (5 tris, joint 0)."""
+    data = spm_path.read_bytes()
+    off = 4  # sig(2) + byte2(1) + flags(1)
+    flags = data[3]
+    read_normal = bool(flags & 1)
+    read_vcolor = bool(flags & 2)
+    read_tangent = bool(flags & 4)
+    off += 24  # header bbox
+    mat_count = struct.unpack_from("<H", data, off)[0]
+    off += 2
+    mats: list[tuple[str, str]] = []
+    for _ in range(mat_count):
+        t1l = data[off]
+        off += 1
+        t1 = data[off : off + t1l].decode("utf-8", errors="replace")
+        off += t1l
+        t2l = data[off]
+        off += 1
+        t2 = data[off : off + t2l].decode("utf-8", errors="replace")
+        off += t2l
+        mats.append((t1, t2))
+    sec_count = struct.unpack_from("<H", data, off)[0]
+    off += 2
+    hand_verts: set[int] = set()
+    for _ in range(sec_count):
+        mc = struct.unpack_from("<H", data, off)[0]
+        off += 2
+        for _ in range(mc):
+            vc, ic, mid = struct.unpack_from("<IIH", data, off)
+            off += 10
+            t1, t2 = mats[mid]
+            for vi in range(vc):
+                off += 12
+                if read_normal:
+                    off += 4
+                if read_vcolor:
+                    ci = data[off]
+                    off += 1
+                    if ci != 128:
+                        off += 3
+                if len(t1) > 0:
+                    off += 4
+                    if len(t2) > 0:
+                        off += 4
+                    if read_tangent:
+                        off += 4
+                j = struct.unpack_from("<4h", data, off)
+                off += 8
+                w = struct.unpack_from("<4e", data, off)
+                off += 8
+                if any(jj == 0 and ww > 0.5 for jj, ww in zip(j, w)):
+                    hand_verts.add(vi)
+            idx_sz = 4 if vc > 65535 else (2 if vc > 255 else 1)
+            off += ic * idx_sz
+
+    src = spm.submeshes[0]
+
+    def _extract(want_hand: bool) -> SpmSubmeshGeom:
+        remap: dict[int, int] = {}
+        pos: list[tuple[float, float, float]] = []
+        nrm: list[tuple[float, float, float]] = []
+        uvs: list[tuple[float, float]] = []
+        idxs: list[int] = []
+        for k in range(0, len(src.indices_stk), 3):
+            tri = src.indices_stk[k : k + 3]
+            is_hand = all(v in hand_verts for v in tri)
+            if is_hand != want_hand:
+                continue
+            for v in tri:
+                if v not in remap:
+                    remap[v] = len(pos)
+                    pos.append(src.positions_stk[v])
+                    nrm.append(src.normals_stk[v])
+                    uvs.append(src.uv1[v])
+                idxs.append(remap[v])
+        bmin, bmax = _bbox_from_points(pos)
+        return SpmSubmeshGeom(
+            submesh_index=1 if want_hand else 0,
+            material_id=src.material_id,
+            texture_1=src.texture_1,
+            texture_2=src.texture_2,
+            positions_stk=pos,
+            normals_stk=nrm,
+            uv1=uvs,
+            indices_stk=idxs,
+            bbox_min_stk=bmin,
+            bbox_max_stk=bmax,
+        )
+
+    return [("Body", _extract(False)), ("Hand", _extract(True))]
+
+
 def _emit_bounds_lua(items_report: list[dict[str, Any]], out_lua: Path, revision: str) -> None:
     lines: list[str] = [
         "--!strict",
@@ -96,7 +193,8 @@ def _emit_bounds_lua(items_report: list[dict[str, Any]], out_lua: Path, revision
         item_id = item["item_id"]
         lines.append(f'\t["{item_id}"] = table.freeze({{')
         for sp in item["subparts"]:
-            sx, sy, sz = sp["size_studs"]
+            clamped_size, _, _ = stk_to_rbx_size(*sp["size_studs"], min_studs=0.05)
+            sx, sy, sz = clamped_size
             cx, cy, cz = sp["world_center_studs"]
             tex = sp["texture_1"].replace('"', '\\"')
             lines.append(f'\t\t["{sp["part_name"]}"] = table.freeze({{')
@@ -204,7 +302,17 @@ def convert_items(
             sc = item_def.scale
             for s in spm.submeshes:
                 s.positions_stk = [(x * sc, y * sc, z * sc) for (x, y, z) in s.positions_stk]
-        rbx_subs: list[RbxSubmeshGeom] = [convert_submesh_to_rbx(s) for s in spm.submeshes]
+        if item_def.item_id == "bomb" and spm.mesh_format == "SPMA":
+            named_stk = _split_bomb_spm(spm_path, spm)
+            rbx_pairs: list[tuple[str, RbxSubmeshGeom]] = [
+                (pname, convert_submesh_to_rbx(sub)) for (pname, sub) in named_stk
+            ]
+        else:
+            rbx_pairs = [
+                (_subpart_name(s.texture_1, idx, len(spm.submeshes)), convert_submesh_to_rbx(s))
+                for idx, s in enumerate(spm.submeshes)
+            ]
+        rbx_subs: list[RbxSubmeshGeom] = [sub for (_, sub) in rbx_pairs]
         for sub in rbx_subs:
             verify_submesh_outward_winding(sub, max_opposed_ratio=0.10)
 
@@ -212,9 +320,8 @@ def convert_items(
         item_sub_dir.mkdir(parents=True, exist_ok=True)
 
         subparts: list[dict[str, Any]] = []
-        for idx, sub in enumerate(rbx_subs):
-            pname = _subpart_name(sub.texture_1, idx, len(rbx_subs))
-            stem = Path(sub.texture_1).stem if sub.texture_1 else f"sub{idx}"
+        for idx, (pname, sub) in enumerate(rbx_pairs):
+            stem = pname.lower() if item_def.item_id == "bomb" else (Path(sub.texture_1).stem if sub.texture_1 else f"sub{idx}")
             glb_name = f"{item_def.item_id}_{idx}_{stem}.glb" if len(rbx_subs) > 1 else f"{item_def.item_id}.glb"
             node = GlbNodeSpec(name=pname, translation_studs=(0.0, 0.0, 0.0), submeshes=[sub])
             write_glb_scene([node], item_sub_dir / glb_name, root_name=pname)

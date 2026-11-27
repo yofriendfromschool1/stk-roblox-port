@@ -38,6 +38,7 @@ export type GraphicsSettings = {
 	colorCorrection: boolean,
 	particles: number,
 	shadows: boolean,
+	kartHighlight: boolean,
 	trackDetail: TrackDetailLevel,
 }
 
@@ -181,6 +182,7 @@ function SettingsSchema.defaults(): UserSettings
 			colorCorrection = true,
 			particles = 2,
 			shadows = true,
+			kartHighlight = false,
 			trackDetail = "High",
 		},
 		audio = {
@@ -273,6 +275,9 @@ function SettingsSchema.sanitize(raw: any): UserSettings
 		if type(gfx.shadows) == "boolean" then
 			out.graphics.shadows = gfx.shadows
 		end
+		if type(gfx.kartHighlight) == "boolean" then
+			out.graphics.kartHighlight = gfx.kartHighlight
+		end
 		if type(gfx.trackDetail) == "string" and VALID_TRACK_DETAIL[gfx.trackDetail] then
 			out.graphics.trackDetail = gfx.trackDetail :: TrackDetailLevel
 		end
@@ -346,6 +351,7 @@ function SettingsSchema.applyGraphicsPreset(preset: GraphicsPreset): GraphicsSet
 			colorCorrection = false,
 			particles = 0,
 			shadows = false,
+			kartHighlight = false,
 			trackDetail = "Low",
 		}
 	elseif preset == "Medium" then
@@ -357,6 +363,7 @@ function SettingsSchema.applyGraphicsPreset(preset: GraphicsPreset): GraphicsSet
 			colorCorrection = true,
 			particles = 1,
 			shadows = true,
+			kartHighlight = false,
 			trackDetail = "Medium",
 		}
 	end
@@ -368,6 +375,7 @@ function SettingsSchema.applyGraphicsPreset(preset: GraphicsPreset): GraphicsSet
 		colorCorrection = true,
 		particles = 2,
 		shadows = true,
+		kartHighlight = false,
 		trackDetail = "High",
 	}
 end
