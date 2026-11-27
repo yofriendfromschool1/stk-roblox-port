@@ -14,6 +14,7 @@ export type Backdrop = {
 	setActive: (active: boolean, showKart: boolean?) -> (),
 	setViewportRect: (pos: UDim2, size: UDim2) -> (),
 	setKart: (kartId: string) -> (),
+	setTint: (color: Color3) -> (),
 	destroy: () -> (),
 }
 
@@ -163,12 +164,17 @@ function MenuBackdrop.create(parent: Instance): Backdrop
 		loadKartIntoViewport(kartId)
 	end
 
+	local function setTint(color: Color3)
+		bgImg.ImageColor3 = color
+	end
+
 	return {
 		frame = frame,
 		viewport = viewport,
 		setActive = setActive :: any,
 		setViewportRect = setViewportRect,
 		setKart = setKart,
+		setTint = setTint,
 		destroy = destroy,
 	}
 end

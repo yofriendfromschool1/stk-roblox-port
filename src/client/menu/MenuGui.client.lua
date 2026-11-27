@@ -5,11 +5,13 @@
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CatalogData = require(Shared.menu.CatalogData)
 local ClassicSkin = require("./ClassicSkin")
 local ClientSessionState = require("../ClientSessionState")
+local ClientSettingsState = require("../ClientSettingsState")
 local KartSelectMath = require(Shared.menu.KartSelectMath)
 local KartTuning = require(Shared.KartTuning)
 local LobbyPanel = require("./LobbyPanel")
@@ -17,6 +19,7 @@ local MenuBackdrop = require("./MenuBackdrop")
 local MenuFlow = require(Shared.menu.MenuFlow)
 local MenuIcons = require(Shared.menu.MenuIcons)
 local OptionsPanel = require("./OptionsPanel")
+local SettingsSchema = require(Shared.settings.SettingsSchema)
 
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui") :: PlayerGui
@@ -101,14 +104,45 @@ local menuScreen = makeScreenFrame("Screen_MENU")
 local logoTitle = Instance.new("TextLabel")
 logoTitle.Name = "LogoHeader"
 logoTitle.BackgroundTransparency = 1
-logoTitle.Position = UDim2.fromScale(0.05, 0.06)
-logoTitle.Size = UDim2.fromScale(0.48, 0.16)
+logoTitle.AnchorPoint = Vector2.new(0.5, 0)
+logoTitle.Position = UDim2.fromScale(0.50, 0.04)
+logoTitle.Size = UDim2.fromScale(0.56, 0.18)
 logoTitle.TextScaled = true
-logoTitle.TextXAlignment = Enum.TextXAlignment.Left
-logoTitle.Text = "OPENKART"
+logoTitle.TextXAlignment = Enum.TextXAlignment.Center
+logoTitle.Text = "OpenKart"
 logoTitle.ZIndex = 12
 ClassicSkin.applyHeaderGradient(logoTitle)
 logoTitle.Parent = menuScreen
+
+local playerNameBar = Instance.new("ImageLabel")
+playerNameBar.Name = "PlayerNameBar"
+playerNameBar.AnchorPoint = Vector2.new(1, 0)
+playerNameBar.Position = UDim2.new(1, -12, 0, 10)
+playerNameBar.Size = UDim2.fromOffset(230, 34)
+playerNameBar.BackgroundTransparency = 1
+playerNameBar.Image = MenuIcons.SkinBottomBar
+playerNameBar.ScaleType = Enum.ScaleType.Stretch
+playerNameBar.ZIndex = 14
+playerNameBar:SetAttribute("OpenKartSkinRole", "BottomBar")
+playerNameBar.Parent = menuScreen
+
+local playerNameCorner = Instance.new("UICorner")
+playerNameCorner.CornerRadius = UDim.new(0, 6)
+playerNameCorner.Parent = playerNameBar
+
+local playerNameLbl = Instance.new("TextLabel")
+playerNameLbl.Name = "PlayerUsername"
+playerNameLbl.BackgroundTransparency = 1
+playerNameLbl.Size = UDim2.fromScale(1, 1)
+playerNameLbl.Font = ClassicSkin.FONT_BODY
+playerNameLbl.TextSize = 15
+playerNameLbl.TextColor3 = ClassicSkin.COLOR_TEXT_NEUTRAL
+playerNameLbl.TextXAlignment = Enum.TextXAlignment.Center
+playerNameLbl.Text = localPlayer.Name
+playerNameLbl.ZIndex = 15
+playerNameLbl:SetAttribute("OpenKartSkinRole", "BodyText")
+playerNameLbl:SetAttribute("OpenKartBaseTextSize", 15)
+playerNameLbl.Parent = playerNameBar
 
 local topRow = Instance.new("Frame")
 topRow.Name = "TopRow"
@@ -186,6 +220,7 @@ bottomBar.BackgroundTransparency = 1
 bottomBar.Image = MenuIcons.SkinBottomBar
 bottomBar.ScaleType = Enum.ScaleType.Stretch
 bottomBar.ZIndex = 8
+bottomBar:SetAttribute("OpenKartSkinRole", "BottomBar")
 bottomBar.Parent = menuScreen
 
 local subtitle = Instance.new("TextLabel")
@@ -199,6 +234,8 @@ subtitle.TextXAlignment = Enum.TextXAlignment.Left
 subtitle.TextColor3 = ClassicSkin.COLOR_TEXT_NEUTRAL
 subtitle.Text = "Unofficial SuperTuxKart 1.5 Port (GPLv3-or-later)"
 subtitle.ZIndex = 10
+subtitle:SetAttribute("OpenKartSkinRole", "BodyText")
+subtitle:SetAttribute("OpenKartBaseTextSize", 15)
 subtitle.Parent = bottomBar
 
 local bottomRow = Instance.new("Frame")
@@ -315,7 +352,7 @@ loadingLbl.Size = UDim2.fromScale(0.8, 0.12)
 
 -- Screen 7: OPTIONS (options_*.stkgui)
 local optionsScreen = makeScreenFrame("Screen_OPTIONS")
-makeHeader(optionsScreen, "SuperTuxKart Options")
+makeHeader(optionsScreen, "OpenKart Options")
 local optionsPanel = OptionsPanel.create(optionsScreen, trackConn)
 
 -- Screen 8: ABOUT
@@ -334,6 +371,8 @@ aboutBody.TextWrapped = true
 aboutBody.TextXAlignment = Enum.TextXAlignment.Left
 aboutBody.TextYAlignment = Enum.TextYAlignment.Top
 aboutBody.TextColor3 = ClassicSkin.COLOR_TEXT_CREDITS
+aboutBody:SetAttribute("OpenKartSkinRole", "CreditsText")
+aboutBody:SetAttribute("OpenKartBaseTextSize", 17)
 aboutBody.Text = "OpenKart — Unofficial Roblox Port of SuperTuxKart 1.5 (pinned SVN rev 18627).\n\n"
 	.. "Upstream: https://supertuxkart.net\n"
 	.. "Source License: GNU General Public License v3.0 or later (GPLv3-or-later).\n"
@@ -358,6 +397,7 @@ local summaryLabel: TextLabel
 local lapsValueLabel: TextLabel
 local aiValueLabel: TextLabel
 local aiRowFrame: Frame
+local reverseToggleBtn: TextButton
 local modeDiffButtons: { [string]: TextButton } = {}
 
 local function renderScreen()
@@ -369,7 +409,7 @@ local function renderScreen()
 		backdrop.setActive(false, false)
 	elseif menuState.screen == "MENU" then
 		backdrop.setKart("tux")
-		backdrop.setViewportRect(UDim2.fromScale(0.52, 0.04), UDim2.fromScale(0.45, 0.44))
+		backdrop.setViewportRect(UDim2.fromScale(0.03, 0.16), UDim2.fromScale(0.26, 0.34))
 		backdrop.setActive(true, true)
 	elseif menuState.screen == "KART" then
 		backdrop.setKart(menuState.config.kartId)
@@ -401,6 +441,10 @@ local function renderScreen()
 		lapsValueLabel.Text = tostring(cfg.laps)
 		aiValueLabel.Text = tostring(cfg.aiCount)
 		aiRowFrame.Visible = (cfg.raceType == "NORMAL_RACE")
+		if reverseToggleBtn then
+			ClassicSkin.setButtonText(reverseToggleBtn, if cfg.reverse then "On" else "Off")
+			ClassicSkin.setButtonSelected(reverseToggleBtn, cfg.reverse == true)
+		end
 	end
 	if menuState.screen == "OPTIONS" then
 		optionsPanel.refresh()
@@ -1006,6 +1050,33 @@ end)
 aiRowFrame = aiRow
 aiValueLabel = aiLbl
 
+local revRowLbl = Instance.new("TextLabel")
+revRowLbl.BackgroundTransparency = 1
+revRowLbl.Position = UDim2.fromOffset(204, 212)
+revRowLbl.Size = UDim2.fromOffset(220, 40)
+revRowLbl.Font = ClassicSkin.FONT_BODY
+revRowLbl.TextSize = 18
+revRowLbl.TextXAlignment = Enum.TextXAlignment.Left
+revRowLbl.TextColor3 = ClassicSkin.COLOR_TEXT_NEUTRAL
+revRowLbl.Text = "Drive in reverse"
+revRowLbl.ZIndex = 12
+revRowLbl:SetAttribute("OpenKartSkinRole", "BodyText")
+revRowLbl:SetAttribute("OpenKartBaseTextSize", 18)
+revRowLbl.Parent = configCard
+
+reverseToggleBtn = ClassicSkin.makeGlassButton(
+	configCard,
+	"ReverseToggleBtn",
+	"Off",
+	UDim2.fromOffset(24, 212),
+	UDim2.fromOffset(162, 40),
+	trackConn
+)
+trackConn(reverseToggleBtn.Activated:Connect(function()
+	MenuFlow.setConfig(menuState, { reverse = not menuState.config.reverse })
+	renderScreen()
+end))
+
 local trackPreview = Instance.new("ImageLabel")
 trackPreview.Name = "TrackScreenshot"
 trackPreview.Size = UDim2.fromScale(1, 0.38)
@@ -1083,6 +1154,34 @@ ClientSessionState.subscribe(function(session)
 	end
 	renderScreen()
 end)
+
+local function applyActiveMenuTheme(s: SettingsSchema.UserSettings)
+	local fontScale = SettingsSchema.getFontSizeScale(s.ui.fontSize)
+	local pal = ClassicSkin.applyTheme(gui, s.ui.skin, s.ui.skinVariant, fontScale)
+	backdrop.setTint(pal.backdropTint)
+	if menuState.screen == "OPTIONS" then
+		optionsPanel.refresh()
+	end
+end
+
+ClientSettingsState.subscribe(applyActiveMenuTheme)
+ClientSettingsState.loadFromServerAsync()
+
+if RunService:IsStudio() then
+	trackConn(localPlayer:GetAttributeChangedSignal("OpenKartDebugMenuScreen"):Connect(function()
+		local req = localPlayer:GetAttribute("OpenKartDebugMenuScreen")
+		if req == "OPTIONS" then
+			MenuFlow.openOptions(menuState)
+			renderScreen()
+		elseif req == "MENU" then
+			menuState.screen = "MENU"
+			renderScreen()
+		elseif req == "KART" then
+			menuState.screen = "KART"
+			renderScreen()
+		end
+	end))
+end
 
 renderScreen()
 

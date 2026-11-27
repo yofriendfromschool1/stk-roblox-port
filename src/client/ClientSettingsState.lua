@@ -2,7 +2,10 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 -- Client-side reactive store for UserSettings, synced with server SettingsStore.
 
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local SettingsSchema = require(Shared.settings.SettingsSchema)
@@ -15,6 +18,7 @@ local current: SettingsSchema.UserSettings = SettingsSchema.defaults()
 local persisted = false
 local loaded = false
 local listeners: { Listener } = {}
+local debugHookBound = false
 
 local function notify()
 	for _, cb in ipairs(listeners) do
@@ -64,6 +68,29 @@ function ClientSettingsState.update(mutator: (draft: SettingsSchema.UserSettings
 end
 
 function ClientSettingsState.loadFromServerAsync(): ()
+	if RunService:IsStudio() and not debugHookBound then
+		debugHookBound = true
+		local lp = Players.LocalPlayer
+		if lp ~= nil then
+			lp:GetAttributeChangedSignal("OpenKartDebugApplySettingsJson"):Connect(function()
+				local rawJson = lp:GetAttribute("OpenKartDebugApplySettingsJson")
+				if type(rawJson) == "string" and #rawJson > 0 then
+					local ok, decoded = pcall(function()
+						return HttpService:JSONDecode(rawJson)
+					end)
+					if ok and type(decoded) == "table" then
+						ClientSettingsState.update(function(draft)
+							local merged = SettingsSchema.sanitize(decoded)
+							draft.graphics = merged.graphics
+							draft.audio = merged.audio
+							draft.ui = merged.ui
+							draft.input = merged.input
+						end)
+					end
+				end
+			end)
+		end
+	end
 	if loaded then
 		return
 	end

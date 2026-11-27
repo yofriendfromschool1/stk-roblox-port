@@ -13,6 +13,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AIController = require(Shared.ai.AIController)
 local CheckManager = require(Shared.race.CheckManager)
+local EdgeRescue = require(Shared.sim.EdgeRescue)
 local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
@@ -33,6 +34,7 @@ local RobloxWorldQuery = require(Shared.sim.RobloxWorldQuery)
 local SandtrackCollisionData = require(Shared.track.SandtrackCollisionData)
 local SandtrackRoadProbeData = require(Shared.track.SandtrackRoadProbeData)
 local SettingsStore = require("./SettingsStore")
+local SkinVariantPalette = require(Shared.settings.SkinVariantPalette)
 local Standings = require(Shared.race.Standings)
 local TestDummyKart = require(Shared.race.TestDummyKart)
 local TrackRegistry = require(Shared.track.TrackRegistry)
@@ -622,7 +624,7 @@ function GreyboxKartServer.start()
 	local function broadcastLobbyState(targetPlayer: Player?)
 		local payload = {
 			type = "SNAPSHOT",
-			snapshot = LobbyState.getPublicSnapshot(lobby),
+			snapshot = LobbyState.getPublicSnapshot(lobby, os.clock()),
 		}
 		if targetPlayer ~= nil then
 			lobbyStateRemote:FireClient(targetPlayer, payload)
@@ -645,6 +647,9 @@ function GreyboxKartServer.start()
 		inLobbySession = (fromLobby == true)
 		lobbyFinishReturnAt = nil
 		sessionConfig = MenuFlow.sanitizeSessionConfig(rawConfig)
+		Workspace:SetAttribute("OpenKartActiveTrack", sessionConfig.trackId)
+		Workspace:SetAttribute("OpenKartActiveTrackReverse", sessionConfig.reverse == true)
+		activeTrack = TrackRegistry.getOriented(sessionConfig.trackId, sessionConfig.reverse)
 		profile = KartTuning.buildProfileForKart(sessionConfig.kartId, sessionConfig.difficulty)
 		KartAssetHydrator.hydrateKart(profile.kartId)
 		raceClock = RaceState.create(sessionConfig.laps)
@@ -860,11 +865,21 @@ function GreyboxKartServer.start()
 			if ok then
 				broadcastLobbyState(nil)
 			end
-		elseif cmd == "START_LOBBY_RACE" then
-			local ok, cfg = LobbyState.startRace(lobby, uid)
-			if ok and cfg ~= nil then
+		elseif cmd == "START_LOBBY_RACE" or cmd == "BEGIN_VOTE" then
+			local ok = LobbyState.beginVoting(lobby, uid, os.clock(), 25.0)
+			if ok then
 				broadcastLobbyState(nil)
-				applySessionStart(cfg, player, true)
+			end
+		elseif cmd == "SUBMIT_VOTE" then
+			local ok, allVoted = LobbyState.submitVote(lobby, uid, payload)
+			if ok then
+				if allVoted then
+					local cfg = LobbyState.resolveVoting(lobby)
+					broadcastLobbyState(nil)
+					applySessionStart(cfg, player, true)
+				else
+					broadcastLobbyState(nil)
+				end
 			end
 		elseif cmd == "RETURN_TO_LOBBY" then
 			if uid == lobby.hostUserId and inLobbySession then
@@ -872,7 +887,19 @@ function GreyboxKartServer.start()
 			end
 		elseif cmd == "CREATE_RESERVED_SERVER" then
 			if uid == lobby.hostUserId then
-				local res = ReservedLobbyService.createReservedLobby(player, lobby.settings)
+				local res = ReservedLobbyService.createReservedLobby(player, lobby.settings, lobby._password)
+				if res.ok and res.entry ~= nil then
+					local lid = res.entry.lobbyId
+					ReservedLobbyService.startTtlRefresh(lid, function()
+						local c = 0
+						for _, p in ipairs(lobby.players) do
+							if p.admitted then
+								c += 1
+							end
+						end
+						return math.max(1, c)
+					end)
+				end
 				lobbyStateRemote:FireClient(player, {
 					type = "RESERVED_RESULT",
 					ok = res.ok,
@@ -890,7 +917,10 @@ function GreyboxKartServer.start()
 			})
 		elseif cmd == "JOIN_RESERVED_SERVER" then
 			local lid = if type(payload) == "table" then tostring(payload.lobbyId or "") else tostring(payload or "")
-			local ok, reason = ReservedLobbyService.teleportToReservedLobby(player, lid)
+			local candPw = if type(payload) == "table" and type(payload.password) == "string"
+				then payload.password
+				else ""
+			local ok, reason = ReservedLobbyService.joinReservedLobby(player, lid, candPw)
 			lobbyStateRemote:FireClient(player, {
 				type = "RESERVED_JOIN_RESULT",
 				ok = ok,
@@ -1074,6 +1104,72 @@ function GreyboxKartServer.start()
 					alignedFwd = { alignedFwd.x, alignedFwd.y, alignedFwd.z },
 					physFwd = { physFwd.x, physFwd.y, physFwd.z },
 				}
+			elseif op == "SET_ALL_POWERUPS" and type(a) == "table" then
+				local items = a :: { { number } }
+				local targets: { KartSolver.KartState } = {}
+				if firstEntry ~= nil then
+					table.insert(targets, firstEntry.state)
+				end
+				if dummyEnabled then
+					table.insert(targets, dummyState)
+				end
+				for _, extra in extraAIs do
+					table.insert(targets, extra.state)
+				end
+				if localP2State ~= nil then
+					table.insert(targets, localP2State)
+				end
+				for idx, stTarget in targets do
+					local spec = items[idx]
+					if type(spec) == "table" then
+						local pType = math.clamp(math.floor(tonumber(spec[1]) or 0), 0, 10)
+						local pCount = math.max(0, math.floor(tonumber(spec[2]) or 0))
+						stTarget.heldPowerup = pType
+						stTarget.heldPowerupCount = if pType == 0 then 0 else math.max(1, pCount)
+					end
+				end
+				if firstEntry ~= nil then
+					firstEntry.forceSnapshot = true
+				end
+				return #targets
+			elseif op == "setSkinVariant" and type(a) == "string" then
+				local vIdx = if type(b) == "number"
+					then math.clamp(math.floor(b), 1, 6)
+					else SkinVariantPalette.nameToIndex(tostring(b))
+				Workspace:SetAttribute("OpenKartVariantOverride_" .. a, vIdx)
+				if firstEntry ~= nil then
+					firstEntry.forceSnapshot = true
+				end
+				return vIdx
+			elseif op == "teleportBot" and type(a) == "string" then
+				local targetSt: KartSolver.KartState? = nil
+				if a == TestDummyKart.DUMMY_STRING_ID then
+					targetSt = dummyState
+				else
+					for _, extra in extraAIs do
+						if extra.sid == a then
+							targetSt = extra.state
+							break
+						end
+					end
+				end
+				if targetSt ~= nil then
+					targetSt.pos = {
+						x = tonumber(b) or targetSt.pos.x,
+						y = tonumber(c) or targetSt.pos.y,
+						z = tonumber(d) or targetSt.pos.z,
+					}
+					local yaw = tonumber(e) or 0.0
+					targetSt.rot = Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, yaw)
+					targetSt.linVel = { x = 0, y = 0, z = 0 }
+					targetSt.angVel = { x = 0, y = 0, z = 0 }
+					targetSt.speed = 0.0
+					if firstEntry ~= nil then
+						firstEntry.forceSnapshot = true
+					end
+					return true
+				end
+				return false
 			end
 			return nil
 		end
@@ -1087,7 +1183,24 @@ function GreyboxKartServer.start()
 		end,
 	})
 
+	ReservedLobbyService.setTeleportFailureHandler(
+		function(player: Player, reason: string, retrying: boolean, message: string)
+			lobbyStateRemote:FireClient(player, {
+				type = "TELEPORT_ERROR",
+				reason = reason,
+				retrying = retrying,
+				message = message,
+			})
+		end
+	)
+
 	local function spawnForPlayer(player: Player)
+		local arrivalOk, arrivalErr = ReservedLobbyService.validateArrival(player)
+		if not arrivalOk then
+			warn(string.format("[OpenKart][Matchmaking] Rejected %s arrival: %s", player.Name, tostring(arrivalErr)))
+			player:Kick("Invalid lobby teleport token (" .. tostring(arrivalErr) .. ").")
+			return
+		end
 		if entries[player] then
 			return
 		end
@@ -1239,8 +1352,22 @@ function GreyboxKartServer.start()
 		return rankById, proxies
 	end
 
+	local voteSnapshotAccum = 0.0
 	RunService.Heartbeat:Connect(function(dt: number)
 		if sessionPhase ~= "RACING" then
+			if lobby.phase == "VOTING" and lobby.voting.active then
+				local resolvedCfg = LobbyState.tickVoting(lobby, os.clock())
+				if resolvedCfg ~= nil then
+					broadcastLobbyState(nil)
+					applySessionStart(resolvedCfg, nil, true)
+				else
+					voteSnapshotAccum += dt
+					if voteSnapshotAccum >= 0.5 then
+						voteSnapshotAccum = 0.0
+						broadcastLobbyState(nil)
+					end
+				end
+			end
 			return
 		end
 		debug.profilebegin("OpenKart_ServerSim")
@@ -1373,11 +1500,26 @@ function GreyboxKartServer.start()
 
 			if dummyEnabled then
 				local dummyAnimSuppressed = ItemEffectState.isDriverInputSuppressed(dummyState.itemEffect)
+				local dummyEdgeRescue, nextDummyDescent = EdgeRescue.evaluate({
+					numWheelsGrounded = KartSolver.countGroundedWheels(dummyState),
+					pos = dummyState.pos,
+					linVelY = dummyState.linVel.y,
+					airborneDescentTicks = dummyState.airborneDescentTicks,
+					racePhase = racePhase,
+					isRescuing = KartSolver.isRescuing(dummyState),
+					hasItemAnimation = dummyAnimSuppressed,
+					worldQuery = worldQuery,
+				})
+				dummyState.airborneDescentTicks = nextDummyDescent
 				local dummyStuck =
 					AIController.stepStuckWatchdog(dummyAI, dummyState, racePhase == "RACE_PHASE", dummyAnimSuppressed)
 				if
-					(dummyState.pos.y < activeTrack.voidResetYMeters or dummyState.resetTriggered or dummyStuck)
-					and not KartSolver.isRescuing(dummyState)
+					(
+						dummyState.pos.y < activeTrack.voidResetYMeters
+						or dummyState.resetTriggered
+						or dummyStuck
+						or dummyEdgeRescue
+					) and not KartSolver.isRescuing(dummyState)
 				then
 					triggerKartRescue(dummyState, dummyState.profile)
 				end
@@ -1451,6 +1593,17 @@ function GreyboxKartServer.start()
 
 			for aiIdx, extra in extraAIs do
 				local extraAnimSuppressed = ItemEffectState.isDriverInputSuppressed(extra.state.itemEffect)
+				local extraEdgeRescue, nextExtraDescent = EdgeRescue.evaluate({
+					numWheelsGrounded = KartSolver.countGroundedWheels(extra.state),
+					pos = extra.state.pos,
+					linVelY = extra.state.linVel.y,
+					airborneDescentTicks = extra.state.airborneDescentTicks,
+					racePhase = racePhase,
+					isRescuing = KartSolver.isRescuing(extra.state),
+					hasItemAnimation = extraAnimSuppressed,
+					worldQuery = worldQuery,
+				})
+				extra.state.airborneDescentTicks = nextExtraDescent
 				local extraStuck = AIController.stepStuckWatchdog(
 					extra.ai,
 					extra.state,
@@ -1458,8 +1611,12 @@ function GreyboxKartServer.start()
 					extraAnimSuppressed
 				)
 				if
-					(extra.state.pos.y < activeTrack.voidResetYMeters or extra.state.resetTriggered or extraStuck)
-					and not KartSolver.isRescuing(extra.state)
+					(
+						extra.state.pos.y < activeTrack.voidResetYMeters
+						or extra.state.resetTriggered
+						or extraStuck
+						or extraEdgeRescue
+					) and not KartSolver.isRescuing(extra.state)
 				then
 					triggerKartRescue(extra.state, extra.state.profile)
 				end
@@ -1528,8 +1685,19 @@ function GreyboxKartServer.start()
 			end
 
 			if localP2State ~= nil and localP2AI ~= nil then
+				local p2EdgeRescue, nextP2Descent = EdgeRescue.evaluate({
+					numWheelsGrounded = KartSolver.countGroundedWheels(localP2State),
+					pos = localP2State.pos,
+					linVelY = localP2State.linVel.y,
+					airborneDescentTicks = localP2State.airborneDescentTicks,
+					racePhase = racePhase,
+					isRescuing = KartSolver.isRescuing(localP2State),
+					hasItemAnimation = ItemEffectState.isDriverInputSuppressed(localP2State.itemEffect),
+					worldQuery = worldQuery,
+				})
+				localP2State.airborneDescentTicks = nextP2Descent
 				if
-					(localP2State.pos.y < activeTrack.voidResetYMeters or localP2State.resetTriggered)
+					(localP2State.pos.y < activeTrack.voidResetYMeters or localP2State.resetTriggered or p2EdgeRescue)
 					and not KartSolver.isRescuing(localP2State)
 				then
 					triggerKartRescue(localP2State, localP2State.profile)
@@ -1610,11 +1778,23 @@ function GreyboxKartServer.start()
 			for _, entry in entries do
 				playerCount += 1
 				playerFallbackIdx += 1
+				local pEdgeRescue, nextPDescent = EdgeRescue.evaluate({
+					numWheelsGrounded = KartSolver.countGroundedWheels(entry.state),
+					pos = entry.state.pos,
+					linVelY = entry.state.linVel.y,
+					airborneDescentTicks = entry.state.airborneDescentTicks,
+					racePhase = racePhase,
+					isRescuing = KartSolver.isRescuing(entry.state),
+					hasItemAnimation = ItemEffectState.isDriverInputSuppressed(entry.state.itemEffect),
+					worldQuery = worldQuery,
+				})
+				entry.state.airborneDescentTicks = nextPDescent
 				if
 					(
 						entry.resetRequested
 						or entry.state.pos.y < activeTrack.voidResetYMeters
 						or entry.state.resetTriggered
+						or pEdgeRescue
 					) and not KartSolver.isRescuing(entry.state)
 				then
 					if entry.state.resetTriggered then
@@ -1810,6 +1990,16 @@ function GreyboxKartServer.start()
 			local ssBonus = math.max(s.slipstream.bonusTime, fadeRatio)
 			return ssTime, ssBonus
 		end
+		local function resolveVariantIdx(sid: string, defaultIdx: number, playerObj: Player?): number
+			local ov = Workspace:GetAttribute("OpenKartVariantOverride_" .. sid)
+			if type(ov) == "number" then
+				return math.clamp(math.floor(ov), 1, 6)
+			end
+			if playerObj ~= nil then
+				return SkinVariantPalette.nameToIndex(SettingsStore.getCachedVariantName(playerObj))
+			end
+			return defaultIdx
+		end
 		local dummySSTime, dummySSBonus = getRemoteSlipstreamTimes(dummyState)
 		local dummyTel = KartSolver.getTelemetry(dummyState)
 		local dummyRemoteState: GreyboxProtocol.RemoteKartState = {
@@ -1838,10 +2028,14 @@ function GreyboxKartServer.start()
 			raceFinished = dummyState.race.raceFinished,
 			finishTick = dummyState.race.finishTick,
 			bestLapTicks = dummyState.race.bestLapTicks,
+			lapStartTick = dummyState.race.lapStartTick,
 			rescueTicks = dummyState.rescueTicks,
+			heldPowerup = dummyState.heldPowerup,
+			heldPowerupCount = dummyState.heldPowerupCount,
 			trackNodeIdx = dummyAI.trackNodeIdx,
 			slipstreamTime = dummySSTime,
 			slipstreamBonusTime = dummySSBonus,
+			skinVariantIdx = resolveVariantIdx(TestDummyKart.DUMMY_STRING_ID, 5, nil),
 		}
 
 		for _, entry in entries do
@@ -1885,9 +2079,10 @@ function GreyboxKartServer.start()
 				if dummyEnabled then
 					table.insert(remotesForPlayer, dummyRemoteState)
 				end
-				for _, extra in extraAIs do
+				for extraIdx, extra in extraAIs do
 					local eTel = KartSolver.getTelemetry(extra.state)
 					local eSSTime, eSSBonus = getRemoteSlipstreamTimes(extra.state)
+					local defaultBotVar = ((extraIdx + 2) % 6) + 1
 					table.insert(remotesForPlayer, {
 						id = extra.sid,
 						kartId = extra.state.profile.kartId,
@@ -1914,10 +2109,14 @@ function GreyboxKartServer.start()
 						raceFinished = extra.state.race.raceFinished,
 						finishTick = extra.state.race.finishTick,
 						bestLapTicks = extra.state.race.bestLapTicks,
+						lapStartTick = extra.state.race.lapStartTick,
 						rescueTicks = extra.state.rescueTicks,
+						heldPowerup = extra.state.heldPowerup,
+						heldPowerupCount = extra.state.heldPowerupCount,
 						trackNodeIdx = extra.ai.trackNodeIdx,
 						slipstreamTime = eSSTime,
 						slipstreamBonusTime = eSSBonus,
+						skinVariantIdx = resolveVariantIdx(extra.sid, defaultBotVar, nil),
 					})
 				end
 				if localP2State ~= nil and localP2AI ~= nil then
@@ -1949,10 +2148,14 @@ function GreyboxKartServer.start()
 						raceFinished = localP2State.race.raceFinished,
 						finishTick = localP2State.race.finishTick,
 						bestLapTicks = localP2State.race.bestLapTicks,
+						lapStartTick = localP2State.race.lapStartTick,
 						rescueTicks = localP2State.rescueTicks,
+						heldPowerup = localP2State.heldPowerup,
+						heldPowerupCount = localP2State.heldPowerupCount,
 						trackNodeIdx = localP2AI.trackNodeIdx,
 						slipstreamTime = p2SSTime,
 						slipstreamBonusTime = p2SSBonus,
+						skinVariantIdx = resolveVariantIdx(LOCAL_P2_STRING_ID, 3, nil),
 					})
 				end
 				for _, other in entries do
@@ -1986,10 +2189,14 @@ function GreyboxKartServer.start()
 							raceFinished = other.state.race.raceFinished,
 							finishTick = other.state.race.finishTick,
 							bestLapTicks = other.state.race.bestLapTicks,
+							lapStartTick = other.state.race.lapStartTick,
 							rescueTicks = other.state.rescueTicks,
+							heldPowerup = other.state.heldPowerup,
+							heldPowerupCount = other.state.heldPowerupCount,
 							trackNodeIdx = other.progress.trackNodeIdx,
 							slipstreamTime = oSSTime,
 							slipstreamBonusTime = oSSBonus,
+							skinVariantIdx = resolveVariantIdx(sid, 1, other.player),
 						})
 					end
 				end

@@ -152,6 +152,7 @@ export type KartState = {
 	lastRescuePos: Vec3,
 	lastRescueYawRad: number,
 	rescueTicks: number,
+	airborneDescentTicks: number,
 	-- AI stuck watchdog & race-wide fastest lap (deterministic, replicated in NetState)
 	aiStuckTicks: number,
 	aiLastProgressDist: number,
@@ -418,6 +419,7 @@ function KartSolver.createState(
 		lastRescuePos = { x = pos.x, y = pos.y, z = pos.z },
 		lastRescueYawRad = spawnYawRad or 0.0,
 		rescueTicks = 0,
+		airborneDescentTicks = 0,
 		aiStuckTicks = 0,
 		aiLastProgressDist = 0.0,
 		fastestLapTicks = 0,
@@ -774,6 +776,16 @@ function KartSolver.isRescuing(state: KartState): boolean
 	return state.itemEffect.effectType == ItemEffectState.EFFECT_RESCUE and state.itemEffect.ticksRemaining > 0
 end
 
+function KartSolver.countGroundedWheels(state: KartState): number
+	local count = 0
+	for i = 1, 4 do
+		if state.wheels[i].isInContact then
+			count += 1
+		end
+	end
+	return count
+end
+
 -- Continuously records nearest valid driveline quad center & tangent when grounded on drivable terrain,
 -- clamped so it never advances past an uncrossed checkline (src/tracks/track_sector.cpp:L54-L139).
 function KartSolver.updateLastRescuePose(
@@ -870,6 +882,7 @@ function KartSolver.triggerRescue(state: KartState, targetPos: Vec3, targetYawRa
 	state.timedRotationTicks = 0
 	state.timedRotationRate = 0.0
 	state.stuckTicks = 0
+	state.airborneDescentTicks = 0
 	local targetRot = if targetYawRad ~= 0
 		then Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, targetYawRad)
 		else Math3D.quatIdentity()
@@ -1743,6 +1756,9 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 	end
 	state.numWheelsOnGround = numGrounded
 	state.isOnGround = (numGrounded == 4)
+	if numGrounded > 0 then
+		state.airborneDescentTicks = 0
+	end
 
 	-- 2b. Surface material effects: slowdown, reset, pushback (kart.cpp:L1709-L1737, L2445-L2460)
 	state.resetTriggered = false

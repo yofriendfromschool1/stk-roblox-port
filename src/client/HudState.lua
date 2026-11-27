@@ -35,6 +35,8 @@ export type RaceHudPayload = {
 	startupBoostMps: number,
 	startupBoostFired: boolean,
 	startupPenaltyTicks: number,
+	rescueTicks: number?,
+	resetSeq: number?,
 }
 
 export type InterpolatedHudState = {
@@ -71,6 +73,8 @@ export type InterpolatedHudState = {
 	startupBoostMps: number,
 	startupBoostFired: boolean,
 	startupPenaltyTicks: number,
+	rescueTicks: number,
+	resetSeq: number,
 }
 
 local currentState: InterpolatedHudState = {
@@ -107,6 +111,8 @@ local currentState: InterpolatedHudState = {
 	startupBoostMps = 0.0,
 	startupBoostFired = false,
 	startupPenaltyTicks = 0,
+	rescueTicks = 0,
+	resetSeq = 0,
 }
 
 local HudState = {}
@@ -191,6 +197,8 @@ function HudState.publish(
 		currentState.startupBoostMps = raceHud.startupBoostMps
 		currentState.startupBoostFired = raceHud.startupBoostFired
 		currentState.startupPenaltyTicks = raceHud.startupPenaltyTicks
+		currentState.rescueTicks = raceHud.rescueTicks or 0
+		currentState.resetSeq = raceHud.resetSeq or 0
 	end
 end
 

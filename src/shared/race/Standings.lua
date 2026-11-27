@@ -15,6 +15,9 @@ export type StandingsEntry = {
 	finished: boolean?,
 	finishTime: number?,
 	bestLapTicks: number?,
+	lapStartTick: number?,
+	heldPowerup: number?,
+	heldPowerupCount: number?,
 }
 
 export type RankedEntry = {

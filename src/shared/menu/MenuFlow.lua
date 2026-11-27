@@ -28,6 +28,7 @@ export type SessionConfig = {
 	difficulty: Difficulty,
 	laps: number,
 	aiCount: number,
+	reverse: boolean,
 }
 
 export type MenuState = {
@@ -114,6 +115,7 @@ function MenuFlow.sanitizeSessionConfig(raw: { [string]: any }?): SessionConfig
 	local laps = math.clamp(lapsRaw, 1, 20)
 	local aiRaw = if type(src.aiCount) == "number" then math.floor(src.aiCount + 0.5) else 3
 	local aiCount = if raceType == "TIME_TRIAL" then 0 else math.clamp(aiRaw, 0, 11)
+	local reverse = src.reverse == true
 
 	return {
 		playMode = playMode,
@@ -123,6 +125,7 @@ function MenuFlow.sanitizeSessionConfig(raw: { [string]: any }?): SessionConfig
 		difficulty = difficulty,
 		laps = laps,
 		aiCount = aiCount,
+		reverse = reverse,
 	}
 end
 
@@ -189,6 +192,7 @@ function MenuFlow.setConfig(state: MenuState, patch: { [string]: any }): ()
 		difficulty = if patch.difficulty ~= nil then patch.difficulty else state.config.difficulty,
 		laps = if patch.laps ~= nil then patch.laps else state.config.laps,
 		aiCount = if patch.aiCount ~= nil then patch.aiCount else state.config.aiCount,
+		reverse = if patch.reverse ~= nil then patch.reverse else state.config.reverse,
 	}
 	state.config = MenuFlow.sanitizeSessionConfig(merged)
 end

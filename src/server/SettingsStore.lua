@@ -15,6 +15,7 @@ local DATASTORE_NAME = "OpenKartPlayerSettings_v1"
 local store: DataStore? = nil
 local storeAvailable = false
 local sessionCache: { [number]: SettingsSchema.UserSettings } = {}
+local saveListeners: { (player: Player, settings: SettingsSchema.UserSettings) -> () } = {}
 
 local function tryGetStore(): DataStore?
 	if store ~= nil then
@@ -59,9 +60,30 @@ function SettingsStore.loadForPlayer(player: Player): (SettingsSchema.UserSettin
 	return fallback, false
 end
 
+function SettingsStore.getCachedVariantName(player: Player): SettingsSchema.SkinVariantName
+	local cached = sessionCache[player.UserId]
+	if cached ~= nil then
+		return cached.ui.skinVariant
+	end
+	return "Peach"
+end
+
+function SettingsStore.onSettingsSaved(cb: (player: Player, settings: SettingsSchema.UserSettings) -> ()): () -> ()
+	table.insert(saveListeners, cb)
+	return function()
+		local idx = table.find(saveListeners, cb)
+		if idx then
+			table.remove(saveListeners, idx)
+		end
+	end
+end
+
 function SettingsStore.saveForPlayer(player: Player, raw: any): (SettingsSchema.UserSettings, boolean)
 	local sanitized = SettingsSchema.sanitize(raw)
 	sessionCache[player.UserId] = sanitized
+	for _, cb in ipairs(saveListeners) do
+		cb(player, sanitized)
+	end
 	local ds = tryGetStore()
 	if ds ~= nil then
 		local key = "u_" .. tostring(player.UserId)

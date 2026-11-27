@@ -31,6 +31,9 @@ local suites = {
 	{ name = "KartRoster", tests = require("./KartRoster.spec") },
 	{ name = "PhaseABFixes", tests = require("./PhaseABFixes.spec") },
 	{ name = "CameraProjectileAnim", tests = require("./CameraProjectileAnim.spec") },
+	{ name = "CameraComfortAndHud", tests = require("./CameraComfortAndHud.spec") },
+	{ name = "EdgeRescueVoteAndGaps", tests = require("./EdgeRescueVoteAndGaps.spec") },
+	{ name = "NametagAndCartoonSkin", tests = require("./NametagAndCartoonSkin.spec") },
 }
 
 local passed = 0

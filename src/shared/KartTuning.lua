@@ -491,6 +491,12 @@ KartTuning.camera = {
 	backwardAboveKart = 0.75, -- camera_normal.cpp:L226
 	reverseReturnBack = 3.0, -- camera.cpp:L203 (abs(-3) offset on CM_REVERSE -> CM_NORMAL)
 	reverseReturnUp = 1.6, -- camera.cpp:L203
+	-- Comfort divergence logged in docs/divergences.md (deadzone, critically-damped Y spring, velocity clamp, look low-pass)
+	verticalDeadzoneStuds = 0.35,
+	verticalStiffness = 28.0,
+	verticalDamping = 10.6,
+	verticalMaxVelStudsPerSec = 26.0,
+	lookTargetSmoothSec = 0.12,
 }
 
 local DIFFICULTY_ALIASES: { [string]: "easy" | "medium" | "hard" | "best" } = {

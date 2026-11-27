@@ -142,4 +142,24 @@ function KartVisualMath.computeSwatterAnimation(
 	}
 end
 
+export type BombArrowState = {
+	timeLeftSec: number,
+	angleDeg: number,
+	urgentFlash: boolean,
+}
+
+-- Ported from src/items/attachment.cpp:L684-L692 (60-step counterclockwise dial down to 0 at detonation)
+function KartVisualMath.computeBombArrowState(ticksLeft: number): BombArrowState
+	local clampedTicks = math.max(0, ticksLeft)
+	local timeLeftSec = FixedStep.ticksToTime(clampedTicks)
+	local frac60 = math.clamp(timeLeftSec, 0.0, 60.0)
+	local angleDeg = -(frac60 * 6.0)
+	local urgentFlash = timeLeftSec <= 3.0 and (math.floor(clampedTicks / 12) % 2 == 0)
+	return {
+		timeLeftSec = timeLeftSec,
+		angleDeg = angleDeg,
+		urgentFlash = urgentFlash,
+	}
+end
+
 return table.freeze(KartVisualMath)

@@ -39,10 +39,14 @@ export type RemoteKartState = {
 	raceFinished: boolean?,
 	finishTick: number?,
 	bestLapTicks: number?,
+	lapStartTick: number?,
 	rescueTicks: number?,
+	heldPowerup: number?,
+	heldPowerupCount: number?,
 	trackNodeIdx: number?,
 	slipstreamTime: number?,
 	slipstreamBonusTime: number?,
+	skinVariantIdx: number?,
 }
 
 export type ClientInputPacket = {
@@ -132,7 +136,7 @@ local FLYABLE_CUSTOM_PHYS_BYTES = 12
 local FLYABLE_TARGET_BYTES = 8
 local FLYABLE_RUBBER_BYTES = 8
 local FLYABLE_PLUNGER_BYTES = 23
-local REMOTE_KART_FIXED_BYTES = 74
+local REMOTE_KART_FIXED_BYTES = 80
 local SLIPSTREAM_BYTES = 65
 
 local function defaultFlyablePhys(kind: Flyable.FlyableKind): (number, number, number)
@@ -703,9 +707,14 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writei16(buf, rOff + 60, clampI16(rk.attachmentTicksLeft or 0))
 			buffer.writeu8(buf, rOff + 62, clampU8(rk.nextCheckpoint or 0))
 			buffer.writei32(buf, rOff + 63, clampI32(rk.finishTick or -1))
-			buffer.writeu8(buf, rOff + 67, clampU8(KART_ID_TO_IDX[rk.kartId or "tux"] or 16))
+			local kartIdxByte = bit32.band(KART_ID_TO_IDX[rk.kartId or "tux"] or 16, 31)
+			local varBits = bit32.lshift(math.clamp((rk.skinVariantIdx or 1) - 1, 0, 7), 5)
+			buffer.writeu8(buf, rOff + 67, kartIdxByte + varBits)
 			buffer.writei32(buf, rOff + 68, clampI32(rk.bestLapTicks or -1))
 			buffer.writeu16(buf, rOff + 72, clampU16(rk.rescueTicks or 0))
+			buffer.writeu8(buf, rOff + 74, clampU8(rk.heldPowerup or 0))
+			buffer.writeu8(buf, rOff + 75, clampU8(rk.heldPowerupCount or 0))
+			buffer.writei32(buf, rOff + 76, clampI32(rk.lapStartTick or 240))
 			off = rOff + REMOTE_KART_FIXED_BYTES
 			if rk.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
 				local rSwFlags = bit32.band(rk.swatterPhase or 0, 3) + (if rk.swatterBombMode then 4 else 0)
@@ -1346,9 +1355,13 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				attachmentTicksLeft = buffer.readi16(buf, rOff + 60),
 				nextCheckpoint = buffer.readu8(buf, rOff + 62),
 				finishTick = buffer.readi32(buf, rOff + 63),
-				kartId = KartTuning.KART_ORDER[buffer.readu8(buf, rOff + 67)] or "tux",
+				kartId = KartTuning.KART_ORDER[bit32.band(buffer.readu8(buf, rOff + 67), 31)] or "tux",
 				bestLapTicks = buffer.readi32(buf, rOff + 68),
 				rescueTicks = buffer.readu16(buf, rOff + 72),
+				heldPowerup = buffer.readu8(buf, rOff + 74),
+				heldPowerupCount = buffer.readu8(buf, rOff + 75),
+				lapStartTick = buffer.readi32(buf, rOff + 76),
+				skinVariantIdx = math.clamp(bit32.rshift(buffer.readu8(buf, rOff + 67), 5) + 1, 1, 6),
 			})
 			off = rNextOff
 		end

@@ -16,6 +16,7 @@ local KartBoundsData = require(Shared.kart.KartBoundsData)
 local KartTuning = require(Shared.KartTuning)
 local KartVisualMath = require(Shared.kart.KartVisualMath)
 local RefereePresentation = require("./RefereePresentation")
+local SkinVariantPalette = require(Shared.settings.SkinVariantPalette)
 local SlipstreamVfx = require("./SlipstreamVfx")
 local SlipstreamVfxMath = require(Shared.kart.SlipstreamVfxMath)
 local Units = require(Shared.Units)
@@ -63,6 +64,13 @@ export type VisualKart = {
 	nitroLight: PointLight,
 	slipstreamVfx: SlipstreamVfx.SlipstreamVfxInstance,
 	rescueBird: RefereePresentation.RescueBirdHandle?,
+	bombGui: BillboardGui?,
+	bombHand: Frame?,
+	bombSecLabel: TextLabel?,
+	nametagGui: BillboardGui?,
+	nametagLabel: TextLabel?,
+	variantHighlight: Highlight?,
+	appliedVariantIdx: number?,
 	kartHeightM: number,
 }
 
@@ -335,7 +343,13 @@ local function buildGreyboxFallback(model: Model, profile: KartTuning.KartProfil
 	return staticParts, wheels
 end
 
-function KartPresentation.create(kartKey: Player | string, profile: KartTuning.KartProfile, kartId: string?): VisualKart
+function KartPresentation.create(
+	kartKey: Player | string,
+	profile: KartTuning.KartProfile,
+	kartId: string?,
+	nametagText: string?,
+	skinVariant: (string | number)?
+): VisualKart
 	local keyStr = if typeof(kartKey) == "string" then kartKey else tostring((kartKey :: Player).UserId)
 	local folder = Workspace:FindFirstChild(GreyboxProtocol.LOCAL_KARTS_FOLDER)
 	if not folder then
@@ -503,9 +517,119 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 	local slipstreamVfx = SlipstreamVfx.create(model, profile)
 	local rescueBird = RefereePresentation.createRescueBird(model)
 
+	local bombGui: BillboardGui? = nil
+	local bombHand: Frame? = nil
+	local bombSecLabel: TextLabel? = nil
+	local bombAttach = attachments[ItemTuning.ATTACHMENT_BOMB]
+	if bombAttach ~= nil then
+		local bg = Instance.new("BillboardGui")
+		bg.Name = "BombCountdownGui"
+		bg.Adornee = bombAttach.part
+		bg.Size = UDim2.fromOffset(46, 46)
+		bg.StudsOffsetWorldSpace = Vector3.new(0, 1.45, 0)
+		bg.AlwaysOnTop = false
+		bg.MaxDistance = 120
+		bg.Enabled = false
+		bg.Parent = bombAttach.part
+
+		local dial = Instance.new("Frame")
+		dial.Name = "Dial"
+		dial.Size = UDim2.fromScale(1, 1)
+		dial.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+		dial.BackgroundTransparency = 0.15
+		dial.BorderSizePixel = 0
+		dial.Parent = bg
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = dial
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(255, 190, 40)
+		stroke.Thickness = 2
+		stroke.Parent = dial
+
+		local handPivot = Instance.new("Frame")
+		handPivot.Name = "ArrowPivot"
+		handPivot.AnchorPoint = Vector2.new(0.5, 0.5)
+		handPivot.Position = UDim2.fromScale(0.5, 0.5)
+		handPivot.Size = UDim2.fromScale(1, 1)
+		handPivot.BackgroundTransparency = 1
+		handPivot.Parent = dial
+
+		local hand = Instance.new("Frame")
+		hand.Name = "ArrowHand"
+		hand.AnchorPoint = Vector2.new(0.5, 1)
+		hand.Position = UDim2.fromScale(0.5, 0.5)
+		hand.Size = UDim2.fromOffset(4, 17)
+		hand.BackgroundColor3 = Color3.fromRGB(255, 70, 50)
+		hand.BorderSizePixel = 0
+		hand.Parent = handPivot
+
+		local secLbl = Instance.new("TextLabel")
+		secLbl.Name = "SecondsLabel"
+		secLbl.AnchorPoint = Vector2.new(0.5, 0.5)
+		secLbl.Position = UDim2.fromScale(0.5, 0.5)
+		secLbl.Size = UDim2.fromOffset(26, 16)
+		secLbl.BackgroundTransparency = 1
+		secLbl.Font = Enum.Font.FredokaOne
+		secLbl.TextSize = 12
+		secLbl.TextColor3 = Color3.fromRGB(255, 240, 190)
+		secLbl.TextStrokeTransparency = 0.1
+		secLbl.Text = "30"
+		secLbl.Parent = dial
+
+		bombGui = bg
+		bombHand = handPivot
+		bombSecLabel = secLbl
+	end
+
+	-- Nametag BillboardGui attached after hydration completes (world.cpp:L563-L564: nil for local kart)
+	-- Constant screen-pixel size with UITextSizeConstraint + world-space 1.5 m offset (kart.cpp:L3436)
+	local nametagGui: BillboardGui? = nil
+	local nametagLabel: TextLabel? = nil
+	if type(nametagText) == "string" and #nametagText > 0 and model.PrimaryPart ~= nil then
+		local nt = Instance.new("BillboardGui")
+		nt.Name = "KartNametag"
+		nt.Adornee = model.PrimaryPart
+		nt.Size = UDim2.fromOffset(180, 26)
+		nt.StudsOffsetWorldSpace = Vector3.new(0, 1.5, 0)
+		nt.MaxDistance = 250
+		nt.AlwaysOnTop = false
+		nt.Parent = model.PrimaryPart
+
+		local ntLbl = Instance.new("TextLabel")
+		ntLbl.Name = "NameLabel"
+		ntLbl.Size = UDim2.fromScale(1, 1)
+		ntLbl.BackgroundTransparency = 1
+		ntLbl.Font = Enum.Font.FredokaOne
+		ntLbl.TextScaled = true
+		ntLbl.TextColor3 = Color3.fromRGB(255, 190, 55)
+		ntLbl.TextStrokeColor3 = Color3.fromRGB(15, 15, 20)
+		ntLbl.TextStrokeTransparency = 0.0
+		ntLbl.Text = nametagText
+		ntLbl.Parent = nt
+
+		local sizeConstraint = Instance.new("UITextSizeConstraint")
+		sizeConstraint.MinTextSize = 14
+		sizeConstraint.MaxTextSize = 22
+		sizeConstraint.Parent = ntLbl
+
+		nametagGui = nt
+		nametagLabel = ntLbl
+	end
+
+	local variantHighlight = Instance.new("Highlight")
+	variantHighlight.Name = "OpenKartVariantTint"
+	variantHighlight.Adornee = model
+	variantHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	variantHighlight.FillTransparency = 0.72
+	variantHighlight.OutlineTransparency = 0.15
+	variantHighlight.Parent = model
+
 	model.Parent = folder
 
-	return {
+	local createdVisual: VisualKart = {
 		model = model,
 		isTexturedMesh = isTexturedMesh,
 		staticParts = staticParts,
@@ -528,8 +652,17 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 		nitroLight = nitroLight,
 		slipstreamVfx = slipstreamVfx,
 		rescueBird = rescueBird,
+		bombGui = bombGui,
+		bombHand = bombHand,
+		bombSecLabel = bombSecLabel,
+		nametagGui = nametagGui,
+		nametagLabel = nametagLabel,
+		variantHighlight = variantHighlight,
+		appliedVariantIdx = nil,
 		kartHeightM = profile.collisionHeight,
 	}
+	KartPresentation.applySkinVariant(createdVisual, skinVariant)
+	return createdVisual
 end
 
 export type SwatterAnimInput = {
@@ -669,6 +802,18 @@ function KartPresentation.update(
 
 	SlipstreamVfx.update(visuals.slipstreamVfx, kartOriginCf, slipstreamVfxInput)
 	RefereePresentation.updateRescueBird(visuals.rescueBird, kartOriginCf, visuals.kartHeightM, rescueTicks or 0)
+	if visuals.bombGui ~= nil and visuals.bombHand ~= nil and visuals.bombSecLabel ~= nil then
+		local showBombDial = activeAttach == ItemTuning.ATTACHMENT_BOMB
+		visuals.bombGui.Enabled = showBombDial
+		if showBombDial then
+			local bState = KartVisualMath.computeBombArrowState(attachmentTicksLeft or 0)
+			visuals.bombHand.Rotation = bState.angleDeg
+			visuals.bombSecLabel.Text = tostring(math.ceil(bState.timeLeftSec))
+			visuals.bombSecLabel.TextColor3 = if bState.urgentFlash
+				then Color3.fromRGB(255, 65, 55)
+				else Color3.fromRGB(255, 240, 190)
+		end
+	end
 end
 
 local function applyEmitterSettings(emitter: ParticleEmitter, particleMultiplier: number)
@@ -681,6 +826,28 @@ local function applyEmitterSettings(emitter: ParticleEmitter, particleMultiplier
 	emitter.Rate = (baseRate :: number) * mult
 	if mult <= 0 then
 		emitter.Enabled = false
+	end
+end
+
+function KartPresentation.applySkinVariant(visual: VisualKart, variantOrIdx: (string | number)?): ()
+	local resolvedIdx = if type(variantOrIdx) == "number"
+		then math.clamp(math.floor(variantOrIdx), 1, #SkinVariantPalette.VARIANT_ORDER)
+		else SkinVariantPalette.nameToIndex(if type(variantOrIdx) == "string" then variantOrIdx else nil)
+	if visual.appliedVariantIdx == resolvedIdx then
+		return
+	end
+	visual.appliedVariantIdx = resolvedIdx
+	local pal = SkinVariantPalette.getPalette(resolvedIdx)
+	local c = Color3.fromRGB(pal.variantColor.r, pal.variantColor.g, pal.variantColor.b)
+	if visual.variantHighlight ~= nil then
+		visual.variantHighlight.FillColor = c
+		visual.variantHighlight.OutlineColor = c
+	end
+	if visual.nametagLabel ~= nil then
+		local st = pal.nametagStroke
+		visual.nametagLabel.TextColor3 = c
+		visual.nametagLabel.TextStrokeColor3 = Color3.fromRGB(st.r, st.g, st.b)
+		visual.nametagLabel.TextStrokeTransparency = 0.0
 	end
 end
 

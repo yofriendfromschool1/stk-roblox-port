@@ -223,7 +223,7 @@ end
 
 -- Converts active nextCheckpoint into a monotonic integer within a lap for Standings.compute:
 -- pre-start (lap < 0) -> 0; post-last-activate (nextCheckpoint == 0, lap >= 0) -> maxActivateGroup + 1;
--- otherwise nextCheckpoint.
+-- otherwise BFS hop distance from lap group 0 along otherIds (supports both forward & reverse).
 function CheckManager.getMonotonicCheckpoint(
 	lap: number,
 	nextCheckpoint: number,
@@ -236,7 +236,33 @@ function CheckManager.getMonotonicCheckpoint(
 	if nextCheckpoint == 0 then
 		return graph.maxActivateGroup + 1
 	end
-	return nextCheckpoint
+	local distByGroup: { [number]: number } = { [0] = 0 }
+	local queue: { number } = { 0 }
+	local head = 1
+	while head <= #queue do
+		local g = queue[head]
+		head += 1
+		local d = distByGroup[g]
+		local list = graph.byGroup[g]
+		if list ~= nil then
+			for _, chk in list do
+				for _, targetId in chk.otherIds do
+					local targetGroup = 0
+					for _, c in checkpoints do
+						if c.id == targetId then
+							targetGroup = if c.kind == "lap" then 0 else c.id
+							break
+						end
+					end
+					if targetGroup ~= 0 and distByGroup[targetGroup] == nil then
+						distByGroup[targetGroup] = d + 1
+						table.insert(queue, targetGroup)
+					end
+				end
+			end
+		end
+	end
+	return distByGroup[nextCheckpoint] or nextCheckpoint
 end
 
 export type RescueWorldQuery = {

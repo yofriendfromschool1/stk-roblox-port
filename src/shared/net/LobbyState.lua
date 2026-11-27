@@ -8,7 +8,7 @@
 local CatalogData = require("../menu/CatalogData")
 local MenuFlow = require("../menu/MenuFlow")
 
-export type LobbyPhase = "LOBBY" | "RACING"
+export type LobbyPhase = "LOBBY" | "VOTING" | "RACING"
 
 export type LobbySettings = {
 	serverName: string,
@@ -18,7 +18,23 @@ export type LobbySettings = {
 	raceType: MenuFlow.RaceType,
 	maxPlayers: number,
 	aiCount: number,
+	reverse: boolean,
 	hasPassword: boolean,
+}
+
+export type VoteChoice = {
+	trackId: string,
+	laps: number,
+	reverse: boolean,
+}
+
+export type VotingSnapshot = {
+	active: boolean,
+	endsAtSec: number,
+	remainingSec: number,
+	candidates: { string },
+	votes: { [number]: VoteChoice },
+	resolved: VoteChoice?,
 }
 
 export type LobbyPlayer = {
@@ -35,6 +51,7 @@ export type PublicLobbySnapshot = {
 	settingsLocked: boolean,
 	settings: LobbySettings,
 	players: { LobbyPlayer },
+	voting: VotingSnapshot,
 }
 
 export type Lobby = {
@@ -44,6 +61,13 @@ export type Lobby = {
 	settings: LobbySettings,
 	_password: string,
 	players: { LobbyPlayer },
+	voting: {
+		active: boolean,
+		endsAtSec: number,
+		candidates: { string },
+		votes: { [number]: VoteChoice },
+		resolved: VoteChoice?,
+	},
 }
 
 local VALID_RACE_TYPES: { [string]: boolean } = {
@@ -163,10 +187,18 @@ function LobbyState.create(initial: { [string]: any }?): Lobby
 			raceType = raceType,
 			maxPlayers = maxPlayers,
 			aiCount = aiCount,
+			reverse = src.reverse == true,
 			hasPassword = #pw > 0,
 		},
 		_password = pw,
 		players = {},
+		voting = {
+			active = false,
+			endsAtSec = 0,
+			candidates = {},
+			votes = {},
+			resolved = nil,
+		},
 	}
 end
 
@@ -294,6 +326,12 @@ function LobbyState.updateSettings(state: Lobby, actorUserId: number, patch: { [
 			raceSettingsChanged = true
 		end
 	end
+	if patch.reverse ~= nil and type(patch.reverse) == "boolean" then
+		if state.settings.reverse ~= patch.reverse then
+			state.settings.reverse = patch.reverse
+			raceSettingsChanged = true
+		end
+	end
 	if state.settings.raceType == "TIME_TRIAL" then
 		state.settings.aiCount = 0
 	end
@@ -376,19 +414,175 @@ function LobbyState.startRace(state: Lobby, actorUserId: number): (boolean, Menu
 		difficulty = state.settings.difficulty,
 		laps = state.settings.laps,
 		aiCount = state.settings.aiCount,
+		reverse = state.settings.reverse,
 	})
 	return true, cfg, nil
+end
+
+local function buildPlayableTrackCandidates(): { string }
+	local out: { string } = {}
+	for _, entry in ipairs(CatalogData.tracks) do
+		if entry.playable then
+			table.insert(out, entry.id)
+		end
+	end
+	return out
+end
+
+function LobbyState.beginVoting(
+	state: Lobby,
+	actorUserId: number,
+	nowSec: number,
+	durationSec: number?
+): (boolean, string?)
+	local ok, reason = LobbyState.canStart(state, actorUserId)
+	if not ok then
+		return false, reason
+	end
+	state.settingsLocked = true
+	state.phase = "VOTING"
+	state.voting.active = true
+	state.voting.endsAtSec = nowSec + (durationSec or 25.0)
+	state.voting.candidates = buildPlayableTrackCandidates()
+	table.clear(state.voting.votes)
+	state.voting.resolved = nil
+	return true, nil
+end
+
+function LobbyState.submitVote(state: Lobby, userId: number, rawVote: { [string]: any }): (boolean, boolean, string?)
+	if state.phase ~= "VOTING" or not state.voting.active then
+		return false, false, "NOT_VOTING"
+	end
+	local idx = findPlayerIndex(state, userId)
+	if idx == nil or not state.players[idx].admitted then
+		return false, false, "NOT_ADMITTED"
+	end
+	if type(rawVote) ~= "table" then
+		return false, false, "INVALID_VOTE"
+	end
+	local trackId = if type(rawVote.trackId) == "string"
+			and table.find(state.voting.candidates, rawVote.trackId) ~= nil
+		then rawVote.trackId
+		else state.settings.trackId
+	local laps = math.clamp(
+		if type(rawVote.laps) == "number" then math.floor(rawVote.laps + 0.5) else state.settings.laps,
+		1,
+		20
+	)
+	local rev = if type(rawVote.reverse) == "boolean" then rawVote.reverse else state.settings.reverse
+
+	state.voting.votes[userId] = {
+		trackId = trackId,
+		laps = laps,
+		reverse = rev,
+	}
+
+	local admittedCount = 0
+	local votedCount = 0
+	for _, p in ipairs(state.players) do
+		if p.admitted then
+			admittedCount += 1
+			if state.voting.votes[p.userId] ~= nil then
+				votedCount += 1
+			end
+		end
+	end
+	return true, (admittedCount > 0 and votedCount >= admittedCount), nil
+end
+
+function LobbyState.resolveVoting(state: Lobby): MenuFlow.SessionConfig
+	local trackCounts: { [string]: number } = {}
+	local lapCounts: { [number]: number } = {}
+	local revTrue = 0
+	local revFalse = 0
+	local totalVotes = 0
+
+	for _, p in ipairs(state.players) do
+		if p.admitted then
+			local v = state.voting.votes[p.userId]
+			if v ~= nil then
+				totalVotes += 1
+				trackCounts[v.trackId] = (trackCounts[v.trackId] or 0) + 1
+				lapCounts[v.laps] = (lapCounts[v.laps] or 0) + 1
+				if v.reverse then
+					revTrue += 1
+				else
+					revFalse += 1
+				end
+			end
+		end
+	end
+
+	local winTrack = state.settings.trackId
+	local winLaps = state.settings.laps
+	local winReverse = state.settings.reverse
+	if totalVotes > 0 then
+		-- Deterministic tiebreak: earliest candidate index in playable list
+		local bestTrackCount = -1
+		for _, cand in ipairs(state.voting.candidates) do
+			local c = trackCounts[cand] or 0
+			if c > bestTrackCount then
+				bestTrackCount = c
+				winTrack = cand
+			end
+		end
+		-- Deterministic tiebreak: lowest lap count
+		local bestLapCount = -1
+		for lapsVal, c in pairs(lapCounts) do
+			if c > bestLapCount or (c == bestLapCount and lapsVal < winLaps) then
+				bestLapCount = c
+				winLaps = lapsVal
+			end
+		end
+		-- Deterministic tiebreak: false before true
+		winReverse = (revTrue > revFalse)
+	end
+
+	state.settings.trackId = winTrack
+	state.settings.laps = winLaps
+	state.settings.reverse = winReverse
+	state.voting.active = false
+	state.voting.resolved = {
+		trackId = winTrack,
+		laps = winLaps,
+		reverse = winReverse,
+	}
+	state.phase = "RACING"
+
+	return MenuFlow.sanitizeSessionConfig({
+		playMode = "ONLINE",
+		raceType = state.settings.raceType,
+		trackId = winTrack,
+		kartId = defaultKartId(),
+		difficulty = state.settings.difficulty,
+		laps = winLaps,
+		aiCount = state.settings.aiCount,
+		reverse = winReverse,
+	})
+end
+
+function LobbyState.tickVoting(state: Lobby, nowSec: number): MenuFlow.SessionConfig?
+	if state.phase ~= "VOTING" or not state.voting.active then
+		return nil
+	end
+	if nowSec >= state.voting.endsAtSec then
+		return LobbyState.resolveVoting(state)
+	end
+	return nil
 end
 
 function LobbyState.returnToLobby(state: Lobby): ()
 	state.phase = "LOBBY"
 	state.settingsLocked = false
+	state.voting.active = false
+	state.voting.resolved = nil
+	table.clear(state.voting.votes)
 	for _, p in ipairs(state.players) do
 		p.ready = false
 	end
 end
 
-function LobbyState.getPublicSnapshot(state: Lobby): PublicLobbySnapshot
+function LobbyState.getPublicSnapshot(state: Lobby, nowSec: number?): PublicLobbySnapshot
 	local playersCopy: { LobbyPlayer } = table.create(#state.players)
 	for i, p in ipairs(state.players) do
 		playersCopy[i] = {
@@ -399,6 +593,13 @@ function LobbyState.getPublicSnapshot(state: Lobby): PublicLobbySnapshot
 			admitted = p.admitted,
 		}
 	end
+	local votesCopy: { [number]: VoteChoice } = {}
+	for uid, v in pairs(state.voting.votes) do
+		votesCopy[uid] = { trackId = v.trackId, laps = v.laps, reverse = v.reverse }
+	end
+	local rem = if state.voting.active and nowSec ~= nil
+		then math.max(0, math.ceil(state.voting.endsAtSec - nowSec))
+		else 0
 	return {
 		phase = state.phase,
 		hostUserId = state.hostUserId,
@@ -411,9 +612,18 @@ function LobbyState.getPublicSnapshot(state: Lobby): PublicLobbySnapshot
 			raceType = state.settings.raceType,
 			maxPlayers = state.settings.maxPlayers,
 			aiCount = state.settings.aiCount,
+			reverse = state.settings.reverse,
 			hasPassword = state.settings.hasPassword,
 		},
 		players = playersCopy,
+		voting = {
+			active = state.voting.active,
+			endsAtSec = state.voting.endsAtSec,
+			remainingSec = rem,
+			candidates = table.clone(state.voting.candidates),
+			votes = votesCopy,
+			resolved = state.voting.resolved,
+		},
 	}
 end
 

@@ -1,9 +1,12 @@
 --!strict
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- Ported from data/gui/screens/options/options_{video,audio,ui,input}.stkgui (STK 1.5).
+-- Ported from data/gui/screens/options/options_{video,audio,ui,input}.stkgui & src/config/user_config.hpp (STK 1.5).
 
 export type GraphicsPreset = "Low" | "Medium" | "High"
+export type TrackDetailLevel = "Low" | "Medium" | "High"
 export type CameraPreset = "Normal" | "Close" | "Far"
+export type SkinName = "Classic" | "Cartoon"
+export type SkinVariantName = "Peach" | "Coal" | "Desert" | "Forest" | "Ocean" | "Ruby"
 
 export type KeyboardBindings = {
 	accelerate: string,
@@ -27,14 +30,20 @@ export type GamepadBindings = {
 	rescue: string,
 }
 
+export type GraphicsSettings = {
+	preset: GraphicsPreset,
+	bloom: boolean,
+	depthOfField: boolean,
+	sunRays: boolean,
+	colorCorrection: boolean,
+	particles: number,
+	shadows: boolean,
+	trackDetail: TrackDetailLevel,
+}
+
 export type UserSettings = {
 	version: number,
-	graphics: {
-		preset: GraphicsPreset,
-		shadows: boolean,
-		particles: number,
-		postEffects: boolean,
-	},
+	graphics: GraphicsSettings,
 	audio: {
 		masterMuted: boolean,
 		sfxVolume: number,
@@ -42,8 +51,12 @@ export type UserSettings = {
 		uiVolume: number,
 	},
 	ui: {
+		skin: SkinName,
+		skinVariant: SkinVariantName,
 		minimapDisplay: number,
+		fontSize: number,
 		showFps: boolean,
+		showOtherPowerups: boolean,
 		cameraPreset: CameraPreset,
 	},
 	input: {
@@ -58,10 +71,30 @@ local VALID_PRESETS: { [string]: boolean } = {
 	High = true,
 }
 
+local VALID_TRACK_DETAIL: { [string]: boolean } = {
+	Low = true,
+	Medium = true,
+	High = true,
+}
+
 local VALID_CAMERA_PRESETS: { [string]: boolean } = {
 	Normal = true,
 	Close = true,
 	Far = true,
+}
+
+local VALID_SKINS: { [string]: boolean } = {
+	Classic = true,
+	Cartoon = true,
+}
+
+local VALID_SKIN_VARIANTS: { [string]: boolean } = {
+	Peach = true,
+	Coal = true,
+	Desert = true,
+	Forest = true,
+	Ocean = true,
+	Ruby = true,
 }
 
 local VALID_KEYBOARD_NAMES: { [string]: boolean } = {
@@ -108,14 +141,47 @@ local VALID_GAMEPAD_NAMES: { [string]: boolean } = {
 
 local SettingsSchema = {}
 
+SettingsSchema.SKIN_ORDER = { "Classic", "Cartoon" } :: { SkinName }
+SettingsSchema.SKIN_VARIANT_ORDER = { "Peach", "Coal", "Desert", "Forest", "Ocean", "Ruby" } :: { SkinVariantName }
+SettingsSchema.TRACK_DETAIL_ORDER = { "Low", "Medium", "High" } :: { TrackDetailLevel }
+
+-- Upstream STK 1.5 font size labels for normal UI range 1..5 (options_screen_ui.cpp:L89-L109)
+local FONT_SIZE_LABELS: { [number]: string } = {
+	[1] = "Very small",
+	[2] = "Small",
+	[3] = "Medium",
+	[4] = "Large",
+	[5] = "Very large",
+}
+
+local FONT_SIZE_SCALES: { [number]: number } = {
+	[1] = 0.80,
+	[2] = 0.90,
+	[3] = 1.00,
+	[4] = 1.12,
+	[5] = 1.25,
+}
+
+-- Upstream STK 1.5 minimap display options 0..3 (options_screen_ui.cpp:L64-L80, user_config.hpp:L1278-L1279)
+local MINIMAP_LABELS: { [number]: string } = {
+	[0] = "In the bottom-left",
+	[1] = "On the right side",
+	[2] = "Hidden",
+	[3] = "Centered",
+}
+
 function SettingsSchema.defaults(): UserSettings
 	return {
-		version = 1,
+		version = 2,
 		graphics = {
 			preset = "High",
-			shadows = true,
+			bloom = true,
+			depthOfField = true,
+			sunRays = true,
+			colorCorrection = true,
 			particles = 2,
-			postEffects = true,
+			shadows = true,
+			trackDetail = "High",
 		},
 		audio = {
 			masterMuted = false,
@@ -124,8 +190,12 @@ function SettingsSchema.defaults(): UserSettings
 			uiVolume = 0.85,
 		},
 		ui = {
-			minimapDisplay = 1,
-			showFps = true,
+			skin = "Classic", -- user_config.hpp:L1269
+			skinVariant = "Peach", -- data/skins/classic/stkskin.xml:L11
+			minimapDisplay = 0, -- user_config.hpp:L1278 (0 bottom-left)
+			fontSize = 3, -- user_config.hpp:L715 (3 Medium)
+			showFps = false, -- user_config.hpp:L652
+			showOtherPowerups = false, -- user_config.hpp:L491
 			cameraPreset = "Normal",
 		},
 		input = {
@@ -178,12 +248,33 @@ function SettingsSchema.sanitize(raw: any): UserSettings
 		if type(gfx.preset) == "string" and VALID_PRESETS[gfx.preset] then
 			out.graphics.preset = gfx.preset :: GraphicsPreset
 		end
+		local legacyPost = if type(gfx.postEffects) == "boolean" then gfx.postEffects else nil
+		if type(gfx.bloom) == "boolean" then
+			out.graphics.bloom = gfx.bloom
+		elseif legacyPost ~= nil then
+			out.graphics.bloom = legacyPost
+		end
+		if type(gfx.depthOfField) == "boolean" then
+			out.graphics.depthOfField = gfx.depthOfField
+		elseif legacyPost ~= nil then
+			out.graphics.depthOfField = legacyPost
+		end
+		if type(gfx.sunRays) == "boolean" then
+			out.graphics.sunRays = gfx.sunRays
+		elseif legacyPost ~= nil then
+			out.graphics.sunRays = legacyPost
+		end
+		if type(gfx.colorCorrection) == "boolean" then
+			out.graphics.colorCorrection = gfx.colorCorrection
+		elseif legacyPost ~= nil then
+			out.graphics.colorCorrection = legacyPost
+		end
+		out.graphics.particles = clampInt(gfx.particles, 0, 2, out.graphics.particles)
 		if type(gfx.shadows) == "boolean" then
 			out.graphics.shadows = gfx.shadows
 		end
-		out.graphics.particles = clampInt(gfx.particles, 0, 2, out.graphics.particles)
-		if type(gfx.postEffects) == "boolean" then
-			out.graphics.postEffects = gfx.postEffects
+		if type(gfx.trackDetail) == "string" and VALID_TRACK_DETAIL[gfx.trackDetail] then
+			out.graphics.trackDetail = gfx.trackDetail :: TrackDetailLevel
 		end
 	end
 
@@ -199,9 +290,19 @@ function SettingsSchema.sanitize(raw: any): UserSettings
 
 	local ui = raw.ui
 	if type(ui) == "table" then
-		out.ui.minimapDisplay = clampInt(ui.minimapDisplay, 0, 2, out.ui.minimapDisplay)
+		if type(ui.skin) == "string" and VALID_SKINS[ui.skin] then
+			out.ui.skin = ui.skin :: SkinName
+		end
+		if type(ui.skinVariant) == "string" and VALID_SKIN_VARIANTS[ui.skinVariant] then
+			out.ui.skinVariant = ui.skinVariant :: SkinVariantName
+		end
+		out.ui.minimapDisplay = clampInt(ui.minimapDisplay, 0, 3, out.ui.minimapDisplay)
+		out.ui.fontSize = clampInt(ui.fontSize, 1, 5, out.ui.fontSize)
 		if type(ui.showFps) == "boolean" then
 			out.ui.showFps = ui.showFps
+		end
+		if type(ui.showOtherPowerups) == "boolean" then
+			out.ui.showOtherPowerups = ui.showOtherPowerups
 		end
 		if type(ui.cameraPreset) == "string" and VALID_CAMERA_PRESETS[ui.cameraPreset] then
 			out.ui.cameraPreset = ui.cameraPreset :: CameraPreset
@@ -235,18 +336,40 @@ function SettingsSchema.sanitize(raw: any): UserSettings
 	return out
 end
 
-function SettingsSchema.applyGraphicsPreset(preset: GraphicsPreset): {
-	preset: GraphicsPreset,
-	shadows: boolean,
-	particles: number,
-	postEffects: boolean,
-}
+function SettingsSchema.applyGraphicsPreset(preset: GraphicsPreset): GraphicsSettings
 	if preset == "Low" then
-		return { preset = "Low", shadows = false, particles = 0, postEffects = false }
+		return {
+			preset = "Low",
+			bloom = false,
+			depthOfField = false,
+			sunRays = false,
+			colorCorrection = false,
+			particles = 0,
+			shadows = false,
+			trackDetail = "Low",
+		}
 	elseif preset == "Medium" then
-		return { preset = "Medium", shadows = true, particles = 1, postEffects = false }
+		return {
+			preset = "Medium",
+			bloom = true,
+			depthOfField = false,
+			sunRays = false,
+			colorCorrection = true,
+			particles = 1,
+			shadows = true,
+			trackDetail = "Medium",
+		}
 	end
-	return { preset = "High", shadows = true, particles = 2, postEffects = true }
+	return {
+		preset = "High",
+		bloom = true,
+		depthOfField = true,
+		sunRays = true,
+		colorCorrection = true,
+		particles = 2,
+		shadows = true,
+		trackDetail = "High",
+	}
 end
 
 function SettingsSchema.getParticleRateMultiplier(particlesLevel: number): number
@@ -256,6 +379,21 @@ function SettingsSchema.getParticleRateMultiplier(particlesLevel: number): numbe
 		return 0.4
 	end
 	return 1.0
+end
+
+function SettingsSchema.getFontSizeLabel(level: number): string
+	local clamped = clampInt(level, 1, 5, 3)
+	return FONT_SIZE_LABELS[clamped] or "Medium"
+end
+
+function SettingsSchema.getFontSizeScale(level: number): number
+	local clamped = clampInt(level, 1, 5, 3)
+	return FONT_SIZE_SCALES[clamped] or 1.0
+end
+
+function SettingsSchema.getMinimapLabel(mode: number): string
+	local clamped = clampInt(mode, 0, 3, 0)
+	return MINIMAP_LABELS[clamped] or "In the bottom-left"
 end
 
 function SettingsSchema.getCameraPresetScale(preset: CameraPreset): {

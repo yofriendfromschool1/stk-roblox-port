@@ -15,28 +15,23 @@ local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local CatalogData = require(Shared.menu.CatalogData)
 local ClassicSkin = require("./menu/ClassicSkin")
 local ClientSessionState = require("./ClientSessionState")
 local ClientSettingsState = require("./ClientSettingsState")
 local FixedStep = require(Shared.sim.FixedStep)
+local HudNotifications = require(Shared.hud.HudNotifications)
 local HudState = require("./HudState")
 local ItemTuning = require(Shared.ItemTuning)
 local RaceHudMath = require(Shared.hud.RaceHudMath)
 local RaceState = require(Shared.sim.RaceState)
+local SettingsSchema = require(Shared.settings.SettingsSchema)
+local SkinIconResolver = require(Shared.menu.SkinIconResolver)
 local Standings = require(Shared.race.Standings)
+local TimeGapMath = require(Shared.hud.TimeGapMath)
 local TrackRegistry = require(Shared.track.TrackRegistry)
 
-local KART_ICON_BY_ID: { [string]: string } = {}
-for _, kEntry in CatalogData.karts do
-	KART_ICON_BY_ID[kEntry.id] = kEntry.iconId
-end
-
 local function getKartIconAsset(kartId: string?): string
-	if kartId ~= nil and KART_ICON_BY_ID[kartId] ~= nil then
-		return KART_ICON_BY_ID[kartId]
-	end
-	return KART_ICON_BY_ID["tux"] or "rbxassetid://106784086588016"
+	return SkinIconResolver.getKartIcon(kartId, ClientSettingsState.get().ui.skin)
 end
 
 -- Verified CC0 GUI icons (author: Alayan, stk-code data/gui/icons/licenses.txt:L193-L198; audited in assets/CREDITS.md)
@@ -46,24 +41,8 @@ local GAUGE_EMPTY_ASSET = "rbxassetid://86943125927894"
 local GAUGE_FULL_ASSET = "rbxassetid://125310951299234"
 local GAUGE_FULL_BRIGHT_ASSET = "rbxassetid://103689241713508"
 
--- Verified GPL 2.0 frame icon (author: Anthony "yeKcim" Carré, karts/tux/licenses.txt:L7-L9, rev 18627;
--- audited in assets/CREDITS.md)
-local ICONS_FRAME_ASSET = "rbxassetid://128866264800446"
-
--- Powerup HUD icons mapped per data/powerup.xml & DEP-5 re-audit (data/gui/icons/licenses.txt:L13-L24 + data/models/licenses.txt;
--- audited in assets/CREDITS.md, uploaded via upload_image).
-local POWERUP_ICON_ASSETS: { [number]: string } = {
-	[ItemTuning.POWERUP_BUBBLEGUM] = "rbxassetid://101181393814939",
-	[ItemTuning.POWERUP_CAKE] = "rbxassetid://79582540802688",
-	[ItemTuning.POWERUP_BOWLING] = "rbxassetid://130692326246436",
-	[ItemTuning.POWERUP_ZIPPER] = "rbxassetid://105041309293311",
-	[ItemTuning.POWERUP_PLUNGER] = "rbxassetid://101469144956890",
-	[ItemTuning.POWERUP_SWITCH] = "rbxassetid://106092822459296",
-	[ItemTuning.POWERUP_SWATTER] = "rbxassetid://126762223468459",
-	[ItemTuning.POWERUP_RUBBERBALL] = "rbxassetid://73902710731702",
-	[ItemTuning.POWERUP_PARACHUTE] = "rbxassetid://84448883940909",
-	[ItemTuning.POWERUP_ANVIL] = "rbxassetid://85031117296474",
-}
+-- Verified GPL 2.0 frame icon (Classic) / Cartoon bubble highlight routed via SkinIconResolver.getHudHighlightAsset(skin).
+local ICONS_FRAME_ASSET = SkinIconResolver.getHudHighlightAsset("Classic")
 
 -- Verified CC-BY-SA-3.0 plunger-in-face overlay (stk-assets/textures/plungerface.png rev 18627; credits in assets/CREDITS.md)
 local PLUNGER_FACE_ASSET = "rbxassetid://86029430083812"
@@ -730,19 +709,30 @@ raceMenuBtn.Activated:Connect(function()
 	HudState.requestPause()
 end)
 
+-- Global Display FPS overlay (engine.cpp:L1424, irr_driver.cpp:L1892-L1907)
+local fpsGui = Instance.new("ScreenGui")
+fpsGui.Name = "OpenKartFpsGui"
+fpsGui.ResetOnSpawn = false
+fpsGui.IgnoreGuiInset = true
+fpsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+fpsGui.DisplayOrder = 35
+fpsGui.Parent = playerGui
+
 local fpsLabel = Instance.new("TextLabel")
 fpsLabel.Name = "FpsCounter"
 fpsLabel.BackgroundColor3 = Color3.fromRGB(16, 22, 36)
 fpsLabel.BackgroundTransparency = 0.35
 fpsLabel.BorderSizePixel = 0
-fpsLabel.Position = UDim2.fromOffset(108, 8)
-fpsLabel.Size = UDim2.fromOffset(78, 28)
+fpsLabel.AnchorPoint = Vector2.new(0.5, 0)
+fpsLabel.Position = UDim2.new(0.5, 0, 0, 44)
+fpsLabel.Size = UDim2.fromOffset(88, 26)
 fpsLabel.Font = Enum.Font.Code
 fpsLabel.TextSize = 13
 fpsLabel.TextColor3 = Color3.fromRGB(145, 240, 170)
 fpsLabel.Text = "60 FPS"
 fpsLabel.ZIndex = 12
-fpsLabel.Parent = hudSafeRoot
+fpsLabel.Visible = false
+fpsLabel.Parent = fpsGui
 
 local fpsCorner = Instance.new("UICorner")
 fpsCorner.CornerRadius = UDim.new(0, 6)
@@ -762,8 +752,12 @@ type PlayerIconRow = {
 	rowFrame: Frame,
 	highlightFrame: ImageLabel,
 	icon: ImageLabel,
+	powerupIcon: ImageLabel,
+	powerupCount: TextLabel,
+	timeGapLabel: TextLabel,
 }
 local playerIconRows: { PlayerIconRow } = {}
+local timeGapCache = TimeGapMath.createCache()
 
 local function getOrCreatePlayerIconRow(idx: number): PlayerIconRow
 	local existing = playerIconRows[idx]
@@ -799,10 +793,58 @@ local function getOrCreatePlayerIconRow(idx: number): PlayerIconRow
 	icon.ZIndex = 3
 	icon.Parent = rowFrame
 
+	local cartoonStroke = Instance.new("UIStroke")
+	cartoonStroke.Name = "CartoonBorder"
+	cartoonStroke.Color = Color3.fromRGB(18, 18, 22)
+	cartoonStroke.Thickness = 2
+	cartoonStroke.Enabled = false
+	cartoonStroke.Parent = icon
+
+	-- Held powerup badge beside portrait (race_gui_base.cpp:L1190-L1210)
+	local powerupIcon = Instance.new("ImageLabel")
+	powerupIcon.Name = "HeldPowerupIcon"
+	powerupIcon.BackgroundTransparency = 1
+	powerupIcon.BorderSizePixel = 0
+	powerupIcon.ScaleType = Enum.ScaleType.Fit
+	powerupIcon.ZIndex = 4
+	powerupIcon.Visible = false
+	powerupIcon.Parent = rowFrame
+
+	local powerupCount = Instance.new("TextLabel")
+	powerupCount.Name = "HeldPowerupCount"
+	powerupCount.BackgroundTransparency = 1
+	powerupCount.Font = Enum.Font.GothamBlack
+	powerupCount.TextColor3 = Color3.fromRGB(255, 255, 255)
+	powerupCount.TextStrokeColor3 = Color3.fromRGB(10, 12, 16)
+	powerupCount.TextStrokeTransparency = 0.0
+	powerupCount.TextScaled = true
+	powerupCount.Text = ""
+	powerupCount.ZIndex = 5
+	powerupCount.Visible = false
+	powerupCount.Parent = rowFrame
+
+	local timeGapLabel = Instance.new("TextLabel")
+	timeGapLabel.Name = "TimeGapLabel"
+	timeGapLabel.BackgroundTransparency = 1
+	timeGapLabel.Font = Enum.Font.FredokaOne
+	timeGapLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	timeGapLabel.TextStrokeColor3 = Color3.fromRGB(10, 12, 16)
+	timeGapLabel.TextStrokeTransparency = 0.0
+	timeGapLabel.TextXAlignment = Enum.TextXAlignment.Left
+	timeGapLabel.TextYAlignment = Enum.TextYAlignment.Center
+	timeGapLabel.TextSize = 18
+	timeGapLabel.Text = ""
+	timeGapLabel.ZIndex = 4
+	timeGapLabel.Visible = false
+	timeGapLabel.Parent = rowFrame
+
 	local row: PlayerIconRow = {
 		rowFrame = rowFrame,
 		highlightFrame = highlight,
 		icon = icon,
+		powerupIcon = powerupIcon,
+		powerupCount = powerupCount,
+		timeGapLabel = timeGapLabel,
 	}
 	playerIconRows[idx] = row
 	return row
@@ -1137,6 +1179,7 @@ local lastPowerupId = -1
 local lastPowerupCount = -1
 local lastPowerupW = -1
 local lastPowerupH = -1
+local lastPowerupSkin = ""
 local lastVisTimer: boolean? = nil
 local lastVisLaps: boolean? = nil
 local lastVisSpeedEnergy: boolean? = nil
@@ -1144,13 +1187,8 @@ local lastVisRankDigit: boolean? = nil
 local lastVisPlayerIcons: boolean? = nil
 local lastVisMiniMap: boolean? = nil
 local lastVisPowerups: boolean? = nil
-local lastHudLap = -2
-local lapToastText = ""
-local lapToastExpirySec = 0.0
-local subToastText = ""
-local subToastExpirySec = 0.0
-local wasStartBoostFired = false
-local wasPenaltyShown = false
+local notifState = HudNotifications.createState()
+local lastHudFontSize = -1
 
 local function getIsTouchLayout(): boolean
 	if RunService:IsStudio() and localPlayer:GetAttribute("ForceTouchPreview") == true then
@@ -1175,21 +1213,15 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 
 	local isTouchMode = getIsTouchLayout()
 	lastTouchLayout = isTouchMode
-	cachedMinimapLayout = RaceHudMath.computeMinimapLayout(vw, vh, 0, isTouchMode)
-	if ClientSettingsState.get().ui.minimapDisplay == 2 then
-		local baseW = cachedMinimapLayout.width
-		local baseH = cachedMinimapLayout.height
-		local newW = math.floor(baseW * 1.35)
-		local newH = math.floor(baseH * 1.35)
-		cachedMinimapLayout.width = newW
-		cachedMinimapLayout.height = newH
-		cachedMinimapLayout.y = math.max(8, cachedMinimapLayout.y - (newH - baseH))
-	end
+	local mmMode = ClientSettingsState.get().ui.minimapDisplay
+	cachedMinimapLayout = RaceHudMath.computeMinimapLayout(vw, vh, mmMode, isTouchMode)
 	minimapRoot.Position = UDim2.fromOffset(cachedMinimapLayout.x, cachedMinimapLayout.y)
 	minimapRoot.Size = UDim2.fromOffset(cachedMinimapLayout.width, cachedMinimapLayout.height)
 	mmKartMarker.Size = UDim2.fromOffset(cachedMinimapLayout.playerIconSize, cachedMinimapLayout.playerIconSize)
 
-	local bottomMargin = if minimapVisible and not isTouchMode
+	local bottomMargin = if minimapVisible
+			and not isTouchMode
+			and mmMode == 0
 		then (cachedMinimapLayout.height + cachedMinimapLayout.mapBottom)
 		else 0
 	local topRect = RaceHudMath.computePlayerIconRect(vw, vh, totalKarts, bottomMargin, 1, true)
@@ -1252,15 +1284,9 @@ local function layoutStaticElements(vw: number, vh: number, minimapVisible: bool
 end
 
 RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value + 2, function(dt: number)
-	local inRacing = ClientSessionState.get().phase == "RACING"
-	if gui.Enabled ~= inRacing then
-		gui.Enabled = inRacing
-	end
-	if not inRacing then
-		return
-	end
-	debug.profilebegin("OpenKart_GameHud")
 	local userSettings = ClientSettingsState.get()
+	local insetTL = GuiService:GetGuiInset()
+	fpsLabel.Position = UDim2.new(0.5, 0, 0, insetTL.Y + 6)
 	fpsLabel.Visible = userSettings.ui.showFps
 	if userSettings.ui.showFps and dt > 0 then
 		fpsSampleAccum += dt
@@ -1272,6 +1298,25 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			fpsSampleFrames = 0
 		end
 	end
+	if userSettings.ui.fontSize ~= lastHudFontSize then
+		lastHudFontSize = userSettings.ui.fontSize
+		local fScale = SettingsSchema.getFontSizeScale(lastHudFontSize)
+		fpsLabel.TextSize = math.max(10, math.round(13 * fScale))
+		bestLapValueLabel.TextSize = math.max(12, math.round(16 * fScale))
+		resultsSummaryLabel.TextSize = math.max(11, math.round(14 * fScale))
+	end
+	local activeSkin: SettingsSchema.SkinName = userSettings.ui.skin :: SettingsSchema.SkinName
+	local isCartoonSkin = (activeSkin :: string) == "Cartoon"
+
+	local inRacing = ClientSessionState.get().phase == "RACING"
+	if gui.Enabled ~= inRacing then
+		gui.Enabled = inRacing
+	end
+	if not inRacing then
+		HudNotifications.reset(notifState, nil)
+		return
+	end
+	debug.profilebegin("OpenKart_GameHud")
 	local renderHud = HudState.get()
 	local standingsInput: { Standings.StandingsEntry } = if renderHud.standingsEntries ~= nil
 			and #renderHud.standingsEntries > 0
@@ -1292,7 +1337,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		numKarts = totalKarts,
 		hasNavMesh = true,
 	})
-	vis.showMiniMap = vis.showMiniMap and (userSettings.ui.minimapDisplay ~= 0)
+	vis.showMiniMap = vis.showMiniMap and (userSettings.ui.minimapDisplay ~= 2)
 
 	local currentTouchLayout = getIsTouchLayout()
 	local camera = Workspace.CurrentCamera
@@ -1301,7 +1346,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		local vp = camera.ViewportSize
 		local vw = math.max(1, math.floor(vp.X - padX))
 		local vh = math.max(1, math.floor(vp.Y - padY))
-		local mmFlag = if vis.showMiniMap then userSettings.ui.minimapDisplay else 0
+		local mmFlag = if vis.showMiniMap then userSettings.ui.minimapDisplay else 2
 		if
 			vw > 0
 			and vh > 0
@@ -1383,41 +1428,18 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		lapLabel.Text = RaceHudMath.formatLapText(renderHud.lap, renderHud.totalLaps)
 	end
 
-	-- Lap increment toast (linear_world.cpp:L414-L461)
-	if renderHud.lap > lastHudLap then
-		if lastHudLap >= 0 and renderHud.lap > 0 and not renderHud.raceFinished then
-			if renderHud.lap + 1 == renderHud.totalLaps then
-				lapToastText = "FINAL LAP!"
-				lapToastExpirySec = nowSec + 3.0
-			else
-				lapToastText = string.format("LAP %d", renderHud.lap + 1)
-				lapToastExpirySec = nowSec + 2.0
-			end
-		end
-		lastHudLap = renderHud.lap
-	elseif renderHud.lap < lastHudLap then
-		lastHudLap = renderHud.lap
-		lapToastText = ""
-		lapToastExpirySec = 0.0
-	end
-
-	-- Start boost / false-start toast
-	if renderHud.startupBoostFired and renderHud.startupBoostMps > 0 and not wasStartBoostFired then
-		wasStartBoostFired = true
-		subToastText = "START BOOST!"
-		subToastExpirySec = nowSec + 1.5
-	elseif not renderHud.startupBoostFired then
-		wasStartBoostFired = false
-	end
-	if renderHud.startupPenaltyTicks > 0 and not wasPenaltyShown then
-		wasPenaltyShown = true
-		subToastText = "FALSE START!"
-		subToastExpirySec = nowSec + 1.5
-	elseif
-		renderHud.startupPenaltyTicks == 0 and RaceState.isStartPhase(renderHud.racePhase :: RaceState.RacePhase)
-	then
-		wasPenaltyShown = false
-	end
+	-- Edge-triggered lap & false-start notifications (start boost is VFX-only, no text toast)
+	HudNotifications.step(notifState, {
+		inRacing = inRacing,
+		racePhase = renderHud.racePhase,
+		raceTick = renderHud.raceTick,
+		resetSeq = renderHud.resetSeq,
+		lap = renderHud.lap,
+		totalLaps = renderHud.totalLaps,
+		raceFinished = renderHud.raceFinished,
+		startupPenaltyTicks = renderHud.startupPenaltyTicks,
+		rescueTicks = renderHud.rescueTicks,
+	}, nowSec)
 
 	local cdText = RaceState.getCountdownText(renderHud.racePhase :: RaceState.RacePhase)
 	if cdText ~= nil then
@@ -1430,22 +1452,20 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		else
 			countdownLabel.TextColor3 = Color3.fromRGB(255, 100, 80)
 		end
-	elseif nowSec < lapToastExpirySec and lapToastText ~= "" then
+	elseif nowSec < notifState.lapToastExpirySec and notifState.lapToastText ~= "" then
 		countdownLabel.Visible = true
-		countdownLabel.Text = lapToastText
-		countdownLabel.TextColor3 = if lapToastText == "FINAL LAP!"
+		countdownLabel.Text = notifState.lapToastText
+		countdownLabel.TextColor3 = if notifState.lapToastText == "FINAL LAP!"
 			then Color3.fromRGB(255, 120, 95)
 			else Color3.fromRGB(255, 235, 140)
 	else
 		countdownLabel.Visible = false
 	end
 
-	if nowSec < subToastExpirySec and subToastText ~= "" then
+	if nowSec < notifState.subToastExpirySec and notifState.subToastText ~= "" then
 		subBannerLabel.Visible = true
-		subBannerLabel.Text = subToastText
-		subBannerLabel.TextColor3 = if subToastText == "FALSE START!"
-			then Color3.fromRGB(255, 95, 95)
-			else Color3.fromRGB(255, 220, 75)
+		subBannerLabel.Text = notifState.subToastText
+		subBannerLabel.TextColor3 = Color3.fromRGB(255, 95, 95)
 	else
 		subBannerLabel.Visible = false
 	end
@@ -1502,7 +1522,8 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			local rBestTicks = r.entry.bestLapTicks or -1
 			local holdsFastest = bestLapOverallTicks > 0 and rBestTicks == bestLapOverallTicks
 			row.posLabel.Text = RaceHudMath.formatOrdinal(r.rank)
-			row.icon.Image = getKartIconAsset(r.entry.kartId)
+			row.icon.Image = SkinIconResolver.getKartIcon(r.entry.kartId, activeSkin)
+			row.nameLabel.Font = if isCartoonSkin then Enum.Font.Cartoon else ClassicSkin.FONT_BODY
 			local displayName = r.entry.displayName or (if isLocal then "You" else r.id)
 			row.nameLabel.Text = if holdsFastest then ("★ " .. displayName) else displayName
 			row.timeLabel.Text = if r.entry.finished == true and r.entry.finishTime ~= nil
@@ -1638,7 +1659,12 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 
 	-- 5) Minimap interpolated kart dots (local + RemoteInterp remote karts)
 	if vis.showMiniMap then
-		mmKartIcon.Image = getKartIconAsset(renderHud.localKartSpecId)
+		mmKartIcon.Image = SkinIconResolver.getKartIcon(renderHud.localKartSpecId, activeSkin)
+		mmKartStroke.Color = if isCartoonSkin then Color3.fromRGB(20, 20, 24) else Color3.fromRGB(255, 255, 255)
+		mmKartStroke.Thickness = if isCartoonSkin then 2.5 else 1.5
+		mmKartMarker.BackgroundColor3 = if isCartoonSkin
+			then Color3.fromRGB(255, 195, 45)
+			else Color3.fromRGB(255, 65, 65)
 		local kx, ky = RaceHudMath.projectToMinimap(
 			renderHud.pos.x,
 			renderHud.pos.z,
@@ -1662,7 +1688,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 				marker.Size = UDim2.fromOffset(cachedMinimapLayout.aiIconSize, cachedMinimapLayout.aiIconSize)
 				local rIcon = marker:FindFirstChild("KartIcon")
 				if rIcon and rIcon:IsA("ImageLabel") then
-					rIcon.Image = getKartIconAsset(rp.kartId)
+					rIcon.Image = SkinIconResolver.getKartIcon(rp.kartId, activeSkin)
 				end
 				local rx, ry = RaceHudMath.projectToMinimap(
 					rp.x,
@@ -1690,13 +1716,19 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		if lastTouchLayout ~= isTouchMode then
 			layoutStaticElements(lastViewportW, lastViewportH, vis.showMiniMap, count, shownRank)
 		end
-		local bottomMargin = if vis.showMiniMap and not isTouchMode
+		local bottomMargin = if vis.showMiniMap
+				and not isTouchMode
+				and userSettings.ui.minimapDisplay == 0
 			then (cachedMinimapLayout.height + cachedMinimapLayout.mapBottom)
 			else 0
 		local playerW =
 			RaceHudMath.computePlayerIconRect(lastViewportW, lastViewportH, count, bottomMargin, 1, true).width
 		local aiW = math.floor(playerW * 5 / 6)
 		local yOff = 0
+		local showOthersPowerup = userSettings.ui.showOtherPowerups
+		local gapsById = if sortedEntries ~= nil
+			then TimeGapMath.computeGaps(sortedEntries, renderHud.raceTick, renderHud.totalLaps, timeGapCache)
+			else {}
 		for idx = 1, count do
 			local entry = if sortedEntries then sortedEntries[idx] else nil
 			local isLocal = if entry then (entry.id == "local" or entry.id == tostring(renderHud.localKartId)) else true
@@ -1705,11 +1737,55 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			row.rowFrame.Visible = true
 			row.rowFrame.Position = UDim2.fromOffset(0, yOff)
 			row.rowFrame.Size = UDim2.fromOffset(w, w)
-			row.icon.Image = getKartIconAsset(if entry then entry.entry.kartId else renderHud.localKartSpecId)
+			row.icon.Image = SkinIconResolver.getKartIcon(
+				if entry then entry.entry.kartId else renderHud.localKartSpecId,
+				activeSkin
+			)
+			local cb = row.icon:FindFirstChild("CartoonBorder")
+			if cb and cb:IsA("UIStroke") then
+				cb.Enabled = isCartoonSkin
+			end
+			row.highlightFrame.Image = SkinIconResolver.getHudHighlightAsset(activeSkin)
 			row.highlightFrame.Visible = isLocal
 			if isLocal then
 				local pulse = 0.5 + 0.5 * math.cos(os.clock() * 2.0)
 				row.highlightFrame.ImageTransparency = 0.05 + 0.30 * (1.0 - pulse)
+			end
+			local heldType = if entry then (entry.entry.heldPowerup or 0) else renderHud.heldPowerup
+			local heldCount = if entry then (entry.entry.heldPowerupCount or 0) else renderHud.heldPowerupCount
+			local isFin = if entry then (entry.entry.finished == true) else renderHud.raceFinished
+			local pAsset = SkinIconResolver.getPowerupIcon(heldType, activeSkin)
+			local badgeVisible = showOthersPowerup and heldType > 0 and heldCount > 0 and not isFin and pAsset ~= ""
+			if badgeVisible then
+				local pSize = math.max(12, math.floor(w * 0.75))
+				row.powerupIcon.Position = UDim2.fromOffset(math.floor(w * 0.5), math.floor(w * 0.5))
+				row.powerupIcon.Size = UDim2.fromOffset(pSize, pSize)
+				row.powerupIcon.Image = pAsset
+				row.powerupIcon.Visible = true
+				if heldCount > 1 then
+					row.powerupCount.Position = UDim2.fromOffset(w, math.floor(w * 0.25))
+					row.powerupCount.Size = UDim2.fromOffset(math.max(12, math.floor(w * 0.75)), pSize)
+					row.powerupCount.Text = tostring(heldCount)
+					row.powerupCount.Visible = true
+				else
+					row.powerupCount.Visible = false
+				end
+			else
+				row.powerupIcon.Visible = false
+				row.powerupCount.Visible = false
+			end
+			local gapId = if entry then entry.id else "local"
+			local gap = gapsById[gapId]
+			if gap ~= nil and gap.visible and #gap.text > 0 then
+				local gapX = if badgeVisible then (w + math.floor(w * 0.45) + 8) else (w + 8)
+				row.timeGapLabel.Position = UDim2.fromOffset(gapX, 2)
+				row.timeGapLabel.Size = UDim2.fromOffset(140, math.max(20, w - 4))
+				row.timeGapLabel.TextSize = math.max(13, math.floor(playerW * 0.44))
+				row.timeGapLabel.TextColor3 = Color3.fromRGB(gap.r, gap.g, gap.b)
+				row.timeGapLabel.Text = gap.text
+				row.timeGapLabel.Visible = true
+			else
+				row.timeGapLabel.Visible = false
 			end
 			yOff += playerW + 2
 		end
@@ -1718,7 +1794,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		end
 	end
 
-	-- 6) Held Powerup Icons & Count (updated only when item/count/viewport changes)
+	-- 6) Held Powerup Icons & Count (updated only when item/count/viewport/skin changes)
 	local showHeldPowerups = vis.showPowerups and renderHud.heldPowerup > 0 and renderHud.heldPowerupCount > 0
 	if lastVisPowerups ~= showHeldPowerups then
 		lastVisPowerups = showHeldPowerups
@@ -1733,14 +1809,16 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			or renderHud.heldPowerupCount ~= lastPowerupCount
 			or lastViewportW ~= lastPowerupW
 			or lastViewportH ~= lastPowerupH
+			or activeSkin ~= lastPowerupSkin
 		)
 	then
 		lastPowerupId = renderHud.heldPowerup
 		lastPowerupCount = renderHud.heldPowerupCount
 		lastPowerupW = lastViewportW
 		lastPowerupH = lastViewportH
+		lastPowerupSkin = activeSkin
 		local layout = RaceHudMath.computePowerupLayout(lastViewportW, lastViewportH, renderHud.heldPowerupCount, 0)
-		local iconAsset = POWERUP_ICON_ASSETS[renderHud.heldPowerup] or ""
+		local iconAsset = SkinIconResolver.getPowerupIcon(renderHud.heldPowerup, activeSkin)
 		local powerupName = ItemTuning.POWERUP_NAMES[renderHud.heldPowerup] or "ITEM"
 		for i = 1, RaceHudMath.POWERUP_MAX_STACK do
 			local slot = powerupSlots[i]

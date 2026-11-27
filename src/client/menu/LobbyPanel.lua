@@ -7,6 +7,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CatalogData = require(Shared.menu.CatalogData)
 local ClassicSkin = require("./ClassicSkin")
 local LobbyState = require(Shared.net.LobbyState)
 local MenuFlow = require(Shared.menu.MenuFlow)
@@ -259,10 +260,18 @@ function LobbyPanel.build(
 		"CreateReservedBtn",
 		"Publish Reserved Lobby",
 		UDim2.fromOffset(16, 312),
-		UDim2.fromOffset(200, 34),
+		UDim2.fromOffset(195, 34),
 		trackConn
 	)
-	local reservedLbl = makeRowLabel(settingsBox, "In-server lobby active", 224, 314, 230)
+	local lobbyRevBtn = ClassicSkin.makeGlassButton(
+		settingsBox,
+		"LobbyReverseBtn",
+		"Reverse: Off",
+		UDim2.fromOffset(220, 312),
+		UDim2.fromOffset(140, 34),
+		trackConn
+	)
+	local reservedLbl = makeRowLabel(settingsBox, "In-server lobby active", 16, 354, 420)
 	reservedLbl.Name = "ReservedStatusLbl"
 	reservedLbl.TextColor3 = ClassicSkin.COLOR_TEXT_CREDITS
 	reservedLbl.TextSize = 13
@@ -350,6 +359,120 @@ function LobbyPanel.build(
 	pwErrLbl.TextColor3 = Color3.fromRGB(190, 30, 30)
 	pwErrLbl.ZIndex = 21
 
+	-- Server-authoritative Voting Overlay (track + laps + reverse, matching All Tracks voting)
+	local votingBox =
+		ClassicSkin.makeGlassBox(parent, "LobbyVotingBox", UDim2.fromScale(0.06, 0.14), UDim2.fromScale(0.88, 0.80), 18)
+	votingBox.Visible = false
+
+	local voteTitle = makeRowLabel(votingBox, "Vote: Track, Laps & Reverse", 20, 14, 380)
+	voteTitle.TextSize = 20
+	voteTitle.ZIndex = 19
+
+	local voteTimerLbl = makeRowLabel(votingBox, "Remaining time: 25", 20, 48, 300)
+	voteTimerLbl.Name = "VoteTimerLbl"
+	voteTimerLbl.TextColor3 = Color3.fromRGB(200, 75, 10)
+	voteTimerLbl.TextSize = 17
+	voteTimerLbl.ZIndex = 19
+
+	local voteTrackRow = Instance.new("Frame")
+	voteTrackRow.Name = "VoteTrackRow"
+	voteTrackRow.Position = UDim2.fromOffset(20, 86)
+	voteTrackRow.Size = UDim2.new(1, -40, 0, 56)
+	voteTrackRow.BackgroundTransparency = 1
+	voteTrackRow.ZIndex = 19
+	voteTrackRow.Parent = votingBox
+
+	local voteSelectedTrack = "sandtrack"
+	local voteSelectedLaps = 3
+	local voteSelectedReverse = false
+	local voteTrackButtons: { [string]: TextButton } = {}
+	local tIdx = 0
+	for _, tEntry in ipairs(CatalogData.tracks) do
+		if tEntry.playable then
+			tIdx += 1
+			local btn = ClassicSkin.makeGlassButton(
+				voteTrackRow,
+				"VoteTrack_" .. tEntry.id,
+				tEntry.name,
+				UDim2.fromOffset((tIdx - 1) * 200, 4),
+				UDim2.fromOffset(188, 44),
+				trackConn
+			)
+			btn.ZIndex = 20
+			voteTrackButtons[tEntry.id] = btn
+			trackConn(btn.Activated:Connect(function()
+				voteSelectedTrack = tEntry.id
+				for id, b in pairs(voteTrackButtons) do
+					ClassicSkin.setButtonSelected(b, id == voteSelectedTrack)
+				end
+			end))
+		end
+	end
+
+	makeRowLabel(votingBox, "Number of laps:", 20, 158, 150).ZIndex = 19
+	local vLapsMinus = ClassicSkin.makeGlassButton(
+		votingBox,
+		"VoteLapsMinus",
+		"-",
+		UDim2.fromOffset(180, 156),
+		UDim2.fromOffset(38, 32),
+		trackConn
+	)
+	local vLapsVal = makeValueBox(votingBox, "VoteLapsVal", 224, 157, 60)
+	vLapsVal.Text = "3"
+	vLapsVal.ZIndex = 19
+	local vLapsPlus = ClassicSkin.makeGlassButton(
+		votingBox,
+		"VoteLapsPlus",
+		"+",
+		UDim2.fromOffset(290, 156),
+		UDim2.fromOffset(38, 32),
+		trackConn
+	)
+	local vRevBtn = ClassicSkin.makeGlassButton(
+		votingBox,
+		"VoteReverseBtn",
+		"Drive in reverse: Off",
+		UDim2.fromOffset(20, 206),
+		UDim2.fromOffset(220, 36),
+		trackConn
+	)
+	local vCastBtn = ClassicSkin.makeGlassButton(
+		votingBox,
+		"VoteCastBtn",
+		"Cast Vote",
+		UDim2.fromOffset(20, 260),
+		UDim2.fromOffset(180, 40),
+		trackConn
+	)
+	local voteTallyLbl = makeRowLabel(votingBox, "Votes: 0", 20, 314, 500)
+	voteTallyLbl.Name = "VoteTallyLbl"
+	voteTallyLbl.ZIndex = 19
+
+	trackConn(vLapsMinus.Activated:Connect(function()
+		voteSelectedLaps = math.clamp(voteSelectedLaps - 1, 1, 20)
+		vLapsVal.Text = tostring(voteSelectedLaps)
+	end))
+	trackConn(vLapsPlus.Activated:Connect(function()
+		voteSelectedLaps = math.clamp(voteSelectedLaps + 1, 1, 20)
+		vLapsVal.Text = tostring(voteSelectedLaps)
+	end))
+	trackConn(vRevBtn.Activated:Connect(function()
+		voteSelectedReverse = not voteSelectedReverse
+		ClassicSkin.setButtonText(
+			vRevBtn,
+			if voteSelectedReverse then "Drive in reverse: On" else "Drive in reverse: Off"
+		)
+		ClassicSkin.setButtonSelected(vRevBtn, voteSelectedReverse)
+	end))
+	trackConn(vCastBtn.Activated:Connect(function()
+		fireLobby("SUBMIT_VOTE", {
+			trackId = voteSelectedTrack,
+			laps = voteSelectedLaps,
+			reverse = voteSelectedReverse,
+		})
+	end))
+
 	local latestSnap: LobbyState.PublicLobbySnapshot? = nil
 
 	local function isHostAndUnlocked(): boolean
@@ -400,9 +523,24 @@ function LobbyPanel.build(
 		)
 
 		local needsPw = (me ~= nil and not me.admitted and s.hasPassword)
+		local isVoting = (snap.phase == "VOTING" and snap.voting ~= nil and snap.voting.active)
 		pwGate.Visible = needsPw
-		settingsBox.Visible = not needsPw
-		rosterBox.Visible = not needsPw
+		votingBox.Visible = (not needsPw) and isVoting
+		settingsBox.Visible = (not needsPw) and not isVoting
+		rosterBox.Visible = (not needsPw) and not isVoting
+		if isVoting and snap.voting ~= nil then
+			voteTimerLbl.Text = string.format("Remaining time: %d", snap.voting.remainingSec)
+			local tallyCount = 0
+			for _ in pairs(snap.voting.votes) do
+				tallyCount += 1
+			end
+			voteTallyLbl.Text = string.format("Votes cast: %d / %d", tallyCount, admittedCount)
+			for id, b in pairs(voteTrackButtons) do
+				ClassicSkin.setButtonSelected(b, id == voteSelectedTrack)
+			end
+		end
+		ClassicSkin.setButtonText(lobbyRevBtn, if s.reverse then "Reverse: On" else "Reverse: Off")
+		ClassicSkin.setButtonSelected(lobbyRevBtn, s.reverse == true)
 
 		ClassicSkin.setButtonSelected(modeNormalBtn, s.raceType == "NORMAL_RACE")
 		ClassicSkin.setButtonSelected(modeTtBtn, s.raceType == "TIME_TRIAL")
@@ -540,6 +678,11 @@ function LobbyPanel.build(
 	trackConn(reservedBtn.Activated:Connect(function()
 		fireLobby("CREATE_RESERVED_SERVER")
 	end))
+	trackConn(lobbyRevBtn.Activated:Connect(function()
+		if isHostAndUnlocked() and latestSnap then
+			fireLobby("UPDATE_SETTINGS", { reverse = not latestSnap.settings.reverse })
+		end
+	end))
 
 	task.spawn(function()
 		local remotes = ReplicatedStorage:WaitForChild("OpenKartRemotes", 10)
@@ -566,6 +709,11 @@ function LobbyPanel.build(
 						reservedLbl.Text = "Reserved: " .. tostring(msg.entry.lobbyId)
 					else
 						reservedLbl.Text = "Reserved: " .. tostring(msg.reason or "UNAVAILABLE")
+					end
+				elseif msg.type == "TELEPORT_ERROR" or msg.type == "RESERVED_JOIN_RESULT" then
+					if msg.ok == false then
+						reservedLbl.Text = tostring(msg.message or msg.reason or "TELEPORT_FAILED")
+						reservedLbl.TextColor3 = Color3.fromRGB(195, 35, 35)
 					end
 				end
 			end))

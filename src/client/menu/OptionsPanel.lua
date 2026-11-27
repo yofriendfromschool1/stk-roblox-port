@@ -1,6 +1,6 @@
 --!strict
 -- SPDX-License-Identifier: GPL-3.0-or-later
--- Ported from data/gui/screens/options/options_{video,audio,ui,input}.stkgui (STK 1.5).
+-- Ported from data/gui/screens/options/options_{video,audio,ui,input}.stkgui & options_screen_ui.cpp (STK 1.5).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -19,19 +19,30 @@ export type Panel = {
 
 local OptionsPanel = {}
 
-local function makeRowLabel(parent: Instance, text: string, y: number, x: number?): TextLabel
+local function makeRowLabel(parent: Instance, text: string, y: number, x: number?, role: string?): TextLabel
 	local lbl = Instance.new("TextLabel")
 	lbl.BackgroundTransparency = 1
-	lbl.Position = UDim2.fromOffset(x or 24, y)
-	lbl.Size = UDim2.fromOffset(230, 34)
+	lbl.Position = UDim2.fromOffset(x or 18, y)
+	lbl.Size = UDim2.fromOffset(236, 34)
 	lbl.Font = ClassicSkin.FONT_BODY
-	lbl.TextSize = 16
+	lbl.TextSize = 15
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.TextColor3 = ClassicSkin.COLOR_TEXT_NEUTRAL
 	lbl.Text = text
 	lbl.ZIndex = 12
+	lbl:SetAttribute("OpenKartSkinRole", role or "BodyText")
+	lbl:SetAttribute("OpenKartBaseTextSize", 15)
 	lbl.Parent = parent
 	return lbl
+end
+
+local function cycleInList<T>(list: { T }, current: T): T
+	for i, v in ipairs(list) do
+		if v == current then
+			return list[(i % #list) + 1]
+		end
+	end
+	return list[1]
 end
 
 function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) -> ()): Panel
@@ -106,6 +117,7 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 		tabLbl.TextColor3 = ClassicSkin.COLOR_TEXT_NEUTRAL
 		tabLbl.Text = t.label
 		tabLbl.ZIndex = 13
+		tabLbl:SetAttribute("OpenKartBaseTextSize", 16)
 		tabLbl.Parent = btn
 
 		local page = Instance.new("Frame")
@@ -123,67 +135,115 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 		pages[t.id] = page
 	end
 
-	-- 1) Graphics page (options_video.stkgui)
-	local videoPage = pages.video
-	makeRowLabel(videoPage, "Quality Preset", 18)
+	-- 1) Graphics page (client-owned Lighting FX, particles, shadows, track detail)
+	local videoScroll = Instance.new("ScrollingFrame")
+	videoScroll.Name = "VideoScroll"
+	videoScroll.Size = UDim2.fromScale(1, 1)
+	videoScroll.CanvasSize = UDim2.fromOffset(0, 420)
+	videoScroll.ScrollBarThickness = 6
+	videoScroll.BackgroundTransparency = 1
+	videoScroll.BorderSizePixel = 0
+	videoScroll.ZIndex = 10
+	videoScroll.Parent = pages.video
+
+	makeRowLabel(videoScroll, "Quality Preset", 10)
 	local presetLowBtn = ClassicSkin.makeGlassButton(
-		videoPage,
+		videoScroll,
 		"PresetLowBtn",
 		"Low",
-		UDim2.fromOffset(270, 16),
-		UDim2.fromOffset(92, 36),
+		UDim2.fromOffset(260, 8),
+		UDim2.fromOffset(88, 34),
 		trackConn
 	)
 	local presetMedBtn = ClassicSkin.makeGlassButton(
-		videoPage,
+		videoScroll,
 		"PresetMedBtn",
 		"Medium",
-		UDim2.fromOffset(370, 16),
-		UDim2.fromOffset(100, 36),
+		UDim2.fromOffset(356, 8),
+		UDim2.fromOffset(96, 34),
 		trackConn
 	)
 	local presetHighBtn = ClassicSkin.makeGlassButton(
-		videoPage,
+		videoScroll,
 		"PresetHighBtn",
 		"High",
-		UDim2.fromOffset(478, 16),
-		UDim2.fromOffset(92, 36),
+		UDim2.fromOffset(460, 8),
+		UDim2.fromOffset(88, 34),
 		trackConn
 	)
 
-	makeRowLabel(videoPage, "Kart Shadows", 72)
-	local shadowsBtn = ClassicSkin.makeGlassButton(
-		videoPage,
-		"ShadowsToggleBtn",
+	makeRowLabel(videoScroll, "Bloom", 56)
+	local bloomBtn = ClassicSkin.makeGlassButton(
+		videoScroll,
+		"BloomToggleBtn",
 		"On",
-		UDim2.fromOffset(270, 70),
-		UDim2.fromOffset(140, 36),
+		UDim2.fromOffset(260, 54),
+		UDim2.fromOffset(140, 34),
 		trackConn
 	)
 
-	makeRowLabel(videoPage, "Particles", 126)
+	makeRowLabel(videoScroll, "Depth of Field", 102)
+	local dofBtn = ClassicSkin.makeGlassButton(
+		videoScroll,
+		"DofToggleBtn",
+		"On",
+		UDim2.fromOffset(260, 100),
+		UDim2.fromOffset(140, 34),
+		trackConn
+	)
+
+	makeRowLabel(videoScroll, "Sun Rays", 148)
+	local sunRaysBtn = ClassicSkin.makeGlassButton(
+		videoScroll,
+		"SunRaysToggleBtn",
+		"On",
+		UDim2.fromOffset(260, 146),
+		UDim2.fromOffset(140, 34),
+		trackConn
+	)
+
+	makeRowLabel(videoScroll, "Color Correction", 194)
+	local colorCorrBtn = ClassicSkin.makeGlassButton(
+		videoScroll,
+		"ColorCorrToggleBtn",
+		"On",
+		UDim2.fromOffset(260, 192),
+		UDim2.fromOffset(140, 34),
+		trackConn
+	)
+
+	makeRowLabel(videoScroll, "Particle Density", 240)
 	local particlesBtn = ClassicSkin.makeGlassButton(
-		videoPage,
+		videoScroll,
 		"ParticlesCycleBtn",
 		"Full",
-		UDim2.fromOffset(270, 124),
-		UDim2.fromOffset(140, 36),
+		UDim2.fromOffset(260, 238),
+		UDim2.fromOffset(140, 34),
 		trackConn
 	)
 
-	makeRowLabel(videoPage, "Client Post-FX (Bloom/Rays)", 180)
-	local postFxBtn = ClassicSkin.makeGlassButton(
-		videoPage,
-		"PostFxToggleBtn",
+	makeRowLabel(videoScroll, "Kart Shadows", 286)
+	local shadowsBtn = ClassicSkin.makeGlassButton(
+		videoScroll,
+		"ShadowsToggleBtn",
 		"On",
-		UDim2.fromOffset(270, 178),
-		UDim2.fromOffset(140, 36),
+		UDim2.fromOffset(260, 284),
+		UDim2.fromOffset(140, 34),
 		trackConn
 	)
 
-	local persistNote = makeRowLabel(videoPage, "Persistence: Checking...", 240)
-	persistNote.Size = UDim2.new(1, -48, 0, 28)
-	persistNote.TextColor3 = ClassicSkin.COLOR_TEXT_EMPHASIS
+	makeRowLabel(videoScroll, "Track Decoration Detail", 332)
+	local trackDetailBtn = ClassicSkin.makeGlassButton(
+		videoScroll,
+		"TrackDetailCycleBtn",
+		"High",
+		UDim2.fromOffset(260, 330),
+		UDim2.fromOffset(140, 34),
+		trackConn
+	)
+
+	local persistNote = makeRowLabel(videoScroll, "Persistence: Checking...", 378, 18, "EmphasisText")
+	persistNote.Size = UDim2.new(1, -36, 0, 28)
 
 	-- 2) Audio page (options_audio.stkgui)
 	local audioPage = pages.audio
@@ -264,43 +324,109 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 		end)
 	end)
 
-	-- 3) Interface page (options_ui.stkgui)
+	-- 3) Interface page (options_ui.stkgui + options_screen_ui.cpp)
 	local uiPage = pages.ui
-	makeRowLabel(uiPage, "Minimap Display", 18)
+	makeRowLabel(uiPage, "Skin", 10)
+	local skinBtn = ClassicSkin.makeGlassButton(
+		uiPage,
+		"SkinCycleBtn",
+		"Classic",
+		UDim2.fromOffset(260, 8),
+		UDim2.fromOffset(210, 34),
+		trackConn
+	)
+
+	makeRowLabel(uiPage, "Skin variant", 56)
+	local skinVariantBtn = ClassicSkin.makeGlassButton(
+		uiPage,
+		"SkinVariantCycleBtn",
+		"Peach",
+		UDim2.fromOffset(260, 54),
+		UDim2.fromOffset(210, 34),
+		trackConn
+	)
+
+	makeRowLabel(uiPage, "Minimap", 102)
 	local minimapBtn = ClassicSkin.makeGlassButton(
 		uiPage,
 		"MinimapCycleBtn",
-		"Corner",
-		UDim2.fromOffset(270, 16),
-		UDim2.fromOffset(170, 36),
+		"In the bottom-left",
+		UDim2.fromOffset(260, 100),
+		UDim2.fromOffset(210, 34),
 		trackConn
 	)
 
-	makeRowLabel(uiPage, "Show FPS Counter", 72)
+	makeRowLabel(uiPage, "Font size", 148)
+	local fontMinusBtn = ClassicSkin.makeGlassButton(
+		uiPage,
+		"FontSizeMinus",
+		"-",
+		UDim2.fromOffset(260, 146),
+		UDim2.fromOffset(38, 34),
+		trackConn
+	)
+	local fontBarBg = Instance.new("Frame")
+	fontBarBg.Position = UDim2.fromOffset(304, 151)
+	fontBarBg.Size = UDim2.fromOffset(122, 24)
+	fontBarBg.BackgroundColor3 = Color3.fromRGB(200, 215, 235)
+	fontBarBg.BorderSizePixel = 0
+	fontBarBg.ZIndex = 11
+	fontBarBg.Parent = uiPage
+	local fontFill = Instance.new("ImageLabel")
+	fontFill.BackgroundTransparency = 1
+	fontFill.Size = UDim2.fromScale(0.6, 1)
+	fontFill.Image = MenuIcons.SkinGlassGaugeFill
+	fontFill.ScaleType = Enum.ScaleType.Stretch
+	fontFill.ZIndex = 12
+	fontFill.Parent = fontBarBg
+	local fontValLbl = makeRowLabel(uiPage, "Medium", 146, 304)
+	fontValLbl.Size = UDim2.fromOffset(122, 34)
+	fontValLbl.TextXAlignment = Enum.TextXAlignment.Center
+	fontValLbl.ZIndex = 13
+	local fontPlusBtn = ClassicSkin.makeGlassButton(
+		uiPage,
+		"FontSizePlus",
+		"+",
+		UDim2.fromOffset(432, 146),
+		UDim2.fromOffset(38, 34),
+		trackConn
+	)
+
+	makeRowLabel(uiPage, "Display FPS", 194)
 	local fpsBtn = ClassicSkin.makeGlassButton(
 		uiPage,
 		"ShowFpsToggleBtn",
-		"On",
-		UDim2.fromOffset(270, 70),
-		UDim2.fromOffset(140, 36),
+		"Off",
+		UDim2.fromOffset(260, 192),
+		UDim2.fromOffset(140, 34),
 		trackConn
 	)
 
-	makeRowLabel(uiPage, "Camera Preset", 126)
+	local otherPowLbl = makeRowLabel(uiPage, "Show other karts' held powerups", 240)
+	otherPowLbl.Size = UDim2.fromOffset(238, 34)
+	local otherPowBtn = ClassicSkin.makeGlassButton(
+		uiPage,
+		"OtherPowerupsToggleBtn",
+		"Off",
+		UDim2.fromOffset(260, 238),
+		UDim2.fromOffset(140, 34),
+		trackConn
+	)
+
+	makeRowLabel(uiPage, "Camera Preset", 286)
 	local camPresetBtn = ClassicSkin.makeGlassButton(
 		uiPage,
 		"CameraPresetBtn",
 		"Normal",
-		UDim2.fromOffset(270, 124),
-		UDim2.fromOffset(140, 36),
+		UDim2.fromOffset(260, 284),
+		UDim2.fromOffset(140, 34),
 		trackConn
 	)
 
 	-- 4) Controls page (options_input.stkgui)
 	local inputPage = pages.input
-	local capturePrompt = makeRowLabel(inputPage, "Click any action to rebind (Esc cancels)", 8)
+	local capturePrompt = makeRowLabel(inputPage, "Click any action to rebind (Esc cancels)", 8, 18, "EmphasisText")
 	capturePrompt.Size = UDim2.new(1, -240, 0, 28)
-	capturePrompt.TextColor3 = ClassicSkin.COLOR_TEXT_EMPHASIS
 
 	local kbSubTabBtn = ClassicSkin.makeGlassButton(
 		inputPage,
@@ -462,12 +588,16 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 		ClassicSkin.setButtonSelected(presetLowBtn, s.graphics.preset == "Low")
 		ClassicSkin.setButtonSelected(presetMedBtn, s.graphics.preset == "Medium")
 		ClassicSkin.setButtonSelected(presetHighBtn, s.graphics.preset == "High")
-		ClassicSkin.setButtonText(shadowsBtn, if s.graphics.shadows then "On" else "Off")
+		ClassicSkin.setButtonText(bloomBtn, if s.graphics.bloom then "On" else "Off")
+		ClassicSkin.setButtonText(dofBtn, if s.graphics.depthOfField then "On" else "Off")
+		ClassicSkin.setButtonText(sunRaysBtn, if s.graphics.sunRays then "On" else "Off")
+		ClassicSkin.setButtonText(colorCorrBtn, if s.graphics.colorCorrection then "On" else "Off")
 		ClassicSkin.setButtonText(
 			particlesBtn,
 			if s.graphics.particles == 0 then "Off" elseif s.graphics.particles == 1 then "Reduced" else "Full"
 		)
-		ClassicSkin.setButtonText(postFxBtn, if s.graphics.postEffects then "On" else "Off")
+		ClassicSkin.setButtonText(shadowsBtn, if s.graphics.shadows then "On" else "Off")
+		ClassicSkin.setButtonText(trackDetailBtn, s.graphics.trackDetail)
 		persistNote.Text = if ClientSettingsState.isPersisted()
 			then "Persistence: Saved to Roblox DataStore"
 			else "Persistence: Session-only (DataStore unavailable)"
@@ -480,11 +610,13 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 		uiValLbl.Text = string.format("%d%%", math.floor(s.audio.uiVolume * 100 + 0.5))
 		uiFill.Size = UDim2.fromScale(math.clamp(s.audio.uiVolume, 0, 1), 1)
 
-		ClassicSkin.setButtonText(
-			minimapBtn,
-			if s.ui.minimapDisplay == 0 then "Hidden" elseif s.ui.minimapDisplay == 1 then "Corner" else "Large"
-		)
+		ClassicSkin.setButtonText(skinBtn, s.ui.skin)
+		ClassicSkin.setButtonText(skinVariantBtn, s.ui.skinVariant)
+		ClassicSkin.setButtonText(minimapBtn, SettingsSchema.getMinimapLabel(s.ui.minimapDisplay))
+		fontValLbl.Text = SettingsSchema.getFontSizeLabel(s.ui.fontSize)
+		fontFill.Size = UDim2.fromScale(math.clamp((s.ui.fontSize - 1) / 4, 0.08, 1), 1)
 		ClassicSkin.setButtonText(fpsBtn, if s.ui.showFps then "On" else "Off")
+		ClassicSkin.setButtonText(otherPowBtn, if s.ui.showOtherPowerups then "On" else "Off")
 		ClassicSkin.setButtonText(camPresetBtn, s.ui.cameraPreset)
 
 		kbGroup.Visible = (inputDeviceTab == "keyboard")
@@ -518,9 +650,24 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 	bindPreset(presetMedBtn, "Medium")
 	bindPreset(presetHighBtn, "High")
 
-	trackConn(shadowsBtn.Activated:Connect(function()
+	trackConn(bloomBtn.Activated:Connect(function()
 		ClientSettingsState.update(function(s)
-			s.graphics.shadows = not s.graphics.shadows
+			s.graphics.bloom = not s.graphics.bloom
+		end)
+	end))
+	trackConn(dofBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.graphics.depthOfField = not s.graphics.depthOfField
+		end)
+	end))
+	trackConn(sunRaysBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.graphics.sunRays = not s.graphics.sunRays
+		end)
+	end))
+	trackConn(colorCorrBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.graphics.colorCorrection = not s.graphics.colorCorrection
 		end)
 	end))
 	trackConn(particlesBtn.Activated:Connect(function()
@@ -528,24 +675,56 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 			s.graphics.particles = (s.graphics.particles + 1) % 3
 		end)
 	end))
-	trackConn(postFxBtn.Activated:Connect(function()
+	trackConn(shadowsBtn.Activated:Connect(function()
 		ClientSettingsState.update(function(s)
-			s.graphics.postEffects = not s.graphics.postEffects
+			s.graphics.shadows = not s.graphics.shadows
 		end)
 	end))
+	trackConn(trackDetailBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.graphics.trackDetail = cycleInList(SettingsSchema.TRACK_DETAIL_ORDER, s.graphics.trackDetail) :: any
+		end)
+	end))
+
 	trackConn(muteBtn.Activated:Connect(function()
 		ClientSettingsState.update(function(s)
 			s.audio.masterMuted = not s.audio.masterMuted
 		end)
 	end))
+
+	trackConn(skinBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.ui.skin = cycleInList(SettingsSchema.SKIN_ORDER, s.ui.skin) :: any
+		end)
+	end))
+	trackConn(skinVariantBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.ui.skinVariant = cycleInList(SettingsSchema.SKIN_VARIANT_ORDER, s.ui.skinVariant) :: any
+		end)
+	end))
 	trackConn(minimapBtn.Activated:Connect(function()
 		ClientSettingsState.update(function(s)
-			s.ui.minimapDisplay = (s.ui.minimapDisplay + 1) % 3
+			s.ui.minimapDisplay = (s.ui.minimapDisplay + 1) % 4
+		end)
+	end))
+	trackConn(fontMinusBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.ui.fontSize = math.clamp(s.ui.fontSize - 1, 1, 5)
+		end)
+	end))
+	trackConn(fontPlusBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.ui.fontSize = math.clamp(s.ui.fontSize + 1, 1, 5)
 		end)
 	end))
 	trackConn(fpsBtn.Activated:Connect(function()
 		ClientSettingsState.update(function(s)
 			s.ui.showFps = not s.ui.showFps
+		end)
+	end))
+	trackConn(otherPowBtn.Activated:Connect(function()
+		ClientSettingsState.update(function(s)
+			s.ui.showOtherPowerups = not s.ui.showOtherPowerups
 		end)
 	end))
 	trackConn(camPresetBtn.Activated:Connect(function()
@@ -559,6 +738,7 @@ function OptionsPanel.create(parent: Instance, trackConn: (RBXScriptConnection) 
 			end
 		end)
 	end))
+
 	trackConn(resetBindsBtn.Activated:Connect(function()
 		ClientSettingsState.update(function(s)
 			s.input = SettingsSchema.defaults().input
