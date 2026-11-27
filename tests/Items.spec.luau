@@ -673,7 +673,7 @@ return {
 			assertEqual(sBombSwat.attachmentType, ItemTuning.ATTACHMENT_SWATTER, "SWATTER replaced active BOMB")
 			assertEqual(sBombSwat.attachmentTicksLeft, 192, "bomb-removal swing is 192 ticks (40/25s)")
 
-			-- Fresh Swatter lasts 1200 ticks & squashes nearby kart within 3m (r^2 <= 9) for 600 ticks @ 0.5x
+			-- Fresh Swatter lasts 1200 ticks & squashes nearby kart within 3m (r^2 < 9) of SWAT_POS_OFFSET after 0.5s guard + 20t swing
 			local attacker = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
 			local victim = KartSolver.createState(profile, { x = 0, y = 0.291, z = 2.5 }, 0)
 			victim.linVel = { x = 0, y = 0, z = 22.0 }
@@ -689,8 +689,12 @@ return {
 			assertEqual(attacker.attachmentType, ItemTuning.ATTACHMENT_SWATTER, "SWATTER attached")
 			assertEqual(attacker.attachmentTicksLeft, 1200, "SWATTER duration is 1200 ticks (10s)")
 
-			local hitCount = KartSolver.checkSwatterHits(attacker, { attacker, victim }, 10)
-			assertEqual(hitCount, 1, "swatter squashed nearby victim")
+			local hitCount = 0
+			for t = 1, 90 do
+				attacker.attachmentTicksLeft -= 1
+				hitCount += KartSolver.checkSwatterHits(attacker, { attacker, victim }, 10 + t)
+			end
+			assertEqual(hitCount, 1, "swatter squashed nearby victim after start guard + swing")
 			assertEqual(victim.itemEffect.effectType, ItemEffectState.EFFECT_SQUASH, "victim has EFFECT_SQUASH")
 			assertEqual(victim.itemEffect.ticksRemaining, 600, "swatter squash duration = 600 ticks (5s)")
 			assertEqual(KartSolver.isDriverInputSuppressed(victim), false, "squash leaves steering enabled")

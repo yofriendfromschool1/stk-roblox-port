@@ -1,0 +1,115 @@
+{
+  "kartId": "sara_the_racer",
+  "kartName": "Pepper",
+  "kartType": "light",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "icon-pepper.png",
+  "iconDecalId": "105121552670665",
+  "iconId": "rbxassetid://76010769738076",
+  "textures": {
+    "Pepper_Skirt_dif.png": "rbxassetid://103188890446888",
+    "Pepper_broom_diff.png": "rbxassetid://105593675761337",
+    "Pepper_clothes_diff.png": "rbxassetid://115177892363152",
+    "Pepper_hair_col.png": "rbxassetid://78734401572248",
+    "Pepper_hat_diff.png": "rbxassetid://87984137568988",
+    "Pepper_lower_cloth_diff.png": "rbxassetid://80240419857221",
+    "Pepper_sticks_diff.png": "rbxassetid://96638155631271",
+    "pepper_diff.png": "rbxassetid://116487611125524",
+    "pepper_eyeball.png": "rbxassetid://88296904416109"
+  },
+  "textureDecalIds": {
+    "Pepper_hair_col.png": "118653686885008",
+    "Pepper_Skirt_dif.png": "74878934302642",
+    "Pepper_broom_diff.png": "88415019244105",
+    "Pepper_clothes_diff.png": "123251881914802",
+    "Pepper_hat_diff.png": "122718392017361",
+    "pepper_eyeball.png": "75858069938926",
+    "Pepper_lower_cloth_diff.png": "109594095630112",
+    "Pepper_sticks_diff.png": "106212074454099",
+    "pepper_diff.png": "108185825995890"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_0.glb",
+      "meshId": "rbxassetid://80395219550048",
+      "textureId": "rbxassetid://103188890446888",
+      "material": "Pepper_Skirt_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "70758867607210"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_1.glb",
+      "meshId": "rbxassetid://83699295946721",
+      "textureId": "rbxassetid://105593675761337",
+      "material": "Pepper_broom_diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "128060871873994"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_2.glb",
+      "meshId": "rbxassetid://132075544032079",
+      "textureId": "rbxassetid://115177892363152",
+      "material": "Pepper_clothes_diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "103289844136047"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_3.glb",
+      "meshId": "rbxassetid://114909363641168",
+      "textureId": "rbxassetid://78734401572248",
+      "material": "Pepper_hair_col.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "86466661638807"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_4.glb",
+      "meshId": "rbxassetid://119210261122871",
+      "textureId": "rbxassetid://87984137568988",
+      "material": "Pepper_hat_diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "80013418126900"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_5.glb",
+      "meshId": "rbxassetid://92318026353335",
+      "textureId": "rbxassetid://80240419857221",
+      "material": "Pepper_lower_cloth_diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "77436027289815"
+    },
+    "Body_6": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_6.glb",
+      "meshId": "rbxassetid://107831400069042",
+      "textureId": "rbxassetid://96638155631271",
+      "material": "Pepper_sticks_diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "108936148234618"
+    },
+    "Body_7": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_7.glb",
+      "meshId": "rbxassetid://104273377611900",
+      "textureId": "rbxassetid://116487611125524",
+      "material": "pepper_diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "139117972313084"
+    },
+    "Body_8": {
+      "glbFile": "build/karts/sara_the_racer/sara_the_racer_Body_8.glb",
+      "meshId": "rbxassetid://121576570374563",
+      "textureId": "rbxassetid://88296904416109",
+      "material": "pepper_eyeball.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "135454444548180"
+    }
+  }
+}

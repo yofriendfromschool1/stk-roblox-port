@@ -1,0 +1,120 @@
+{
+  "kartId": "hexley",
+  "kartName": "Hexley",
+  "kartType": "light",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "hexleyicon.png",
+  "iconDecalId": "123041463790109",
+  "iconId": "rbxassetid://120381299745855",
+  "textures": {
+    "hexley_diffuse.png": "rbxassetid://140053120508793",
+    "hexley_kart_diffuse.png": "rbxassetid://87972279013361",
+    "hexley_kart_frontGlass.png": "rbxassetid://103298101239481",
+    "hexley_window.png": "rbxassetid://111455969892589",
+    "hexley_dashboard_diffuse.png": "rbxassetid://102036825730007",
+    "meter_diffuse.png": "rbxassetid://140629514580747",
+    "hexley_wheel_diffuse.png": "rbxassetid://135544639107876"
+  },
+  "textureDecalIds": {
+    "hexley_diffuse.png": "85619848921638",
+    "hexley_window.png": "87134685232233",
+    "hexley_dashboard_diffuse.png": "84619540090855",
+    "hexley_kart_frontGlass.png": "120172641890262",
+    "hexley_kart_diffuse.png": "104610350840771",
+    "hexley_wheel_diffuse.png": "87061821356131",
+    "meter_diffuse.png": "94400594011552"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/hexley/hexley_Body_0.glb",
+      "meshId": "rbxassetid://99607496122951",
+      "textureId": "rbxassetid://140053120508793",
+      "material": "hexley_diffuse.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "99294276913737"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/hexley/hexley_Body_1.glb",
+      "meshId": "rbxassetid://100414696394308",
+      "textureId": "rbxassetid://87972279013361",
+      "material": "hexley_kart_diffuse.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "116940315168499"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/hexley/hexley_Body_2.glb",
+      "meshId": "rbxassetid://120768918059662",
+      "textureId": "rbxassetid://103298101239481",
+      "material": "hexley_kart_frontGlass.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "100487030920740"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/hexley/hexley_Body_3.glb",
+      "meshId": "rbxassetid://138492837994967",
+      "textureId": "rbxassetid://111455969892589",
+      "material": "hexley_window.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "131783117277880"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/hexley/hexley_Body_4.glb",
+      "meshId": "rbxassetid://109557068618974",
+      "textureId": "rbxassetid://102036825730007",
+      "material": "hexley_dashboard_diffuse.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "124823584792131"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/hexley/hexley_Body_5.glb",
+      "meshId": "rbxassetid://82927468243272",
+      "textureId": "rbxassetid://140629514580747",
+      "material": "meter_diffuse.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "85636779790954"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/hexley/wheel-front-left.glb",
+      "meshId": "rbxassetid://119060572959031",
+      "textureId": "rbxassetid://135544639107876",
+      "material": "hexley_wheel_diffuse.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "95820751507838"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/hexley/wheel-front-right.glb",
+      "meshId": "rbxassetid://100923943880035",
+      "textureId": "rbxassetid://135544639107876",
+      "material": "hexley_wheel_diffuse.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "75446658394886"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/hexley/wheel-rear-left.glb",
+      "meshId": "rbxassetid://132189605634518",
+      "textureId": "rbxassetid://135544639107876",
+      "material": "hexley_wheel_diffuse.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "87896108725187"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/hexley/wheel-rear-right.glb",
+      "meshId": "rbxassetid://100923943880035",
+      "textureId": "rbxassetid://135544639107876",
+      "material": "hexley_wheel_diffuse.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "92983200852992"
+    }
+  }
+}

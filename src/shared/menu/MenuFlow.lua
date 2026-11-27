@@ -84,6 +84,9 @@ local function defaultTrackId(): string
 end
 
 local function defaultKartId(): string
+	if isPlayableKart("tux") then
+		return "tux"
+	end
 	for _, entry in ipairs(CatalogData.karts) do
 		if entry.playable then
 			return entry.id

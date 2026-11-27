@@ -5,6 +5,7 @@
 -- src/karts/kart.cpp:L912-L924, L1216-L1245, L1513-L1529, L2610-L2958 (STK 1.5)
 -- Pure-math Luau raycast kart physics solver (zero Roblox API dependencies).
 
+local CheckManager = require("../race/CheckManager")
 local FixedStep = require("./FixedStep")
 local Flyable = require("./Flyable")
 local ItemEffectState = require("./ItemEffectState")
@@ -118,10 +119,16 @@ export type KartState = {
 	heldPowerup: number,
 	heldPowerupCount: number,
 	fireWasDown: boolean,
-	-- Attachments & unified item-hit effect state (attachment.cpp:L270-L567, explosion_animation.cpp, kart.cpp)
+	-- Attachments & unified item-hit effect state (attachment.cpp:L270-L567, swatter.cpp:L48-L490, explosion_animation.cpp, kart.cpp)
 	attachmentType: number,
 	attachmentTicksLeft: number,
 	attachmentInitialSpeed: number,
+	swatterPhase: number,
+	swatterAnimTicks: number,
+	swatterTargetId: number,
+	swatterTargetYawRad: number,
+	swatterBombMode: boolean,
+	swatterDiscardNow: boolean,
 	itemEffect: ItemEffectState.State,
 	-- Timed impulses & post-skid alignment rotation (btKart.cpp:L504-L533)
 	timedImpulseTicks: number,
@@ -137,6 +144,10 @@ export type KartState = {
 	lastSafePos: Vec3,
 	lastSafeRot: Quat,
 	stuckTicks: number,
+	-- Continuous driveline rescue pose (src/tracks/track_sector.cpp:L54-L139)
+	lastRescueQuadIdx: number,
+	lastRescuePos: Vec3,
+	lastRescueYawRad: number,
 	-- Telemetry
 	maxSlipAngleRad: number,
 	frontSteerAngleRad: number,
@@ -197,6 +208,12 @@ export type NetState = {
 	attachmentType: number?,
 	attachmentTicksLeft: number?,
 	attachmentInitialSpeed: number?,
+	swatterPhase: number?,
+	swatterAnimTicks: number?,
+	swatterTargetId: number?,
+	swatterTargetYawRad: number?,
+	swatterBombMode: boolean?,
+	swatterDiscardNow: boolean?,
 	itemEffect: ItemEffectState.NetEffectState?,
 	bubbleFraction: number?,
 	bubbleTargetFraction: number?,
@@ -207,6 +224,9 @@ export type NetState = {
 	slipstream: Slipstream.NetSlipstreamState?,
 	race: KartRaceState?,
 	rngState: number?,
+	lastRescueQuadIdx: number?,
+	lastRescuePos: { number }?,
+	lastRescueYawRad: number?,
 	itemWorldSnapshot: ItemWorld.ItemWorldSnapshot?,
 	flyableSnapshot: Flyable.FlyableSnapshot?,
 }
@@ -240,6 +260,11 @@ export type KartTelemetry = {
 	slipstreamActive: boolean,
 	attachmentType: number,
 	attachmentTicksLeft: number,
+	swatterPhase: number,
+	swatterAnimTicks: number,
+	swatterTargetId: number,
+	swatterTargetYawRad: number,
+	swatterBombMode: boolean,
 	bubblegumTicks: number,
 	effectType: number,
 	effectTicksRemaining: number,
@@ -350,6 +375,12 @@ function KartSolver.createState(
 		attachmentType = ItemTuning.ATTACHMENT_NONE,
 		attachmentTicksLeft = 0,
 		attachmentInitialSpeed = 0.0,
+		swatterPhase = ItemTuning.SWATTER_PHASE_AIMING,
+		swatterAnimTicks = 0,
+		swatterTargetId = 0,
+		swatterTargetYawRad = 0.0,
+		swatterBombMode = false,
+		swatterDiscardNow = false,
 		itemEffect = ItemEffectState.create(),
 		timedImpulseTicks = 0,
 		timedImpulsePerSec = { x = 0, y = 0, z = 0 },
@@ -362,6 +393,9 @@ function KartSolver.createState(
 		lastSafePos = { x = pos.x, y = pos.y, z = pos.z },
 		lastSafeRot = { w = rot.w, x = rot.x, y = rot.y, z = rot.z },
 		stuckTicks = 0,
+		lastRescueQuadIdx = 0,
+		lastRescuePos = { x = pos.x, y = pos.y, z = pos.z },
+		lastRescueYawRad = spawnYawRad or 0.0,
 		maxSlipAngleRad = 0,
 		frontSteerAngleRad = 0,
 		maxCompressionRatio = 0,
@@ -437,6 +471,12 @@ function KartSolver.captureNetState(
 		attachmentType = state.attachmentType,
 		attachmentTicksLeft = state.attachmentTicksLeft,
 		attachmentInitialSpeed = state.attachmentInitialSpeed,
+		swatterPhase = state.swatterPhase,
+		swatterAnimTicks = state.swatterAnimTicks,
+		swatterTargetId = state.swatterTargetId,
+		swatterTargetYawRad = state.swatterTargetYawRad,
+		swatterBombMode = state.swatterBombMode,
+		swatterDiscardNow = state.swatterDiscardNow,
 		itemEffect = ItemEffectState.captureNet(state.itemEffect),
 		bubbleFraction = if bubble then bubble.currentFraction else 1.0,
 		bubbleTargetFraction = if bubble then bubble.targetFraction else 1.0,
@@ -458,6 +498,9 @@ function KartSolver.captureNetState(
 			startupBoostFired = state.race.startupBoostFired,
 		},
 		rngState = state.rngState,
+		lastRescueQuadIdx = state.lastRescueQuadIdx,
+		lastRescuePos = { state.lastRescuePos.x, state.lastRescuePos.y, state.lastRescuePos.z },
+		lastRescueYawRad = state.lastRescueYawRad,
 		itemWorldSnapshot = if itemWorld ~= nil then ItemWorld.captureSnapshot(itemWorld) else nil,
 		flyableSnapshot = if flyableWorld ~= nil then Flyable.captureSnapshot(flyableWorld) else nil,
 	}
@@ -506,6 +549,12 @@ function KartSolver.applyNetState(
 	state.attachmentType = snap.attachmentType or ItemTuning.ATTACHMENT_NONE
 	state.attachmentTicksLeft = snap.attachmentTicksLeft or 0
 	state.attachmentInitialSpeed = snap.attachmentInitialSpeed or 0.0
+	state.swatterPhase = snap.swatterPhase or ItemTuning.SWATTER_PHASE_AIMING
+	state.swatterAnimTicks = snap.swatterAnimTicks or 0
+	state.swatterTargetId = snap.swatterTargetId or 0
+	state.swatterTargetYawRad = snap.swatterTargetYawRad or 0.0
+	state.swatterBombMode = snap.swatterBombMode == true
+	state.swatterDiscardNow = snap.swatterDiscardNow == true
 	if snap.itemEffect ~= nil then
 		ItemEffectState.applyNet(state.itemEffect, snap.itemEffect)
 	else
@@ -524,6 +573,19 @@ function KartSolver.applyNetState(
 	state.bounceBackTicks = snap.bounceBackTicks
 	if snap.rngState ~= nil then
 		state.rngState = coerceSeed(snap.rngState)
+	end
+	if snap.lastRescueQuadIdx ~= nil then
+		state.lastRescueQuadIdx = snap.lastRescueQuadIdx
+	end
+	if snap.lastRescuePos ~= nil then
+		state.lastRescuePos = {
+			x = snap.lastRescuePos[1] or state.pos.x,
+			y = snap.lastRescuePos[2] or state.pos.y,
+			z = snap.lastRescuePos[3] or state.pos.z,
+		}
+	end
+	if snap.lastRescueYawRad ~= nil then
+		state.lastRescueYawRad = snap.lastRescueYawRad
 	end
 
 	MaxSpeed.reset(state.maxSpeedState)
@@ -613,7 +675,8 @@ function KartSolver.setPowerup(state: KartState, powerupId: number, count: numbe
 		return
 	end
 	state.heldPowerup = powerupId
-	state.heldPowerupCount = math.clamp(math.floor(count), 1, ItemTuning.timing.MAX_POWERUPS)
+	-- src/items/powerup.cpp:L142, L148 ("Limit to 255", e.g. Time Trial grants numLaps zippers)
+	state.heldPowerupCount = math.clamp(math.floor(count), 1, 255)
 end
 
 function KartSolver.isShielded(state: KartState): boolean
@@ -638,6 +701,104 @@ end
 
 function KartSolver.isDriverInputSuppressed(state: KartState): boolean
 	return ItemEffectState.isDriverInputSuppressed(state.itemEffect)
+end
+
+function KartSolver.isRescuing(state: KartState): boolean
+	return state.itemEffect.effectType == ItemEffectState.EFFECT_RESCUE and state.itemEffect.ticksRemaining > 0
+end
+
+-- Continuously records nearest valid driveline quad center & tangent when grounded on drivable terrain,
+-- clamped so it never advances past an uncrossed checkline (src/tracks/track_sector.cpp:L54-L139).
+function KartSolver.updateLastRescuePose(
+	state: KartState,
+	checkpoints: { any },
+	drivelinePoints: { { x: number, y: number?, z: number } },
+	_worldQuery: WorldQuery?
+): boolean
+	if
+		KartSolver.isRescuing(state)
+		or ItemEffectState.isDriverInputSuppressed(state.itemEffect)
+		or not state.isOnGround
+		or state.resetTriggered
+		or state.lastCollisionReaction == "reset"
+		or #drivelinePoints < 2
+	then
+		return false
+	end
+	local mat = SurfaceMaterials.get(state.activeMaterialName)
+	if mat.ignore or mat.reset or mat.collisionReaction == "reset" then
+		return false
+	end
+	local hint = if state.lastRescueQuadIdx > 0 then state.lastRescueQuadIdx else nil
+	local quadIdx = CheckManager.findNearestQuadIndex(drivelinePoints, state.pos.x, state.pos.z, hint)
+	if quadIdx <= 0 then
+		return false
+	end
+	if
+		not CheckManager.isQuadAllowedForProgress(
+			quadIdx,
+			state.race.lap,
+			state.race.nextCheckpoint,
+			checkpoints :: any,
+			drivelinePoints
+		)
+	then
+		return false
+	end
+	local qPos, qYaw, valid =
+		CheckManager.computeDrivelineQuadPose(drivelinePoints, quadIdx, nil, nil, state.profile.collisionHeight)
+	if not valid then
+		return false
+	end
+	state.lastRescueQuadIdx = quadIdx
+	state.lastRescuePos = qPos
+	state.lastRescueYawRad = qYaw
+	return true
+end
+
+local function clearSwatterState(state: KartState)
+	state.swatterPhase = ItemTuning.SWATTER_PHASE_AIMING
+	state.swatterAnimTicks = 0
+	state.swatterTargetId = 0
+	state.swatterTargetYawRad = 0.0
+	state.swatterBombMode = false
+	state.swatterDiscardNow = false
+end
+
+-- Server-authoritative rescue to target pose (rescue_animation.cpp:L51-L183).
+-- Clears active attachment (L76), zeroes velocities, and never modifies nextCheckpoint/lap.
+function KartSolver.triggerRescue(state: KartState, targetPos: Vec3, targetYawRad: number): boolean
+	if KartSolver.isRescuing(state) then
+		return false
+	end
+	state.attachmentType = ItemTuning.ATTACHMENT_NONE
+	state.attachmentTicksLeft = 0
+	state.attachmentInitialSpeed = 0.0
+	clearSwatterState(state)
+	ItemEffectState.setParachuteDrag(state.itemEffect, false)
+	state.resetTriggered = false
+	state.linVel = { x = 0, y = 0, z = 0 }
+	state.angVel = { x = 0, y = 0, z = 0 }
+	state.speed = 0.0
+	state.steer = 0.0
+	state.latchedSkidControl = "NONE"
+	state.timedImpulseTicks = 0
+	state.timedImpulsePerSec = { x = 0, y = 0, z = 0 }
+	state.timedRotationTicks = 0
+	state.timedRotationRate = 0.0
+	state.stuckTicks = 0
+	local targetRot = if targetYawRad ~= 0
+		then Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, targetYawRad)
+		else Math3D.quatIdentity()
+	return ItemEffectState.triggerRescue(
+		state.itemEffect,
+		state.pos,
+		state.rot,
+		targetPos,
+		targetRot,
+		ItemEffectState.RESCUE_DURATION_SEC,
+		ItemEffectState.RESCUE_HEIGHT_M
+	)
 end
 
 -- Ported from ExplosionAnimation::create & constructor (explosion_animation.cpp:L44-L124).
@@ -2066,6 +2227,7 @@ local function finalizeExpiredAttachment(
 	state.attachmentType = ItemTuning.ATTACHMENT_NONE
 	state.attachmentTicksLeft = 0
 	state.attachmentInitialSpeed = 0.0
+	clearSwatterState(state)
 	ItemEffectState.setParachuteDrag(state.itemEffect, false)
 end
 
@@ -2160,12 +2322,17 @@ function KartSolver.stepWithItems(
 		elseif firedPowerup == ItemTuning.POWERUP_SWATTER then
 			-- Timed melee swatter attachment or bomb-removal swing (powerup.cpp:L312-L316, swatter.cpp:L76-L83)
 			ItemEffectState.setParachuteDrag(state.itemEffect, false)
-			local durationSec = if state.attachmentType == ItemTuning.ATTACHMENT_BOMB
-				then ItemTuning.swatter.BOMB_REMOVE_SEC
-				else ItemTuning.swatter.DURATION_SEC
+			local wasBomb = (state.attachmentType == ItemTuning.ATTACHMENT_BOMB)
+			local durationSec = if wasBomb then ItemTuning.swatter.BOMB_REMOVE_SEC else ItemTuning.swatter.DURATION_SEC
 			state.attachmentType = ItemTuning.ATTACHMENT_SWATTER
 			state.attachmentTicksLeft = FixedStep.timeToTicks(durationSec)
 			state.attachmentInitialSpeed = 0.0
+			state.swatterPhase = ItemTuning.SWATTER_PHASE_AIMING
+			state.swatterAnimTicks = 0
+			state.swatterTargetId = 0
+			state.swatterTargetYawRad = 0.0
+			state.swatterBombMode = wasBomb
+			state.swatterDiscardNow = false
 		elseif firedPowerup == ItemTuning.POWERUP_PARACHUTE then
 			local proxies = options.allKartProxies
 			if proxies ~= nil then
@@ -2240,37 +2407,145 @@ function KartSolver.stepWithItems(
 	return events
 end
 
--- Ported from Swatter::updateAndTestFinished proximity check (swatter.cpp:L249-L310).
-function KartSolver.checkSwatterHits(attacker: KartState, targets: { KartState }, worldTicks: number?): number
+-- Ported from Swatter::updateAndTestFinished / chooseTarget / pointToTarget / squashThingsAround
+-- (src/items/swatter.cpp:L234-L408, data/kart_characteristics.xml:L260-L261).
+function KartSolver.checkSwatterHits(
+	attacker: KartState,
+	targets: { any },
+	worldTicks: number?,
+	isBattle: boolean?
+): number
 	if
 		attacker.attachmentType ~= ItemTuning.ATTACHMENT_SWATTER
 		or attacker.attachmentTicksLeft <= 0
+		or attacker.swatterBombMode
+		or attacker.swatterDiscardNow
 		or ItemEffectState.isDriverInputSuppressed(attacker.itemEffect)
 	then
 		return 0
 	end
-	local maxD2 = ItemTuning.swatter.DISTANCE_SQUARED
-	local hits = 0
-	for _, target in targets do
-		if target ~= attacker then
-			local dx = target.pos.x - attacker.pos.x
-			local dy = target.pos.y - attacker.pos.y
-			local dz = target.pos.z - attacker.pos.z
-			if (dx * dx + dy * dy + dz * dz) <= maxD2 then
-				if
-					KartSolver.applySquashHit(
-						target,
-						ItemTuning.swatter.SQUASH_DURATION_SEC,
-						ItemTuning.swatter.SQUASH_SLOWDOWN,
-						worldTicks
-					)
-				then
-					hits += 1
+
+	local participants: { CollisionParticipant } = table.create(#targets)
+	for idx, entry in targets do
+		if type(entry) == "table" and (entry :: any).state ~= nil and type((entry :: any).id) == "number" then
+			table.insert(participants, entry :: CollisionParticipant)
+		else
+			table.insert(participants, { id = idx, state = entry :: KartState })
+		end
+	end
+	-- Deterministic victim choice across server, client, and replay: stable ascending kartId order.
+	table.sort(participants, function(a: CollisionParticipant, b: CollisionParticipant): boolean
+		return a.id < b.id
+	end)
+
+	local sw = ItemTuning.swatter
+	local totalTicks = FixedStep.timeToTicks(sw.DURATION_SEC)
+	local startGuardTicks = FixedStep.timeToTicks(sw.START_GUARD_SEC)
+	local endGuardTicks = FixedStep.timeToTicks(sw.END_GUARD_SEC)
+	local swingDownTicks = FixedStep.timeToTicks(sw.SWING_DOWN_SEC)
+	local swingUpTicks = FixedStep.timeToTicks(sw.SWING_UP_SEC)
+
+	local function computeLocalAimYaw(targetPos: Vec3): number
+		local delta = Math3D.sub(targetPos, attacker.pos)
+		local localDelta = Math3D.quatRotateVec(Math3D.quatConjugate(attacker.rot), delta)
+		if localDelta.x * localDelta.x + localDelta.z * localDelta.z <= 1e-8 then
+			return 0.0
+		end
+		return math.atan2(localDelta.x, localDelta.z)
+	end
+
+	local function findParticipantById(id: number): CollisionParticipant?
+		for _, p in participants do
+			if p.id == id then
+				return p
+			end
+		end
+		return nil
+	end
+
+	local phase = attacker.swatterPhase
+	if phase == ItemTuning.SWATTER_PHASE_AIMING then
+		if
+			(totalTicks - attacker.attachmentTicksLeft) < startGuardTicks
+			or attacker.attachmentTicksLeft < endGuardTicks
+		then
+			attacker.swatterTargetId = 0
+			attacker.swatterTargetYawRad = 0.0
+			return 0
+		end
+
+		local closest: CollisionParticipant? = nil
+		local minKartDist2 = math.huge
+		for _, p in participants do
+			local ks = p.state
+			if
+				ks ~= attacker
+				and not ItemEffectState.isDriverInputSuppressed(ks.itemEffect)
+				and not ItemEffectState.isInvulnerable(ks.itemEffect)
+				and not (ks.itemEffect.effectType == ItemEffectState.EFFECT_SQUASH and ks.itemEffect.ticksRemaining > 0)
+			then
+				local dx = ks.pos.x - attacker.pos.x
+				local dy = ks.pos.y - attacker.pos.y
+				local dz = ks.pos.z - attacker.pos.z
+				local d2 = dx * dx + dy * dy + dz * dz
+				if d2 < minKartDist2 then
+					minKartDist2 = d2
+					closest = p
 				end
 			end
 		end
+
+		if closest == nil then
+			attacker.swatterTargetId = 0
+			attacker.swatterTargetYawRad = 0.0
+			return 0
+		end
+
+		attacker.swatterTargetId = closest.id
+		attacker.swatterTargetYawRad = computeLocalAimYaw(closest.state.pos)
+
+		-- Hit-test against the swatter's actual world-space swing position (swatter.cpp:L270-L276).
+		local swatterPosWS = Math3D.add(attacker.pos, Math3D.quatRotateVec(attacker.rot, sw.POS_OFFSET))
+		local sx = closest.state.pos.x - swatterPosWS.x
+		local sy = closest.state.pos.y - swatterPosWS.y
+		local sz = closest.state.pos.z - swatterPosWS.z
+		local dist2 = sx * sx + sy * sy + sz * sz
+		if dist2 < sw.DISTANCE_SQUARED then
+			attacker.swatterPhase = ItemTuning.SWATTER_PHASE_TO_TARGET
+			attacker.swatterAnimTicks = attacker.attachmentTicksLeft - swingDownTicks
+		end
+		return 0
+	elseif phase == ItemTuning.SWATTER_PHASE_TO_TARGET then
+		local locked = findParticipantById(attacker.swatterTargetId)
+		if locked ~= nil then
+			attacker.swatterTargetYawRad = computeLocalAimYaw(locked.state.pos)
+		end
+		if attacker.attachmentTicksLeft < attacker.swatterAnimTicks and attacker.attachmentTicksLeft > swingUpTicks then
+			local hits = 0
+			if locked ~= nil and locked.state ~= attacker then
+				if KartSolver.applySquashHit(locked.state, sw.SQUASH_DURATION_SEC, sw.SQUASH_SLOWDOWN, worldTicks) then
+					hits = 1
+				end
+			end
+			attacker.swatterPhase = ItemTuning.SWATTER_PHASE_FROM_TARGET
+			attacker.swatterAnimTicks = attacker.attachmentTicksLeft - swingUpTicks
+			if isBattle == true then
+				attacker.swatterDiscardNow = true
+				attacker.attachmentTicksLeft = math.min(attacker.attachmentTicksLeft, swingUpTicks)
+			end
+			return hits
+		end
+		return 0
+	elseif phase == ItemTuning.SWATTER_PHASE_FROM_TARGET then
+		if attacker.attachmentTicksLeft < attacker.swatterAnimTicks and attacker.attachmentTicksLeft > 0 then
+			attacker.swatterPhase = ItemTuning.SWATTER_PHASE_AIMING
+			attacker.swatterTargetId = 0
+			attacker.swatterTargetYawRad = 0.0
+		end
+		return 0
 	end
-	return hits
+
+	return 0
 end
 
 export type CollisionParticipant = {
@@ -2624,6 +2899,11 @@ function KartSolver.getTelemetry(state: KartState): KartTelemetry
 			or MaxSpeed.isSpeedIncreaseActive(state.maxSpeedState, "SLIPSTREAM"),
 		attachmentType = state.attachmentType,
 		attachmentTicksLeft = state.attachmentTicksLeft,
+		swatterPhase = state.swatterPhase,
+		swatterAnimTicks = state.swatterAnimTicks,
+		swatterTargetId = state.swatterTargetId,
+		swatterTargetYawRad = state.swatterTargetYawRad,
+		swatterBombMode = state.swatterBombMode,
 		bubblegumTicks = bubbleTicks,
 		effectType = eff.effectType,
 		effectTicksRemaining = eff.ticksRemaining,

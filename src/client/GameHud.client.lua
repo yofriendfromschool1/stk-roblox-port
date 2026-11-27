@@ -627,7 +627,8 @@ end
 
 local activeHudTrack = getActiveTrack()
 local drivelineSegments: { Frame } = {}
-local branchSegments: { { seg: Frame, a: { x: number, z: number }, b: { x: number, z: number } } } = {}
+local branchSegments: { { seg: Frame, a: { x: number, y: number?, z: number }, b: { x: number, y: number?, z: number } } } =
+	{}
 local quadDots: { Frame } = {}
 
 local function rebuildMinimapGeometry()

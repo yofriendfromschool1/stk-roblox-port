@@ -12,11 +12,11 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
 local ItemTuning = require(Shared.ItemTuning)
 local ItemVisuals = require("../items/ItemVisuals")
+local KartBoundsData = require(Shared.kart.KartBoundsData)
 local KartTuning = require(Shared.KartTuning)
 local KartVisualMath = require(Shared.kart.KartVisualMath)
 local SlipstreamVfx = require("./SlipstreamVfx")
 local SlipstreamVfxMath = require(Shared.kart.SlipstreamVfxMath)
-local TuxBoundsData = require(Shared.kart.TuxBoundsData)
 local Units = require(Shared.Units)
 
 export type StaticSubpart = {
@@ -76,11 +76,11 @@ local WHEEL_SLOT_NAMES = {
 	"WheelRearRight",
 }
 
-local STATIC_MESH_NAMES = {
-	"Body_Engine",
-	"Body_Chassis",
-	"Body_Steering",
-	"Driver",
+local WHEEL_SLOT_SET: { [string]: boolean } = {
+	WheelFrontLeft = true,
+	WheelFrontRight = true,
+	WheelRearLeft = true,
+	WheelRearRight = true,
 }
 
 local FLIP_Y180_CF = CFrame.Angles(0, math.pi, 0)
@@ -128,23 +128,28 @@ local function resolveHydratedKartTemplate(kartId: string): Model?
 	return template
 end
 
-local function assertTuxLiveBounds(model: Model)
-	local tol = TuxBoundsData.TOLERANCE_STUDS
-	for partName, exp in TuxBoundsData.submeshes do
+local function assertKartLiveBounds(model: Model, kartId: string)
+	local expected = KartBoundsData.karts[kartId]
+	if expected == nil then
+		return
+	end
+	local tol = KartBoundsData.TOLERANCE_STUDS
+	for partName, exp in expected do
 		local child = model:FindFirstChild(partName)
 		if not (child and child:IsA("MeshPart")) then
-			error(string.format("[OpenKart] Tux missing MeshPart '%s'", partName))
+			error(string.format("[OpenKart] %s missing MeshPart '%s'", kartId, partName))
 		end
 		local mp = child :: MeshPart
 		if
 			mp.MeshSize.Magnitude <= 1e-4
-			or math.abs(mp.Size.X - exp[1]) > tol
-			or math.abs(mp.Size.Y - exp[2]) > tol
-			or math.abs(mp.Size.Z - exp[3]) > tol
+			or math.abs(mp.Size.X - math.max(exp[1], 0.05)) > tol
+			or math.abs(mp.Size.Y - math.max(exp[2], 0.05)) > tol
+			or math.abs(mp.Size.Z - math.max(exp[3], 0.05)) > tol
 		then
 			error(
 				string.format(
-					"[OpenKart] Tux live MeshPart.Size mismatch on %s: Size=(%.4f,%.4f,%.4f) MeshSize=(%.4f,%.4f,%.4f) expected=(%.4f,%.4f,%.4f)",
+					"[OpenKart] %s live MeshPart.Size mismatch on %s: Size=(%.4f,%.4f,%.4f) MeshSize=(%.4f,%.4f,%.4f) expected=(%.4f,%.4f,%.4f)",
+					kartId,
 					partName,
 					mp.Size.X,
 					mp.Size.Y,
@@ -342,7 +347,8 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 		existing:Destroy()
 	end
 
-	local template = resolveHydratedKartTemplate(kartId or "tux")
+	local resolvedKartId = kartId or "tux"
+	local template = resolveHydratedKartTemplate(resolvedKartId)
 	local model: Model
 	local staticParts: { StaticSubpart } = {}
 	local wheels: { WheelVisual } = {}
@@ -351,9 +357,7 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 	if template ~= nil then
 		model = template:Clone()
 		model.Name = "Kart_" .. keyStr
-		if (kartId or "tux") == "tux" then
-			assertTuxLiveBounds(model)
-		end
+		assertKartLiveBounds(model, resolvedKartId)
 		isTexturedMesh = true
 
 		local chassisRoot = model:FindFirstChild("ChassisRoot")
@@ -371,9 +375,9 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 			})
 		end
 
-		for _, name in STATIC_MESH_NAMES do
-			local p = model:FindFirstChild(name)
-			if p and p:IsA("BasePart") then
+		for _, child in model:GetChildren() do
+			if child:IsA("BasePart") and child.Name ~= "ChassisRoot" and not WHEEL_SLOT_SET[child.Name] then
+				local p = child :: BasePart
 				p.Anchored = true
 				p.CanCollide = false
 				p.CanTouch = false
@@ -522,6 +526,13 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 	}
 end
 
+export type SwatterAnimInput = {
+	phase: number,
+	animTicks: number,
+	bombMode: boolean,
+	targetYawRad: number,
+}
+
 function KartPresentation.update(
 	visuals: VisualKart,
 	bodyCFrame: CFrame,
@@ -536,7 +547,8 @@ function KartPresentation.update(
 	isSquashed: boolean?,
 	plungerFaceTicks: number?,
 	slipstreamVfxInput: SlipstreamVfxMath.SlipstreamVfxInput?,
-	attachmentTicksLeft: number?
+	attachmentTicksLeft: number?,
+	swatterAnimInput: SwatterAnimInput?
 )
 	local groundOffsetY = Units.metersToStuds(KartVisualMath.computeBodyGroundOffsetY())
 	local kartOriginCf = bodyCFrame * CFrame.new(0, groundOffsetY, 0)
@@ -590,17 +602,50 @@ function KartPresentation.update(
 	visuals.nitroEmitterR.Enabled = emitNitro
 	visuals.nitroLight.Enabled = nitroActive
 
-	-- Active kart attachment visual mesh + expiring shield flash (attachment.cpp:L570-L668)
+	-- Active kart attachment visual mesh + expiring shield flash + tick-driven swatter/bomb-removal (attachment.cpp:L570-L668, swatter.cpp:L111-L226)
 	local activeAttach = attachmentType or ItemTuning.ATTACHMENT_NONE
+	local swatterPose: KartVisualMath.SwatterAnimPose? = nil
+	if activeAttach == ItemTuning.ATTACHMENT_SWATTER then
+		local swIn = swatterAnimInput
+		swatterPose = KartVisualMath.computeSwatterAnimation(
+			attachmentTicksLeft or 0,
+			if swIn then swIn.phase else nil,
+			if swIn then swIn.animTicks else nil,
+			if swIn then swIn.bombMode else false,
+			if swIn then swIn.targetYawRad else 0.0
+		)
+	end
+
 	for atype, att in visuals.attachments do
 		if atype == activeAttach then
-			att.part.CFrame = kartOriginCf * att.localCf
-			if atype == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD and attachmentTicksLeft ~= nil then
+			if atype == ItemTuning.ATTACHMENT_SWATTER and swatterPose ~= nil then
+				local swOff = ItemTuning.swatter.POS_OFFSET
+				-- STK -Z behind kart maps to Roblox +Z behind kart
+				local mountPosCf = CFrame.new(
+					Units.metersToStuds(swOff.x),
+					Units.metersToStuds(swOff.y),
+					Units.metersToStuds(-swOff.z)
+				)
+				att.part.CFrame = kartOriginCf
+					* mountPosCf
+					* CFrame.Angles(0, -swatterPose.swatterYawRad, 0)
+					* CFrame.Angles(swatterPose.swatterSwingPitchRad, 0, 0)
+					* att.localCf
+				att.part.Transparency = att.activeTransparency
+			elseif atype == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD and attachmentTicksLeft ~= nil then
+				att.part.CFrame = kartOriginCf * att.localCf
 				local visible = KartVisualMath.isBubblegumShieldVisible(attachmentTicksLeft)
 				att.part.Transparency = if visible then att.activeTransparency else 1.0
 			else
+				att.part.CFrame = kartOriginCf * att.localCf
 				att.part.Transparency = att.activeTransparency
 			end
+		elseif atype == ItemTuning.ATTACHMENT_BOMB and swatterPose ~= nil and swatterPose.showBomb then
+			att.part.CFrame = kartOriginCf
+				* CFrame.new(Units.metersToStuds(swatterPose.bombOffsetXMeters), 0, 0)
+				* CFrame.Angles(swatterPose.bombRotXRad, 0, 0)
+				* att.localCf
+			att.part.Transparency = att.activeTransparency
 		else
 			att.part.Transparency = 1.0
 		end

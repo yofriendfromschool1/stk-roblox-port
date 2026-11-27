@@ -1,0 +1,120 @@
+{
+  "kartId": "amanda",
+  "kartName": "Amanda",
+  "kartType": "heavy",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "amanda_icon.png",
+  "iconDecalId": "122633524173091",
+  "iconId": "rbxassetid://121710530535704",
+  "textures": {
+    "attachment.png": "rbxassetid://132169267722280",
+    "body.png": "rbxassetid://119122301867854",
+    "car.png": "rbxassetid://105103509428391",
+    "fender.png": "rbxassetid://87651977129034",
+    "motor.png": "rbxassetid://86821479179198",
+    "cc0_headlight_lens.png": "rbxassetid://134664829773708",
+    "wheel.png": "rbxassetid://134445741137507"
+  },
+  "textureDecalIds": {
+    "attachment.png": "128908869801196",
+    "body.png": "83141107147542",
+    "car.png": "134197122838915",
+    "cc0_headlight_lens.png": "93943429232488",
+    "fender.png": "110863712885857",
+    "motor.png": "117060129938835",
+    "wheel.png": "120054335973029"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/amanda/amanda_Body_0.glb",
+      "meshId": "rbxassetid://140639414834774",
+      "textureId": "rbxassetid://132169267722280",
+      "material": "attachment.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "138886817118600"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/amanda/amanda_Body_1.glb",
+      "meshId": "rbxassetid://88480922698182",
+      "textureId": "rbxassetid://119122301867854",
+      "material": "body.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "90403725329180"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/amanda/amanda_Body_2.glb",
+      "meshId": "rbxassetid://93541027605136",
+      "textureId": "rbxassetid://105103509428391",
+      "material": "car.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "98861367675365"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/amanda/amanda_Body_3.glb",
+      "meshId": "rbxassetid://72377937033078",
+      "textureId": "rbxassetid://87651977129034",
+      "material": "fender.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "118514202292512"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/amanda/amanda_Body_4.glb",
+      "meshId": "rbxassetid://99612263320724",
+      "textureId": "rbxassetid://86821479179198",
+      "material": "motor.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "83767206716339"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/amanda/amanda_Body_5.glb",
+      "meshId": "rbxassetid://137440878105517",
+      "textureId": "rbxassetid://134664829773708",
+      "material": "cc0_headlight_lens.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "137094829908554"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/amanda/wheel-front-left.glb",
+      "meshId": "rbxassetid://98823573157795",
+      "textureId": "rbxassetid://134445741137507",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "111786749188846"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/amanda/wheel-front-right.glb",
+      "meshId": "rbxassetid://70497955202204",
+      "textureId": "rbxassetid://134445741137507",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "110828748752214"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/amanda/wheel-rear-left.glb",
+      "meshId": "rbxassetid://80895084322617",
+      "textureId": "rbxassetid://134445741137507",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "109323837959491"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/amanda/wheel-rear-right.glb",
+      "meshId": "rbxassetid://125143901986004",
+      "textureId": "rbxassetid://134445741137507",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "116408925029057"
+    }
+  }
+}

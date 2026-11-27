@@ -180,7 +180,9 @@ local function capturePose(state: KartSolver.KartState): SnapshotPose
 end
 
 local hud = createDebugHud()
-local profile = KartTuning.buildProfile("medium", "best")
+local hydrateKartRemote = if remotesFolder then remotesFolder:FindFirstChild("HydrateKart") :: RemoteFunction? else nil
+
+local profile = KartTuning.buildProfileForKart("tux", "best")
 local visuals = KartPresentation.create(localPlayer, profile, "tux")
 
 local localKartId = if localPlayer.UserId ~= 0 then localPlayer.UserId else 2
@@ -388,17 +390,14 @@ if sessionStateRemote then
 		end
 		local phase = if payload.phase == "RACING" then "RACING" elseif payload.phase == "LOBBY" then "LOBBY" else "MENU"
 		local cfg = payload.config
-		ClientSessionState.set({
-			phase = phase :: any,
-			config = cfg,
-			localP2Active = payload.localP2Active == true,
-		})
-		inputMapper.setSuppressed(phase ~= "RACING")
-		inputMapper.setLocalTwoPlayer(cfg ~= nil and cfg.playMode == "LOCAL_2P")
 		if phase ~= "RACING" then
-			SfxPlayer.clearMatchSounds(sfxPlayer)
-			SfxEvents.resetTracker(localAudioTracker)
-			table.clear(remoteAudioTrackers)
+			ClientSessionState.set({
+				phase = phase :: any,
+				config = cfg,
+				localP2Active = payload.localP2Active == true,
+			})
+			inputMapper.setSuppressed(true)
+			inputMapper.setLocalTwoPlayer(cfg ~= nil and cfg.playMode == "LOCAL_2P")
 			visuals.model.Parent = nil
 			for _, rv in remoteKartVisuals do
 				rv.model:Destroy()
@@ -406,17 +405,61 @@ if sessionStateRemote then
 			table.clear(remoteKartVisuals)
 			table.clear(remoteInterpBuffers)
 			table.clear(remoteKartStates)
+			SfxPlayer.clearMatchSounds(sfxPlayer)
+			SfxEvents.resetTracker(localAudioTracker)
+			table.clear(remoteAudioTrackers)
 			HudState.get().ready = false
 		else
+			-- Keep input/render suppressed while hydrating and rebuilding models (prevents re-entrant yield/Parent-locked errors)
+			inputMapper.setSuppressed(true)
+			localTotalLaps = if cfg and type(cfg.laps) == "number" then cfg.laps else KartTuning.race.DEFAULT_LAPS
+			local selectedKartId = if cfg and type(cfg.kartId) == "string" then cfg.kartId else "tux"
+			local selectedDiff = if cfg and cfg.difficulty then cfg.difficulty else "intermediate"
+			local assetsFolder = ReplicatedStorage:FindFirstChild("Assets")
+			local kartsFolder = if assetsFolder then assetsFolder:FindFirstChild("Karts") else nil
+			local existingTemplate = if kartsFolder then kartsFolder:FindFirstChild(selectedKartId) else nil
+			local hasMesh = false
+			if existingTemplate then
+				for _, d in existingTemplate:GetDescendants() do
+					if d:IsA("MeshPart") then
+						hasMesh = true
+						break
+					end
+				end
+			end
+			if not hasMesh and hydrateKartRemote then
+				pcall(function()
+					hydrateKartRemote:InvokeServer(selectedKartId)
+				end)
+			end
+			profile = KartTuning.buildProfileForKart(selectedKartId, selectedDiff)
+			if visuals.model then
+				visuals.model:Destroy()
+			end
+			for _, rv in remoteKartVisuals do
+				rv.model:Destroy()
+			end
+			table.clear(remoteKartVisuals)
+			table.clear(remoteInterpBuffers)
+			table.clear(remoteKartStates)
 			SfxPlayer.clearMatchSounds(sfxPlayer)
 			SfxEvents.resetTracker(localAudioTracker)
 			table.clear(remoteAudioTrackers)
 			SfxPlayer.applyAudioSettings(sfxPlayer, ClientSettingsState.get().audio)
+			visuals = KartPresentation.create(localPlayer, profile, selectedKartId)
+			local sInit = ClientSettingsState.get()
+			KartPresentation.applyVisualSettings(
+				visuals,
+				sInit.graphics.shadows,
+				SettingsSchema.getParticleRateMultiplier(sInit.graphics.particles)
+			)
 			visuals.model.Parent = Workspace
-			localTotalLaps = if cfg and type(cfg.laps) == "number" then cfg.laps else KartTuning.race.DEFAULT_LAPS
-			profile =
-				KartTuning.buildProfile("medium", if cfg and cfg.difficulty then cfg.difficulty else "intermediate")
 			localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
+			local defPowerup, defCount =
+				ItemTuning.getDefaultCollectibles(if cfg then cfg.raceType else "NORMAL_RACE", localTotalLaps)
+			if defCount > 0 then
+				KartSolver.setPowerup(localState, defPowerup, defCount)
+			end
 			localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 			table.clear(inputHistory)
 			pendingSnapshot = nil
@@ -425,6 +468,13 @@ if sessionStateRemote then
 			ReconciliationSmoother.reset(reconciler)
 			prevPose = capturePose(localState)
 			currPose = capturePose(localState)
+			ClientSessionState.set({
+				phase = phase :: any,
+				config = cfg,
+				localP2Active = payload.localP2Active == true,
+			})
+			inputMapper.setLocalTwoPlayer(cfg ~= nil and cfg.playMode == "LOCAL_2P")
+			inputMapper.setSuppressed(false)
 		end
 	end)
 end
@@ -743,15 +793,32 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 								difficulty = "best",
 							}
 						)
-						CheckManager.stepKart(
-							localState.race,
-							activeTrack.checkpoints,
-							localState.prevPos,
-							localState.pos,
-							localRaceTick,
-							localTotalLaps
-						)
-						KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
+						if not KartSolver.isRescuing(localState) then
+							CheckManager.stepKart(
+								localState.race,
+								activeTrack.checkpoints,
+								localState.prevPos,
+								localState.pos,
+								localRaceTick,
+								localTotalLaps
+							)
+							KartSolver.updateLastRescuePose(
+								localState,
+								activeTrack.checkpoints,
+								activeTrack.drivelineQuadCenters,
+								worldQuery
+							)
+						end
+						local rParticipants = buildClientCollisionParticipants()
+						KartSolver.resolveKartKartCollisions(rParticipants)
+						if localState.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
+							KartSolver.checkSwatterHits(
+								localState,
+								rParticipants,
+								localItemWorld.elapsedTicks,
+								localItemWorld.isBattle
+							)
+						end
 						AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
 						local _, _, postProxies = buildClientStandingsAndProxies()
 						Flyable.step(
@@ -796,83 +863,105 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			steppedThisFrame = true
 			inputSeq += 1
 			prevPose = capturePose(localState)
-			if localState.pos.y < activeTrack.voidResetYMeters or localState.resetTriggered then
+			if
+				(localState.pos.y < activeTrack.voidResetYMeters or localState.resetTriggered)
+				and not KartSolver.isRescuing(localState)
+			then
 				if localState.resetTriggered then
 					resetNoticeText = "RESET (" .. localState.activeMaterialName .. ")"
 					resetNoticeExpirySec = os.clock() + 1.5
 				end
-				localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
-				localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
-				table.clear(inputHistory)
-				pendingSnapshot = nil
-				ReconciliationSmoother.reset(reconciler)
-				prevPose = capturePose(localState)
-				currPose = capturePose(localState)
-			else
-				localRaceTick += 1
-				local lPhase: RaceState.RacePhase = RaceState.phaseAtTick(
-					localRaceTick,
-					if localDelayFinishStartTick >= 0 then localDelayFinishStartTick else nil
-				) :: RaceState.RacePhase
-				if
-					IS_STUDIO
-					and Workspace:GetAttribute("OpenKartAutopilot") == true
-					and not localState.race.raceFinished
-				then
-					if (lPhase :: string) == "SET_PHASE" and localRaceTick >= RaceState.SET_START_TICK + 2 then
-						solverInput = {
-							accel = 1.0,
-							brake = false,
-							steer = 0.0,
-							drift = false,
-							nitro = false,
-							fire = false,
-							lookBack = false,
-						}
-					elseif RaceState.isRacePhase(lPhase) then
-						solverInput = AIController.computeInput(
-							localProgress,
-							localState,
-							activeTrack.drivelineQuadCenters,
-							fixedDt,
-							profile.maxSpeed
-						)
-					end
+				local targetPos, targetYawRad = CheckManager.resolveClampedRescuePose(
+					localState.lastRescueQuadIdx,
+					localState.lastRescuePos,
+					localState.lastRescueYawRad,
+					activeTrack.checkpoints,
+					localState.race.lap,
+					localState.race.nextCheckpoint,
+					activeTrack.drivelineQuadCenters,
+					activeTrack.startPos,
+					activeTrack.startYawRad,
+					worldQuery,
+					profile.collisionHeight,
+					localState.pos
+				)
+				local verifiedPos, verifiedYaw, groundOk, errReason = CheckManager.verifyRescuePlacement(
+					targetPos,
+					targetYawRad,
+					activeTrack.drivelineQuadCenters,
+					worldQuery,
+					profile.collisionHeight
+				)
+				if not groundOk then
+					warn(string.format("[OpenKart][Rescue] Post-rescue ground check failed: %s", tostring(errReason)))
 				end
-				local rawStepInput = if localState.race.raceFinished
-					then AIController.computeCoastInput(
+				KartSolver.triggerRescue(localState, verifiedPos, verifiedYaw)
+			end
+			localRaceTick += 1
+			local lPhase: RaceState.RacePhase = RaceState.phaseAtTick(
+				localRaceTick,
+				if localDelayFinishStartTick >= 0 then localDelayFinishStartTick else nil
+			) :: RaceState.RacePhase
+			if
+				IS_STUDIO
+				and Workspace:GetAttribute("OpenKartAutopilot") == true
+				and not localState.race.raceFinished
+			then
+				if (lPhase :: string) == "SET_PHASE" and localRaceTick >= RaceState.SET_START_TICK + 2 then
+					solverInput = {
+						accel = 1.0,
+						brake = false,
+						steer = 0.0,
+						drift = false,
+						nitro = false,
+						fire = false,
+						lookBack = false,
+					}
+				elseif RaceState.isRacePhase(lPhase) then
+					solverInput = AIController.computeInput(
 						localProgress,
 						localState,
 						activeTrack.drivelineQuadCenters,
-						fixedDt
+						fixedDt,
+						profile.maxSpeed
 					)
-					else solverInput
-				table.insert(inputHistory, {
-					seq = inputSeq,
-					input = {
-						accel = rawStepInput.accel,
-						brake = rawStepInput.brake,
-						steer = rawStepInput.steer,
-						drift = rawStepInput.drift,
-						nitro = rawStepInput.nitro,
-						fire = rawStepInput.fire,
-						lookBack = rawStepInput.lookBack,
-					},
-				})
-				if #inputHistory > MAX_INPUT_HISTORY then
-					table.remove(inputHistory, 1)
 				end
-				local filteredInput = KartSolver.stepRaceInput(localState, rawStepInput, localRaceTick, lPhase)
-				local _, myRank, proxies = buildClientStandingsAndProxies()
-				KartSolver.stepWithItems(localState, filteredInput, worldQuery, fixedDt, localItemWorld, {
-					isServer = false,
-					kartId = localKartId,
-					flyableWorld = localFlyableWorld,
-					allKartProxies = proxies,
-					drivelineCenters = activeTrack.drivelineQuadCenters,
-					rank = myRank,
-					difficulty = "best",
-				})
+			end
+			local rawStepInput = if localState.race.raceFinished
+				then AIController.computeCoastInput(
+					localProgress,
+					localState,
+					activeTrack.drivelineQuadCenters,
+					fixedDt
+				)
+				else solverInput
+			table.insert(inputHistory, {
+				seq = inputSeq,
+				input = {
+					accel = rawStepInput.accel,
+					brake = rawStepInput.brake,
+					steer = rawStepInput.steer,
+					drift = rawStepInput.drift,
+					nitro = rawStepInput.nitro,
+					fire = rawStepInput.fire,
+					lookBack = rawStepInput.lookBack,
+				},
+			})
+			if #inputHistory > MAX_INPUT_HISTORY then
+				table.remove(inputHistory, 1)
+			end
+			local filteredInput = KartSolver.stepRaceInput(localState, rawStepInput, localRaceTick, lPhase)
+			local _, myRank, proxies = buildClientStandingsAndProxies()
+			KartSolver.stepWithItems(localState, filteredInput, worldQuery, fixedDt, localItemWorld, {
+				isServer = false,
+				kartId = localKartId,
+				flyableWorld = localFlyableWorld,
+				allKartProxies = proxies,
+				drivelineCenters = activeTrack.drivelineQuadCenters,
+				rank = myRank,
+				difficulty = "best",
+			})
+			if not KartSolver.isRescuing(localState) then
 				CheckManager.stepKart(
 					localState.race,
 					activeTrack.checkpoints,
@@ -881,19 +970,34 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					localRaceTick,
 					localTotalLaps
 				)
-				KartSolver.resolveKartKartCollisions(buildClientCollisionParticipants())
-				AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
-				local _, _, postProxies = buildClientStandingsAndProxies()
-				Flyable.step(
-					localFlyableWorld,
-					postProxies,
-					worldQuery,
-					fixedDt,
+				KartSolver.updateLastRescuePose(
+					localState,
+					activeTrack.checkpoints,
 					activeTrack.drivelineQuadCenters,
-					localItemWorld.elapsedTicks
+					worldQuery
 				)
-				currPose = capturePose(localState)
 			end
+			local lParticipants = buildClientCollisionParticipants()
+			KartSolver.resolveKartKartCollisions(lParticipants)
+			if localState.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
+				KartSolver.checkSwatterHits(
+					localState,
+					lParticipants,
+					localItemWorld.elapsedTicks,
+					localItemWorld.isBattle
+				)
+			end
+			AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
+			local _, _, postProxies = buildClientStandingsAndProxies()
+			Flyable.step(
+				localFlyableWorld,
+				postProxies,
+				worldQuery,
+				fixedDt,
+				activeTrack.drivelineQuadCenters,
+				localItemWorld.elapsedTicks
+			)
+			currPose = capturePose(localState)
 		end)
 		debug.profileend()
 	end
@@ -915,7 +1019,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		seenRemotes[rk.id] = true
 		local rv = remoteKartVisuals[rk.id]
 		if rv == nil then
-			rv = KartPresentation.create(rk.id, profile, "tux")
+			local rKartId = rk.kartId or "tux"
+			local rProf = KartTuning.buildProfileForKart(rKartId, "best")
+			rv = KartPresentation.create(rk.id, rProf, rKartId)
 			remoteKartVisuals[rk.id] = rv
 			local sNow = ClientSettingsState.get()
 			KartPresentation.applyVisualSettings(
@@ -951,7 +1057,15 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			rk.isSquashed,
 			rk.plungerFaceTicks,
 			remoteVfxInput,
-			rk.attachmentTicksLeft
+			rk.attachmentTicksLeft,
+			if rk.attachmentType == ItemTuning.ATTACHMENT_SWATTER
+				then {
+					phase = rk.swatterPhase or 0,
+					animTicks = rk.swatterAnimTicks or 0,
+					bombMode = rk.swatterBombMode == true,
+					targetYawRad = rk.swatterTargetYawRad or 0.0,
+				}
+				else nil
 		)
 		local numericId = tonumber(rk.id) or -(1000 + idx)
 		kartPositionsById[numericId] =
@@ -1066,7 +1180,15 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		tel.isSquashed,
 		tel.plungerFaceTicks,
 		localVfxInput,
-		tel.attachmentTicksLeft
+		tel.attachmentTicksLeft,
+		if tel.attachmentType == ItemTuning.ATTACHMENT_SWATTER
+			then {
+				phase = tel.swatterPhase,
+				animTicks = tel.swatterAnimTicks,
+				bombMode = tel.swatterBombMode,
+				targetYawRad = tel.swatterTargetYawRad,
+			}
+			else nil
 	)
 	kartPositionsById[localKartId] = bodyCFrame.Position
 	FlyablePresentation.sync(flyableVisuals, localFlyableWorld, now, kartPositionsById)

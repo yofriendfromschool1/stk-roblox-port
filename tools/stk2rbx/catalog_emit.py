@@ -17,11 +17,28 @@ TRACK_METADATA: dict[str, dict[str, Any]] = {
 }
 
 KART_METADATA: dict[str, dict[str, Any]] = {
+    "adiumy": {"name": "Adiumy", "kartClass": "medium"},
+    "amanda": {"name": "Amanda", "kartClass": "heavy"},
+    "beastie": {"name": "Godette", "kartClass": "heavy"},
+    "emule": {"name": "Emule", "kartClass": "medium"},
+    "gavroche": {"name": "Gavroche", "kartClass": "medium"},
+    "gnu": {"name": "Gnu", "kartClass": "medium"},
+    "hexley": {"name": "Hexley", "kartClass": "light"},
+    "kiki": {"name": "Kiki", "kartClass": "light"},
+    "konqi": {"name": "Konqi", "kartClass": "medium"},
+    "nolok": {"name": "Nolok", "kartClass": "medium"},
+    "pidgin": {"name": "Pidgin", "kartClass": "heavy"},
+    "puffy": {"name": "Puffy", "kartClass": "heavy"},
+    "sara_the_racer": {"name": "Pepper", "kartClass": "light"},
+    "sara_the_wizard": {"name": "Sara", "kartClass": "medium"},
+    "suzanne": {"name": "Suzanne", "kartClass": "medium"},
     "tux": {
         "name": "Tux",
-        "kartType": "allrounder",
+        "kartClass": "medium",
         "iconId": "rbxassetid://106784086588016",
     },
+    "wilber": {"name": "Wilber", "kartClass": "light"},
+    "xue": {"name": "Xue", "kartClass": "medium"},
 }
 
 
@@ -70,9 +87,10 @@ def build_catalog(repo_root: Path) -> dict[str, list[dict[str, Any]]]:
             karts.append(
                 {
                     "id": kart_id,
-                    "name": meta["name"],
-                    "kartType": meta["kartType"],
-                    "iconId": meta["iconId"],
+                    "name": str(doc.get("kartName") or meta["name"]),
+                    "kartType": str(doc.get("kartType") or meta["kartClass"]),
+                    "kartClass": str(doc.get("kartType") or meta["kartClass"]),
+                    "iconId": str(doc.get("iconId") or meta.get("iconId") or ""),
                     "playable": True,
                 }
             )

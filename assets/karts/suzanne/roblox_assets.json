@@ -1,0 +1,87 @@
+{
+  "kartId": "suzanne",
+  "kartName": "Suzanne",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "icon_large.png",
+  "iconDecalId": "101746906475255",
+  "iconId": "rbxassetid://72974497023166",
+  "textures": {
+    "headLight.png": "rbxassetid://106608990319338",
+    "kart.diffuse.png": "rbxassetid://70739941014358",
+    "stktex_monkey_a.png": "rbxassetid://121049021984187",
+    "Wheel.diffuse.jpg": "rbxassetid://84622644653175"
+  },
+  "textureDecalIds": {
+    "headLight.png": "107063329532859",
+    "kart.diffuse.png": "87648411560267",
+    "Wheel.diffuse.jpg": "135883325830617",
+    "stktex_monkey_a.png": "106308287041340"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/suzanne/suzanne_Body_0.glb",
+      "meshId": "rbxassetid://115220159837281",
+      "textureId": "rbxassetid://106608990319338",
+      "material": "headLight.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "93092841881508"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/suzanne/suzanne_Body_1.glb",
+      "meshId": "rbxassetid://121552053099746",
+      "textureId": "rbxassetid://70739941014358",
+      "material": "kart.diffuse.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "118925518978135"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/suzanne/suzanne_Body_2.glb",
+      "meshId": "rbxassetid://136472034143344",
+      "textureId": "rbxassetid://121049021984187",
+      "material": "stktex_monkey_a.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "97547354096682"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/suzanne/wheel-front-left.glb",
+      "meshId": "rbxassetid://128822221008792",
+      "textureId": "rbxassetid://84622644653175",
+      "material": "Wheel.diffuse.jpg",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "118283259201757"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/suzanne/wheel-front-right.glb",
+      "meshId": "rbxassetid://111142002917455",
+      "textureId": "rbxassetid://84622644653175",
+      "material": "Wheel.diffuse.jpg",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "73877318884026"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/suzanne/wheel-rear-left.glb",
+      "meshId": "rbxassetid://97826647118234",
+      "textureId": "rbxassetid://84622644653175",
+      "material": "Wheel.diffuse.jpg",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "117123915966750"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/suzanne/wheel-rear-right.glb",
+      "meshId": "rbxassetid://70680046289748",
+      "textureId": "rbxassetid://84622644653175",
+      "material": "Wheel.diffuse.jpg",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "106197873696100"
+    }
+  }
+}

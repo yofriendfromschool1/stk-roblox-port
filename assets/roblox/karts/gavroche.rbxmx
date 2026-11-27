@@ -1,0 +1,205 @@
+<roblox version="4">
+  <Item class="Model" referent="RBX0">
+    <Properties>
+      <string name="Name">gavroche</string>
+      <BinaryString name="AttributesSerialize">DAAAAAoAAABTb3VyY2VLYXJ0AggAAABnYXZyb2NoZQgAAABLYXJ0TmFtZQIIAAAAR2F2cm9jaGUIAAAAS2FydFR5cGUCBgAAAG1lZGl1bQ4AAABTb3VyY2VSZXZpc2lvbgIFAAAAMTg2MjcNAAAATWV0ZXJzUGVyU3R1ZAYAAAAAAADwPw8AAABTdGF0aWNGaXJzdFBhc3MDAREAAABIYXNVcGxvYWRlZE1lc2hlcwMBEAAAAEFuaW1hdGlvbk9taXR0ZWQCMgAAAFNQTUEgYm9uZSBhbmltYXRpb24gZGVmZXJyZWQgKGRvY3MvZGl2ZXJnZW5jZXMubWQpEgAAAEhlYWRsaWdodHNFeGNsdWRlZAI1AAAAaGVhZGxpZ2h0LnNwbSBleGNsdWRlZCAodW4tYXVkaXRlZCBleHRlcm5hbCB0ZXh0dXJlcykHAAAASGF0Qm9uZQIEAAAASGVhZBEAAABIYXRTb2NrZXRQb3NTdHVkcwIRAAAAMC4wLDAuNjE1OCwwLjA5MTgOAAAASGF0U29ja2V0Um90MDAGAAAAAAAA8D8=</BinaryString>
+    </Properties>
+    <Item class="Part" referent="RBX1">
+      <Properties>
+        <string name="Name">ChassisRoot</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <float name="Transparency">1.0</float>
+        <Vector3 name="size"><X>0.77</X><Y>0.6141</Y><Z>1.2723</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.0</X><Y>0.377</Y><Z>-0.0538</Z><R00>1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">AwAAAA0AAABSYXdXaWR0aFN0dWRzBqRwPQrXo+g/DgAAAFJhd0hlaWdodFN0dWRzBi4EOShhpuM/DgAAAFJhd0xlbmd0aFN0dWRzBno2qz5XW/Q/</BinaryString>
+      </Properties>
+      <Item class="Attachment" referent="RBX2">
+        <Properties>
+          <string name="Name">NitroEmitterA</string>
+          <CoordinateFrame name="CFrame"><X>0.0</X><Y>-0.137</Y><Z>0.6338</Z><R00>1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>1.0</R22></CoordinateFrame>
+        </Properties>
+      </Item>
+      <Item class="Attachment" referent="RBX3">
+        <Properties>
+          <string name="Name">NitroEmitterB</string>
+          <CoordinateFrame name="CFrame"><X>0.0</X><Y>-0.137</Y><Z>0.6338</Z><R00>1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>1.0</R22></CoordinateFrame>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="MeshPart" referent="RBX4">
+      <Properties>
+        <string name="Name">Body_0</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://114950382204322</url></Content>
+        <Content name="TextureID"><url>rbxassetid://126380366548126</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.77</X><Y>0.26</Y><Z>1.27</Z></Vector3>
+        <Vector3 name="size"><X>0.77</X><Y>0.26</Y><Z>1.27</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.0</X><Y>0.2</Y><Z>-0.055</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzExNDk1MDM4MjIwNDMyMgcAAABHbGJGaWxlAhEAAABnYXZyb2NoZV9ib2R5LmdsYg4AAABTb3VyY2VNYXRlcmlhbAIHAAAAY2FyLnBuZwsAAABWZXJ0ZXhDb3VudAYAAAAAAEySQA0AAABUcmlhbmdsZUNvdW50BgAAAAAAwI9ADgAAAEltcG9ydEZsaXBZMTgwAwEJAAAATG9jYWxQb3NYBgAAAAAAAAAACQAAAExvY2FsUG9zWQaamZmZmZnJPwkAAABMb2NhbFBvc1oGKVyPwvUorL8=</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX5">
+      <Properties>
+        <string name="Name">Body_1</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://123242608481382</url></Content>
+        <Content name="TextureID"><url>rbxassetid://82470515846247</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.2356</X><Y>0.3946</Y><Z>0.2298</Z></Vector3>
+        <Vector3 name="size"><X>0.2356</X><Y>0.3946</Y><Z>0.2298</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.0</X><Y>0.48674</Y><Z>0.08826</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzEyMzI0MjYwODQ4MTM4MgcAAABHbGJGaWxlAhEAAABnYXZyb2NoZV9ib2R5LmdsYg4AAABTb3VyY2VNYXRlcmlhbAILAAAAY2xvdGhlcy5wbmcLAAAAVmVydGV4Q291bnQGAAAAAADwc0ANAAAAVHJpYW5nbGVDb3VudAYAAAAAALCAQA4AAABJbXBvcnRGbGlwWTE4MAMBCQAAAExvY2FsUG9zWAYAAAAAAAAAAAkAAABMb2NhbFBvc1kGLexph78m3z8JAAAATG9jYWxQb3NaBoCCixU1mLY/</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX6">
+      <Properties>
+        <string name="Name">Body_2</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://103720134687752</url></Content>
+        <Content name="TextureID"><url>rbxassetid://98584500704144</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.4022</X><Y>0.5286</Y><Z>0.276</Z></Vector3>
+        <Vector3 name="size"><X>0.4022</X><Y>0.5286</Y><Z>0.276</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.0</X><Y>0.37297</Y><Z>0.04894</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzEwMzcyMDEzNDY4Nzc1MgcAAABHbGJGaWxlAhEAAABnYXZyb2NoZV9ib2R5LmdsYg4AAABTb3VyY2VNYXRlcmlhbAIMAAAAZ2F2cm9jaGUucG5nCwAAAFZlcnRleENvdW50BgAAAAAAxJBADQAAAFRyaWFuZ2xlQ291bnQGAAAAAACgmkAOAAAASW1wb3J0RmxpcFkxODADAQkAAABMb2NhbFBvc1gGAAAAAAAAAAAJAAAATG9jYWxQb3NZBljnGJC93tc/CQAAAExvY2FsUG9zWgYCt+7mqQ6pPw==</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX7">
+      <Properties>
+        <string name="Name">Body_3</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://82072516524967</url></Content>
+        <Content name="TextureID"><url>rbxassetid://107976749320072</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.48</X><Y>0.2573</Y><Z>0.9923</Z></Vector3>
+        <Vector3 name="size"><X>0.48</X><Y>0.2573</Y><Z>0.9923</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.0</X><Y>0.21867</Y><Z>0.08615</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIbAAAAcmJ4YXNzZXRpZDovLzgyMDcyNTE2NTI0OTY3BwAAAEdsYkZpbGUCEQAAAGdhdnJvY2hlX2JvZHkuZ2xiDgAAAFNvdXJjZU1hdGVyaWFsAg8AAABtb3Rvcl9zdGVlci5wbmcLAAAAVmVydGV4Q291bnQGAAAAAADIgUANAAAAVHJpYW5nbGVDb3VudAYAAAAAAOCGQA4AAABJbXBvcnRGbGlwWTE4MAMBCQAAAExvY2FsUG9zWAYAAAAAAAAAAAkAAABMb2NhbFBvc1kGk+NO6WD9yz8JAAAATG9jYWxQb3NaBgTnjCjtDbY/</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX8">
+      <Properties>
+        <string name="Name">Body_4</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://126713826167846</url></Content>
+        <Content name="TextureID"><url>rbxassetid://133043836077038</url></Content>
+        <token name="Material">256</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.21</X><Y>0.26</Y><Z>0.3475</Z></Vector3>
+        <Vector3 name="size"><X>0.21</X><Y>0.26</Y><Z>0.3475</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.0</X><Y>0.22</Y><Z>0.05125</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">CQAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzEyNjcxMzgyNjE2Nzg0NgcAAABHbGJGaWxlAhEAAABnYXZyb2NoZV9ib2R5LmdsYg4AAABTb3VyY2VNYXRlcmlhbAIIAAAAc2VhdC5wbmcLAAAAVmVydGV4Q291bnQGAAAAAACAZ0ANAAAAVHJpYW5nbGVDb3VudAYAAAAAAABqQA4AAABJbXBvcnRGbGlwWTE4MAMBCQAAAExvY2FsUG9zWAYAAAAAAAAAAAkAAABMb2NhbFBvc1kGKVyPwvUozD8JAAAATG9jYWxQb3NaBj0K16NwPao/</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX9">
+      <Properties>
+        <string name="Name">WheelFrontLeft</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://82122971520013</url></Content>
+        <Content name="TextureID"><url>rbxassetid://73331123625917</url></Content>
+        <token name="Material">1216</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <Vector3 name="size"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>-0.3</X><Y>0.127</Y><Z>-0.37</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">DgAAAAsAAABNZXNoQXNzZXRJZAIbAAAAcmJ4YXNzZXRpZDovLzgyMTIyOTcxNTIwMDEzBwAAAEdsYkZpbGUCFAAAAHdoZWVsLWZyb250LWxlZnQuZ2xiCwAAAFZlcnRleENvdW50BgAAAAAAgGRADQAAAFRyaWFuZ2xlQ291bnQGAAAAAAAAbEAJAAAATWF0ZXJpYWxzAgkAAAB3aGVlbC5wbmcJAAAATG9jYWxQb3NYBjMzMzMzM9O/CQAAAExvY2FsUG9zWQaoxks3iUHAPwkAAABMb2NhbFBvc1oGrkfhehSu178JAAAAV2hlZWxTbG90AgoAAABmcm9udC1sZWZ0DAAAAFdoZWVsT3JpZ2luWAYzMzMzMzPTvwwAAABXaGVlbE9yaWdpblkGqMZLN4lBwD8MAAAAV2hlZWxPcmlnaW5aBq5H4XoUrte/EAAAAFdoZWVsUmFkaXVzU3R1ZHMGVOOlm8QgwD8OAAAASW1wb3J0RmxpcFkxODADAQ==</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX10">
+      <Properties>
+        <string name="Name">WheelFrontRight</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://127611835792339</url></Content>
+        <Content name="TextureID"><url>rbxassetid://73331123625917</url></Content>
+        <token name="Material">1216</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <Vector3 name="size"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.3</X><Y>0.127</Y><Z>-0.37</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">DgAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzEyNzYxMTgzNTc5MjMzOQcAAABHbGJGaWxlAhUAAAB3aGVlbC1mcm9udC1yaWdodC5nbGILAAAAVmVydGV4Q291bnQGAAAAAACAZEANAAAAVHJpYW5nbGVDb3VudAYAAAAAAABsQAkAAABNYXRlcmlhbHMCCQAAAHdoZWVsLnBuZwkAAABMb2NhbFBvc1gGMzMzMzMz0z8JAAAATG9jYWxQb3NZBqjGSzeJQcA/CQAAAExvY2FsUG9zWgauR+F6FK7XvwkAAABXaGVlbFNsb3QCCwAAAGZyb250LXJpZ2h0DAAAAFdoZWVsT3JpZ2luWAYzMzMzMzPTPwwAAABXaGVlbE9yaWdpblkGqMZLN4lBwD8MAAAAV2hlZWxPcmlnaW5aBq5H4XoUrte/EAAAAFdoZWVsUmFkaXVzU3R1ZHMGVOOlm8QgwD8OAAAASW1wb3J0RmxpcFkxODADAQ==</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX11">
+      <Properties>
+        <string name="Name">WheelRearLeft</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://82122971520013</url></Content>
+        <Content name="TextureID"><url>rbxassetid://73331123625917</url></Content>
+        <token name="Material">1216</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <Vector3 name="size"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>-0.3</X><Y>0.127</Y><Z>0.43</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">DgAAAAsAAABNZXNoQXNzZXRJZAIbAAAAcmJ4YXNzZXRpZDovLzgyMTIyOTcxNTIwMDEzBwAAAEdsYkZpbGUCEwAAAHdoZWVsLXJlYXItbGVmdC5nbGILAAAAVmVydGV4Q291bnQGAAAAAACAZEANAAAAVHJpYW5nbGVDb3VudAYAAAAAAABsQAkAAABNYXRlcmlhbHMCCQAAAHdoZWVsLnBuZwkAAABMb2NhbFBvc1gGMzMzMzMz078JAAAATG9jYWxQb3NZBqjGSzeJQcA/CQAAAExvY2FsUG9zWgaF61G4HoXbPwkAAABXaGVlbFNsb3QCCQAAAHJlYXItbGVmdAwAAABXaGVlbE9yaWdpblgGMzMzMzMz078MAAAAV2hlZWxPcmlnaW5ZBqjGSzeJQcA/DAAAAFdoZWVsT3JpZ2luWgaF61G4HoXbPxAAAABXaGVlbFJhZGl1c1N0dWRzBlTjpZvEIMA/DgAAAEltcG9ydEZsaXBZMTgwAwE=</BinaryString>
+      </Properties>
+    </Item>
+    <Item class="MeshPart" referent="RBX12">
+      <Properties>
+        <string name="Name">WheelRearRight</string>
+        <bool name="Anchored">true</bool>
+        <bool name="CanCollide">false</bool>
+        <bool name="CanTouch">false</bool>
+        <bool name="CanQuery">false</bool>
+        <bool name="Massless">true</bool>
+        <Content name="MeshId"><url>rbxassetid://127611835792339</url></Content>
+        <Content name="TextureID"><url>rbxassetid://73331123625917</url></Content>
+        <token name="Material">1216</token>
+        <token name="RenderFidelity">1</token>
+        <token name="CollisionFidelity">2</token>
+        <Vector3 name="InitialSize"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <Vector3 name="size"><X>0.1703</X><Y>0.252</Y><Z>0.252</Z></Vector3>
+        <CoordinateFrame name="CFrame"><X>0.3</X><Y>0.127</Y><Z>0.43</Z><R00>-1.0</R00><R01>0.0</R01><R02>0.0</R02><R10>0.0</R10><R11>1.0</R11><R12>0.0</R12><R20>0.0</R20><R21>0.0</R21><R22>-1.0</R22></CoordinateFrame>
+        <BinaryString name="AttributesSerialize">DgAAAAsAAABNZXNoQXNzZXRJZAIcAAAAcmJ4YXNzZXRpZDovLzEyNzYxMTgzNTc5MjMzOQcAAABHbGJGaWxlAhQAAAB3aGVlbC1yZWFyLXJpZ2h0LmdsYgsAAABWZXJ0ZXhDb3VudAYAAAAAAIBkQA0AAABUcmlhbmdsZUNvdW50BgAAAAAAAGxACQAAAE1hdGVyaWFscwIJAAAAd2hlZWwucG5nCQAAAExvY2FsUG9zWAYzMzMzMzPTPwkAAABMb2NhbFBvc1kGqMZLN4lBwD8JAAAATG9jYWxQb3NaBoXrUbgehds/CQAAAFdoZWVsU2xvdAIKAAAAcmVhci1yaWdodAwAAABXaGVlbE9yaWdpblgGMzMzMzMz0z8MAAAAV2hlZWxPcmlnaW5ZBqjGSzeJQcA/DAAAAFdoZWVsT3JpZ2luWgaF61G4HoXbPxAAAABXaGVlbFJhZGl1c1N0dWRzBlTjpZvEIMA/DgAAAEltcG9ydEZsaXBZMTgwAwE=</BinaryString>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

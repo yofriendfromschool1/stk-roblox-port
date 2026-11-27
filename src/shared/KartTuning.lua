@@ -74,7 +74,31 @@ export type KartDimensions = {
 	cogShiftY: number,
 }
 
+export type KartRosterSpec = {
+	id: string,
+	name: string,
+	className: "light" | "medium" | "heavy",
+	hasWheels: boolean,
+	dims: KartDimensions,
+}
+
+export type KartStatSummary = {
+	kartId: string,
+	name: string,
+	className: "light" | "medium" | "heavy",
+	massKg: number,
+	maxSpeedMps: number,
+	enginePowerN: number,
+	accelEff: number,
+	nitroConsumption: number,
+	massBar: number,
+	speedBar: number,
+	accelBar: number,
+	nitroBar: number,
+}
+
 export type KartProfile = {
+	kartId: string,
 	className: string,
 	difficulty: string,
 	mass: number,
@@ -583,7 +607,12 @@ KartTuning.kartClasses = {
 	},
 } :: { [string]: KartClassPreset }
 
-function KartTuning.buildProfile(className: string?, difficulty: string?, dims: KartDimensions?): KartProfile
+function KartTuning.buildProfile(
+	className: string?,
+	difficulty: string?,
+	dims: KartDimensions?,
+	kartId: string?
+): KartProfile
 	local clsName = className or "medium"
 	local diffName = KartTuning.normalizeDifficulty(difficulty)
 	local cls = KartTuning.kartClasses[clsName] or KartTuning.kartClasses.medium
@@ -604,6 +633,7 @@ function KartTuning.buildProfile(className: string?, difficulty: string?, dims: 
 	local wheelY = -0.5 * collisionHeight + d.cogShiftY
 
 	local profile: KartProfile = {
+		kartId = kartId or "tux",
 		className = clsName,
 		difficulty = diffName,
 		mass = mass,
@@ -667,6 +697,211 @@ function KartTuning.buildProfile(className: string?, difficulty: string?, dims: 
 	}
 
 	return deepFreeze(profile)
+end
+
+-- Official 18-kart STK 1.5 roster (data/official_karts.xml:L3-L20, karts/*/kart.xml).
+-- No kart.xml declares per-kart characteristic overrides; all physics derive from className + dims.
+KartTuning.KART_ORDER = {
+	"adiumy",
+	"amanda",
+	"beastie",
+	"emule",
+	"gavroche",
+	"gnu",
+	"hexley",
+	"kiki",
+	"konqi",
+	"nolok",
+	"pidgin",
+	"puffy",
+	"sara_the_racer",
+	"sara_the_wizard",
+	"suzanne",
+	"tux",
+	"wilber",
+	"xue",
+}
+
+KartTuning.karts = {
+	adiumy = {
+		id = "adiumy",
+		name = "Adiumy",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.852, height = 0.775, length = 0.943, cogShiftY = 0.2829 }, -- official_karts.xml:L3
+	},
+	amanda = {
+		id = "amanda",
+		name = "Amanda",
+		className = "heavy",
+		hasWheels = true,
+		dims = { width = 1.119, height = 0.764, length = 1.476, cogShiftY = 0.382 }, -- official_karts.xml:L4
+	},
+	beastie = {
+		id = "beastie",
+		name = "Godette",
+		className = "heavy",
+		hasWheels = true,
+		dims = { width = 0.837, height = 0.847, length = 1.490, cogShiftY = 0.4235 }, -- official_karts.xml:L5
+	},
+	emule = {
+		id = "emule",
+		name = "Emule",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.625, height = 0.735, length = 1.146, cogShiftY = 0.3438 }, -- official_karts.xml:L6
+	},
+	gavroche = {
+		id = "gavroche",
+		name = "Gavroche",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.770, height = 0.614, length = 1.272, cogShiftY = 0.307 }, -- official_karts.xml:L7
+	},
+	gnu = {
+		id = "gnu",
+		name = "Gnu",
+		className = "medium",
+		hasWheels = false,
+		dims = { width = 0.770, height = 0.949, length = 1.345, cogShiftY = 0.4035 }, -- official_karts.xml:L8
+	},
+	hexley = {
+		id = "hexley",
+		name = "Hexley",
+		className = "light",
+		hasWheels = true,
+		dims = { width = 0.611, height = 0.858, length = 1.608, cogShiftY = 0.429 }, -- official_karts.xml:L9
+	},
+	kiki = {
+		id = "kiki",
+		name = "Kiki",
+		className = "light",
+		hasWheels = true,
+		dims = { width = 0.866, height = 0.974, length = 1.227, cogShiftY = 0.3681 }, -- official_karts.xml:L10
+	},
+	konqi = {
+		id = "konqi",
+		name = "Konqi",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.931, height = 0.857, length = 1.588, cogShiftY = 0.4285 }, -- official_karts.xml:L11
+	},
+	nolok = {
+		id = "nolok",
+		name = "Nolok",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.725, height = 0.645, length = 1.413, cogShiftY = 0.3225 }, -- official_karts.xml:L12
+	},
+	pidgin = {
+		id = "pidgin",
+		name = "Pidgin",
+		className = "heavy",
+		hasWheels = true,
+		dims = { width = 0.781, height = 0.627, length = 1.243, cogShiftY = 0.3135 }, -- official_karts.xml:L13
+	},
+	puffy = {
+		id = "puffy",
+		name = "Puffy",
+		className = "heavy",
+		hasWheels = true,
+		dims = { width = 1.109, height = 0.621, length = 1.573, cogShiftY = 0.3105 }, -- official_karts.xml:L14
+	},
+	sara_the_racer = {
+		id = "sara_the_racer",
+		name = "Pepper",
+		className = "light",
+		hasWheels = false,
+		dims = { width = 0.459, height = 0.989, length = 1.152, cogShiftY = 0.3456 }, -- official_karts.xml:L15
+	},
+	sara_the_wizard = {
+		id = "sara_the_wizard",
+		name = "Sara",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.500, height = 0.959, length = 1.220, cogShiftY = 0.366 }, -- official_karts.xml:L16
+	},
+	suzanne = {
+		id = "suzanne",
+		name = "Suzanne",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.935, height = 0.645, length = 1.405, cogShiftY = 0.3225 }, -- official_karts.xml:L17
+	},
+	tux = {
+		id = "tux",
+		name = "Tux",
+		className = "medium",
+		hasWheels = true,
+		dims = { width = 0.821, height = 0.675, length = 1.437, cogShiftY = 0.3375 }, -- official_karts.xml:L18
+	},
+	wilber = {
+		id = "wilber",
+		name = "Wilber",
+		className = "light",
+		hasWheels = true,
+		dims = { width = 0.837, height = 0.871, length = 1.715, cogShiftY = 0.4355 }, -- official_karts.xml:L19
+	},
+	xue = {
+		id = "xue",
+		name = "Xue",
+		className = "medium",
+		hasWheels = false,
+		dims = { width = 1.006, height = 0.944, length = 1.446, cogShiftY = 0.4338 }, -- official_karts.xml:L20
+	},
+} :: { [string]: KartRosterSpec }
+
+function KartTuning.getKartSpec(kartId: string?): KartRosterSpec
+	if type(kartId) == "string" then
+		local found = KartTuning.karts[kartId]
+		if found ~= nil then
+			return found
+		end
+	end
+	return KartTuning.karts.tux
+end
+
+function KartTuning.buildProfileForKart(kartId: string?, difficulty: string?): KartProfile
+	local spec = KartTuning.getKartSpec(kartId)
+	return KartTuning.buildProfile(spec.className, difficulty, spec.dims, spec.id)
+end
+
+-- Exact STK KartStatsWidget normalization at DIFFICULTY_BEST + HANDICAP_NONE
+-- (src/guiengine/widgets/kart_stats_widget.cpp:L94-L128, src/karts/kart_properties.cpp:L713-L735).
+function KartTuning.computeKartStatBars(kartId: string?): KartStatSummary
+	local spec = KartTuning.getKartSpec(kartId)
+	local prof = KartTuning.buildProfile(spec.className, "best", spec.dims, spec.id)
+	local cls = KartTuning.kartClasses[spec.className] or KartTuning.kartClasses.medium
+
+	local baseAccel = prof.enginePower / prof.mass
+	local gearInc = prof.gearPowerIncrease
+	local gearRatio = prof.gearSwitchRatio
+	local currentGear = 1
+	local sum = 0.0
+	for i = 1, 110 do
+		sum += gearInc[currentGear] * baseAccel * (150 - i)
+		-- Matches C++ unsigned int integer division `i / 100 >= gear_switch_ratio[current_gear]` (kart_properties.cpp:L728)
+		if (i // 100) >= gearRatio[currentGear] and currentGear < #gearInc then
+			currentGear += 1
+		end
+	end
+	local accelEff = sum / 10395.0
+	local nitroCons = KartTuning.nitro.consumption * cls.nitroConsumptionMult
+
+	return {
+		kartId = spec.id,
+		name = spec.name,
+		className = spec.className,
+		massKg = prof.mass,
+		maxSpeedMps = prof.maxSpeed,
+		enginePowerN = prof.enginePower,
+		accelEff = accelEff,
+		nitroConsumption = nitroCons,
+		massBar = math.clamp(prof.mass / 3.89, 0.0, 100.0), -- kart_stats_widget.cpp:L107
+		speedBar = math.clamp((prof.maxSpeed - 20.0) * 15.0, 0.0, 100.0), -- kart_stats_widget.cpp:L113
+		accelBar = math.clamp(accelEff * 10.0, 0.0, 100.0), -- kart_stats_widget.cpp:L120
+		nitroBar = math.clamp(90.0 / nitroCons, 0.0, 100.0), -- kart_stats_widget.cpp:L126
+	}
 end
 
 return deepFreeze(KartTuning)

@@ -1,0 +1,188 @@
+{
+  "kartId": "sara_the_wizard",
+  "kartName": "Sara",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "icon-sara.png",
+  "iconDecalId": "92848319878102",
+  "iconId": "rbxassetid://81751961854779",
+  "textures": {
+    "Sara_Accesories_base.png": "rbxassetid://94322081377523",
+    "Sara_Cloth_Dif.png": "rbxassetid://130455110917155",
+    "Sara_Diff.png": "rbxassetid://130496211931183",
+    "Sara_Eyes2.png": "rbxassetid://116436971356511",
+    "Sara_Hair_Dif.png": "rbxassetid://108326273190261",
+    "Sara_Head_Diff.png": "rbxassetid://139323361043601",
+    "Sara_Lower_dif.png": "rbxassetid://122588662154105",
+    "Sara_Scarf_Dif.png": "rbxassetid://117007120566009",
+    "SnowPart_dif.png": "rbxassetid://92093454562697",
+    "Snowmobile2_dif.png": "rbxassetid://82762993265250",
+    "Snowmobile_dif.png": "rbxassetid://103337527288099",
+    "stkkart_caterpillar.png": "rbxassetid://81369051137404",
+    "SnowWheel_dif.png": "rbxassetid://130345078365728",
+    "Wheelback_dif.png": "rbxassetid://135612506770881"
+  },
+  "textureDecalIds": {
+    "Sara_Accesories_base.png": "81042696422198",
+    "Sara_Diff.png": "78356656838554",
+    "Sara_Eyes2.png": "93729698731049",
+    "Sara_Cloth_Dif.png": "126488134520513",
+    "Sara_Lower_dif.png": "119296139194681",
+    "Sara_Hair_Dif.png": "79307858156972",
+    "Sara_Scarf_Dif.png": "107717007143429",
+    "Sara_Head_Diff.png": "120263401579020",
+    "SnowPart_dif.png": "120399913548706",
+    "SnowWheel_dif.png": "87481596235088",
+    "Snowmobile2_dif.png": "123138486968684",
+    "Snowmobile_dif.png": "94911103344677",
+    "stkkart_caterpillar.png": "138741417920732",
+    "Wheelback_dif.png": "97807653170665"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_0.glb",
+      "meshId": "rbxassetid://85823680198605",
+      "textureId": "rbxassetid://94322081377523",
+      "material": "Sara_Accesories_base.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "93524640222136"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_1.glb",
+      "meshId": "rbxassetid://95823732352981",
+      "textureId": "rbxassetid://130455110917155",
+      "material": "Sara_Cloth_Dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "133194912526608"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_2.glb",
+      "meshId": "rbxassetid://122259700136129",
+      "textureId": "rbxassetid://130496211931183",
+      "material": "Sara_Diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "128611676451576"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_3.glb",
+      "meshId": "rbxassetid://110430920281512",
+      "textureId": "rbxassetid://116436971356511",
+      "material": "Sara_Eyes2.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "103026549855407"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_4.glb",
+      "meshId": "rbxassetid://90319990437184",
+      "textureId": "rbxassetid://108326273190261",
+      "material": "Sara_Hair_Dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "106226586218020"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_5.glb",
+      "meshId": "rbxassetid://93807017523913",
+      "textureId": "rbxassetid://139323361043601",
+      "material": "Sara_Head_Diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "92174550756643"
+    },
+    "Body_6": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_6.glb",
+      "meshId": "rbxassetid://140272132759244",
+      "textureId": "rbxassetid://122588662154105",
+      "material": "Sara_Lower_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "109178161196095"
+    },
+    "Body_7": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_7.glb",
+      "meshId": "rbxassetid://132506294564529",
+      "textureId": "rbxassetid://117007120566009",
+      "material": "Sara_Scarf_Dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "112012879866608"
+    },
+    "Body_8": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_8.glb",
+      "meshId": "rbxassetid://87929430956866",
+      "textureId": "rbxassetid://92093454562697",
+      "material": "SnowPart_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "114614799636686"
+    },
+    "Body_9": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_9.glb",
+      "meshId": "rbxassetid://81659933432669",
+      "textureId": "rbxassetid://82762993265250",
+      "material": "Snowmobile2_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "72047320140986"
+    },
+    "Body_10": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_10.glb",
+      "meshId": "rbxassetid://80886755118017",
+      "textureId": "rbxassetid://103337527288099",
+      "material": "Snowmobile_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "135878263371863"
+    },
+    "Body_11": {
+      "glbFile": "build/karts/sara_the_wizard/sara_the_wizard_Body_11.glb",
+      "meshId": "rbxassetid://140467465497307",
+      "textureId": "rbxassetid://81369051137404",
+      "material": "stkkart_caterpillar.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "77544330894527"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/sara_the_wizard/wheel-front-left.glb",
+      "meshId": "rbxassetid://111390154696694",
+      "textureId": "rbxassetid://130345078365728",
+      "material": "SnowWheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "77682797215180"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/sara_the_wizard/wheel-front-right.glb",
+      "meshId": "rbxassetid://111390154696694",
+      "textureId": "rbxassetid://130345078365728",
+      "material": "SnowWheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "70907331000749"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/sara_the_wizard/wheel-rear-left.glb",
+      "meshId": "rbxassetid://134516570802528",
+      "textureId": "rbxassetid://135612506770881",
+      "material": "Wheelback_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "124647626120782"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/sara_the_wizard/wheel-rear-right.glb",
+      "meshId": "rbxassetid://108348052074088",
+      "textureId": "rbxassetid://135612506770881",
+      "material": "Wheelback_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "132831965894935"
+    }
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "kartId": "konqi",
+  "kartName": "Konqi",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "konqi_icon.png",
+  "iconDecalId": "129953652958102",
+  "iconId": "rbxassetid://139671737119561",
+  "textures": {
+    "Konqi_dif.png": "rbxassetid://125906225496978",
+    "konqi-eye-iris.png": "rbxassetid://74523733903420",
+    "konqi_kart01_dif.png": "rbxassetid://125734840004933",
+    "konqi_kart02_dif.png": "rbxassetid://111243115265888",
+    "konqi_kart03_dif.png": "rbxassetid://114551872469120",
+    "konqi_scarf_dif.png": "rbxassetid://99946214319341",
+    "konqi_wheel_dif.png": "rbxassetid://138605809442747"
+  },
+  "textureDecalIds": {
+    "Konqi_dif.png": "101416628609611",
+    "konqi-eye-iris.png": "126764571136816",
+    "konqi_kart01_dif.png": "79307372215453",
+    "konqi_kart03_dif.png": "110511620520791",
+    "konqi_kart02_dif.png": "140217891807534",
+    "konqi_scarf_dif.png": "79936081261125",
+    "konqi_wheel_dif.png": "139550696358188"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/konqi/konqi_Body_0.glb",
+      "meshId": "rbxassetid://70603892996766",
+      "textureId": "rbxassetid://125906225496978",
+      "material": "Konqi_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "93382707385392"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/konqi/konqi_Body_1.glb",
+      "meshId": "rbxassetid://127551492933515",
+      "textureId": "rbxassetid://74523733903420",
+      "material": "konqi-eye-iris.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "84039535270876"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/konqi/konqi_Body_2.glb",
+      "meshId": "rbxassetid://110318985417945",
+      "textureId": "rbxassetid://125734840004933",
+      "material": "konqi_kart01_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "116856410238837"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/konqi/konqi_Body_3.glb",
+      "meshId": "rbxassetid://104941269082621",
+      "textureId": "rbxassetid://111243115265888",
+      "material": "konqi_kart02_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "132909367903583"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/konqi/konqi_Body_4.glb",
+      "meshId": "rbxassetid://71311760865264",
+      "textureId": "rbxassetid://114551872469120",
+      "material": "konqi_kart03_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "111463487496859"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/konqi/konqi_Body_5.glb",
+      "meshId": "rbxassetid://112911405974432",
+      "textureId": "rbxassetid://99946214319341",
+      "material": "konqi_scarf_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "106892949098483"
+    },
+    "Body_6": {
+      "glbFile": "build/karts/konqi/konqi_Body_6.glb",
+      "meshId": "rbxassetid://98364227939906",
+      "textureId": "rbxassetid://138605809442747",
+      "material": "konqi_wheel_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "104331183913082"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/konqi/wheel-front-left.glb",
+      "meshId": "rbxassetid://126595041090318",
+      "textureId": "rbxassetid://138605809442747",
+      "material": "konqi_wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "100298353478366"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/konqi/wheel-front-right.glb",
+      "meshId": "rbxassetid://82605530424963",
+      "textureId": "rbxassetid://138605809442747",
+      "material": "konqi_wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "75108750780372"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/konqi/wheel-rear-left.glb",
+      "meshId": "rbxassetid://89722555602711",
+      "textureId": "rbxassetid://138605809442747",
+      "material": "konqi_wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "111379243084996"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/konqi/wheel-rear-right.glb",
+      "meshId": "rbxassetid://118700979081329",
+      "textureId": "rbxassetid://138605809442747",
+      "material": "konqi_wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "105822395373603"
+    }
+  }
+}

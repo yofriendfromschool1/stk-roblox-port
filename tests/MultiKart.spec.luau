@@ -66,8 +66,12 @@ return {
 			local dummy = TestDummyKart.create(profile, 2.0)
 			local dummyAI = TestDummyKart.createAIState(dummy)
 
-			local hits = KartSolver.checkSwatterHits(attacker, { attacker, dummy }, 0)
-			assertEqual(hits, 1, "swatter squashes dummy within 3m")
+			local hits = 0
+			for t = 1, 90 do
+				attacker.attachmentTicksLeft -= 1
+				hits += KartSolver.checkSwatterHits(attacker, { attacker, dummy }, t)
+			end
+			assertEqual(hits, 1, "swatter squashes dummy within 3m after start guard + swing")
 
 			local swattedTel = KartSolver.getTelemetry(dummy)
 			assertEqual(swattedTel.isSquashed, true, "dummy marked squashed immediately")

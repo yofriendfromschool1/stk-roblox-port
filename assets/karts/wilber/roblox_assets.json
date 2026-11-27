@@ -1,0 +1,85 @@
+{
+  "kartId": "wilber",
+  "kartName": "Wilber",
+  "kartType": "light",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "wilbericon.png",
+  "iconDecalId": "82572947222644",
+  "iconId": "rbxassetid://114682720745286",
+  "textures": {
+    "cc0_headlight_lens.png": "rbxassetid://112524452123630",
+    "wilber_diffuse_1.png": "rbxassetid://88485837545565",
+    "wilber_diffuse_2.png": "rbxassetid://114133263258474"
+  },
+  "textureDecalIds": {
+    "cc0_headlight_lens.png": "118643143318371",
+    "wilber_diffuse_2.png": "91751322880020",
+    "wilber_diffuse_1.png": "129623525143414"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/wilber/wilber_Body_0.glb",
+      "meshId": "rbxassetid://132002600675778",
+      "textureId": "rbxassetid://112524452123630",
+      "material": "cc0_headlight_lens.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "136440395657215"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/wilber/wilber_Body_1.glb",
+      "meshId": "rbxassetid://92037832831372",
+      "textureId": "rbxassetid://88485837545565",
+      "material": "wilber_diffuse_1.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "106841717268680"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/wilber/wilber_Body_2.glb",
+      "meshId": "rbxassetid://76491987080216",
+      "textureId": "rbxassetid://114133263258474",
+      "material": "wilber_diffuse_2.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "109284236794810"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/wilber/wheel-front-left.glb",
+      "meshId": "rbxassetid://107833005583902",
+      "textureId": "rbxassetid://88485837545565",
+      "material": "wilber_diffuse_1.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "137476730510570"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/wilber/wheel-front-right.glb",
+      "meshId": "rbxassetid://124646550068437",
+      "textureId": "rbxassetid://88485837545565",
+      "material": "wilber_diffuse_1.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "126029283840715"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/wilber/wheel-rear-left.glb",
+      "meshId": "rbxassetid://131218240824577",
+      "textureId": "rbxassetid://88485837545565",
+      "material": "wilber_diffuse_1.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "94590210120751"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/wilber/wheel-rear-right.glb",
+      "meshId": "rbxassetid://87699754553711",
+      "textureId": "rbxassetid://88485837545565",
+      "material": "wilber_diffuse_1.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "109655188083563"
+    }
+  }
+}

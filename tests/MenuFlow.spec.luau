@@ -19,14 +19,20 @@ end
 
 return {
 	{
-		name = "catalog contains only playable sandtrack and tux",
+		name = "catalog contains playable sandtrack and all 18 official karts",
 		fn = function()
 			assertEqual(#CatalogData.tracks, 1, "track count")
 			assertEqual(CatalogData.tracks[1].id, "sandtrack", "only sandtrack")
 			assertTrue(CatalogData.tracks[1].playable, "sandtrack playable")
-			assertEqual(#CatalogData.karts, 1, "kart count")
-			assertEqual(CatalogData.karts[1].id, "tux", "only tux")
-			assertTrue(CatalogData.karts[1].playable, "tux playable")
+			assertEqual(#CatalogData.karts, 18, "kart count")
+			local byId: { [string]: boolean } = {}
+			for _, k in ipairs(CatalogData.karts) do
+				assertTrue(k.playable, "kart playable: " .. k.id)
+				byId[k.id] = true
+			end
+			assertTrue(byId["tux"] == true, "tux present")
+			assertTrue(byId["hexley"] == true, "hexley present")
+			assertTrue(byId["pidgin"] == true, "pidgin present")
 		end,
 	},
 	{

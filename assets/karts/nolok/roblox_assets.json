@@ -1,0 +1,109 @@
+{
+  "kartId": "nolok",
+  "kartName": "Nolok",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "nolokicon.png",
+  "iconDecalId": "119837289565443",
+  "iconId": "rbxassetid://98761768837072",
+  "textures": {
+    "AAARH.png": "rbxassetid://87384863945451",
+    "Private-sphere.png": "rbxassetid://80956574553389",
+    "nolok_Albedo.png": "rbxassetid://106911425859923",
+    "nolok_character.png": "rbxassetid://105898032833977",
+    "cc0_dark_gray_metal.png": "rbxassetid://89047064370612",
+    "kart_mediumwheel_a_Albedo.png": "rbxassetid://130087129929105"
+  },
+  "textureDecalIds": {
+    "AAARH.png": "107119462206257",
+    "Private-sphere.png": "87614221173526",
+    "nolok_character.png": "102731144693403",
+    "cc0_dark_gray_metal.png": "127986337454661",
+    "nolok_Albedo.png": "75078136501554",
+    "kart_mediumwheel_a_Albedo.png": "70948581293739"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/nolok/nolok_Body_0.glb",
+      "meshId": "rbxassetid://83572815370379",
+      "textureId": "rbxassetid://87384863945451",
+      "material": "AAARH.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "95761691707154"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/nolok/nolok_Body_1.glb",
+      "meshId": "rbxassetid://134437252880595",
+      "textureId": "rbxassetid://80956574553389",
+      "material": "Private-sphere.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "97552334135876"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/nolok/nolok_Body_2.glb",
+      "meshId": "rbxassetid://113872134332496",
+      "textureId": "rbxassetid://106911425859923",
+      "material": "nolok_Albedo.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "83113908494353"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/nolok/nolok_Body_3.glb",
+      "meshId": "rbxassetid://78626732934639",
+      "textureId": "rbxassetid://105898032833977",
+      "material": "nolok_character.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "137095790344809"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/nolok/nolok_Body_4.glb",
+      "meshId": "rbxassetid://124630515919657",
+      "textureId": "rbxassetid://89047064370612",
+      "material": "cc0_dark_gray_metal.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "81806597860192"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/nolok/wheel-front-left.glb",
+      "meshId": "rbxassetid://89817861832970",
+      "textureId": "rbxassetid://130087129929105",
+      "material": "kart_mediumwheel_a_Albedo.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "131573843641509"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/nolok/wheel-front-right.glb",
+      "meshId": "rbxassetid://77879415386024",
+      "textureId": "rbxassetid://130087129929105",
+      "material": "kart_mediumwheel_a_Albedo.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "116013960326378"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/nolok/wheel-rear-left.glb",
+      "meshId": "rbxassetid://105560060773863",
+      "textureId": "rbxassetid://130087129929105",
+      "material": "kart_mediumwheel_a_Albedo.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "119555629953851"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/nolok/wheel-rear-right.glb",
+      "meshId": "rbxassetid://95163240255785",
+      "textureId": "rbxassetid://130087129929105",
+      "material": "kart_mediumwheel_a_Albedo.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "104219897865427"
+    }
+  }
+}

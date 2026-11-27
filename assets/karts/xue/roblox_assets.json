@@ -1,0 +1,47 @@
+{
+  "kartId": "xue",
+  "kartName": "Xue",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "xfce_icon64.png",
+  "iconDecalId": "81204102544758",
+  "iconId": "rbxassetid://109394947191316",
+  "textures": {
+    "mouse_texture.png": "rbxassetid://109046237627689",
+    "xue-2_Albedo.png": "rbxassetid://137729876358386"
+  },
+  "textureDecalIds": {
+    "mouse_texture.png": "125415654932170",
+    "xue-2_Albedo.png": "99572933127306"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/xue/xue_Body_0.glb",
+      "meshId": "rbxassetid://130200996548175",
+      "textureId": "rbxassetid://109046237627689",
+      "material": "mouse_texture.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "96180568207487"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/xue/xue_Body_1.glb",
+      "meshId": "rbxassetid://133408794627186",
+      "textureId": "rbxassetid://137729876358386",
+      "material": "xue-2_Albedo.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "71677205352318"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/xue/xue_Body_2.glb",
+      "meshId": "rbxassetid://80771224736751",
+      "textureId": "rbxassetid://137729876358386",
+      "material": "xue-2_Albedo.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "77931596235748"
+    }
+  }
+}

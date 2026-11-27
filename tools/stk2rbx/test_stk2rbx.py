@@ -580,8 +580,8 @@ class TestStk2Rbx(unittest.TestCase):
             for box in spec["boxes"]:
                 self.assertIn(f'name = "{box["name"]}"', luau_src)
             self.assertIn("drivelineClosedLoop = true", luau_src)
-            self.assertIn("{ x = 0.0, z = 6.0 }", luau_src)
-            self.assertIn("{ x = 115.0, z = -49.0 }", luau_src)
+            self.assertIn("{ x = 0.0, y = 0.0, z = 6.0 }", luau_src)
+            self.assertIn("{ x = 115.0, y = 0.0, z = -49.0 }", luau_src)
             # Check STK +Z=72.5 -> Roblox -Z=-72.5 on SandPatch
             self.assertIn("pos = { 0.0, -0.098, -72.5 }", luau_src)
             # Check items parity in Luau (STK +Z -> Roblox -Z)
@@ -914,15 +914,35 @@ class TestStk2Rbx(unittest.TestCase):
             report = export_track_glbs(track_dir, Path(tmp), include_aux=True)
             verify_canonical_transforms(report, chunks)
 
-    def test_catalog_emit_only_playable_sandtrack_and_tux(self) -> None:
+    def test_catalog_emit_playable_sandtrack_and_18_karts(self) -> None:
         from catalog_emit import build_catalog
 
         repo_root = Path(__file__).resolve().parents[2]
         catalog = build_catalog(repo_root)
         self.assertEqual([t["id"] for t in catalog["tracks"]], ["sandtrack"])
-        self.assertEqual([k["id"] for k in catalog["karts"]], ["tux"])
+        expected_karts = [
+            "adiumy",
+            "amanda",
+            "beastie",
+            "emule",
+            "gavroche",
+            "gnu",
+            "hexley",
+            "kiki",
+            "konqi",
+            "nolok",
+            "pidgin",
+            "puffy",
+            "sara_the_racer",
+            "sara_the_wizard",
+            "suzanne",
+            "tux",
+            "wilber",
+            "xue",
+        ]
+        self.assertEqual([k["id"] for k in catalog["karts"]], expected_karts)
         self.assertTrue(catalog["tracks"][0]["playable"])
-        self.assertTrue(catalog["karts"][0]["playable"])
+        self.assertTrue(all(k["playable"] for k in catalog["karts"]))
 
 
 if __name__ == "__main__":

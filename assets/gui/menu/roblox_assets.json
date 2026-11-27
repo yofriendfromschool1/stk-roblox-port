@@ -21,6 +21,18 @@
     "mode_normal.png": "rbxassetid://78129347904500",
     "mode_tt.png": "rbxassetid://122583436777351",
     "green_check.png": "rbxassetid://89540791355659",
-    "sshot-sandtrack.jpg": "rbxassetid://92416856454068"
+    "sshot-sandtrack.jpg": "rbxassetid://92416856454068",
+    "mass.png": "rbxassetid://83202121137921",
+    "speed.png": "rbxassetid://131800057210071",
+    "power.png": "rbxassetid://75003417981493",
+    "nitro.png": "rbxassetid://90535008544816",
+    "random_kart.png": "rbxassetid://139486669216604"
+  },
+  "decalIds": {
+    "mass.png": "136941237290957",
+    "speed.png": "85327659974317",
+    "power.png": "97627267928860",
+    "nitro.png": "73897754832132",
+    "random_kart.png": "72255301796068"
   }
 }

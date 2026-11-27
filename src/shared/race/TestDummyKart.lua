@@ -48,7 +48,7 @@ end
 
 function TestDummyKart.createAIState(
 	initialState: KartSolver.KartState,
-	drivelineCenters: { { x: number, z: number } }?,
+	drivelineCenters: { { x: number, y: number?, z: number } }?,
 	branches: { TrackRegistry.DrivelineBranch }?,
 	difficulty: string?
 ): AIController.AIState
@@ -67,7 +67,7 @@ function TestDummyKart.computeCruiseInput(
 	aiState: AIController.AIState?,
 	dt: number?,
 	targetSpeedMps: number?,
-	drivelineCenters: { { x: number, z: number } }?,
+	drivelineCenters: { { x: number, y: number?, z: number } }?,
 	context: AIController.AIContext?,
 	branches: { TrackRegistry.DrivelineBranch }?
 ): KartSolver.KartInput
@@ -78,7 +78,7 @@ end
 
 function TestDummyKart.buildStandingsEntries(
 	racers: { RacerProgress },
-	drivelineCenters: { { x: number, z: number } }?,
+	drivelineCenters: { { x: number, y: number?, z: number } }?,
 	checkpoints: { TrackRegistry.CheckpointSpec }?
 ): { Standings.StandingsEntry }
 	local pts = drivelineCenters or GreyboxArenaData.drivelineQuadCenters

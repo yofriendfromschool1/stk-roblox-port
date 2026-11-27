@@ -19,12 +19,18 @@ ItemEffectState.EFFECT_NONE = 0
 ItemEffectState.EFFECT_EXPLOSION = 1
 ItemEffectState.EFFECT_SQUASH = 2
 ItemEffectState.EFFECT_BUBBLEGUM_SLOW = 3
+ItemEffectState.EFFECT_RESCUE = 4
+
+ItemEffectState.RESCUE_DURATION_SEC = 1.2 -- data/kart_characteristics.xml:L292
+ItemEffectState.RESCUE_HEIGHT_M = 2.0 -- data/kart_characteristics.xml:L292
+ItemEffectState.RESCUE_LIFT_FRACTION = 0.4 -- src/karts/rescue_animation.cpp:L140
 
 ItemEffectState.EFFECT_NAMES = table.freeze({
 	[0] = "NONE",
 	[1] = "EXPLOSION",
 	[2] = "SQUASH",
 	[3] = "BUBBLEGUM_SLOW",
+	[4] = "RESCUE",
 })
 
 export type State = {
@@ -50,6 +56,9 @@ export type State = {
 	plungerFaceTicks: number,
 	externalPullAccel: Vec3,
 	externalPullTicks: number,
+	rescueTargetPos: Vec3,
+	rescueTargetRot: Quat,
+	rescueHeight: number,
 }
 
 export type NetEffectState = {
@@ -75,6 +84,9 @@ export type NetEffectState = {
 	plungerFaceTicks: number,
 	externalPullAccel: { number },
 	externalPullTicks: number,
+	rescueTargetPos: { number }?,
+	rescueTargetRot: { number }?,
+	rescueHeight: number?,
 }
 
 export type StepResult = {
@@ -118,6 +130,9 @@ function ItemEffectState.create(): State
 		plungerFaceTicks = 0,
 		externalPullAccel = { x = 0, y = 0, z = 0 },
 		externalPullTicks = 0,
+		rescueTargetPos = { x = 0, y = 0, z = 0 },
+		rescueTargetRot = Math3D.quatIdentity(),
+		rescueHeight = ItemEffectState.RESCUE_HEIGHT_M,
 	}
 end
 
@@ -152,9 +167,10 @@ function ItemEffectState.isActive(eff: State): boolean
 	return eff.effectType ~= ItemEffectState.EFFECT_NONE and eff.ticksRemaining > 0
 end
 
--- True when kart animation (explosion) overrides full driver control & physics integration.
+-- True when kart animation (explosion or rescue) overrides full driver control & physics integration.
 function ItemEffectState.isDriverInputSuppressed(eff: State): boolean
-	return eff.effectType == ItemEffectState.EFFECT_EXPLOSION and eff.ticksRemaining > 0
+	return (eff.effectType == ItemEffectState.EFFECT_EXPLOSION or eff.effectType == ItemEffectState.EFFECT_RESCUE)
+		and eff.ticksRemaining > 0
 end
 
 -- True when forward throttle / engine drive force is forced to zero (explosion OR floor bubblegum).
@@ -168,7 +184,10 @@ end
 
 -- Re-trigger & invulnerability gate (explosion_animation.cpp:L50, L81; kart.cpp:L1864; item.cpp:L149).
 function ItemEffectState.canTrigger(eff: State, targetType: number): boolean
-	if eff.effectType == ItemEffectState.EFFECT_EXPLOSION and eff.ticksRemaining > 0 then
+	if
+		(eff.effectType == ItemEffectState.EFFECT_EXPLOSION or eff.effectType == ItemEffectState.EFFECT_RESCUE)
+		and eff.ticksRemaining > 0
+	then
 		return false
 	end
 	if targetType == ItemEffectState.EFFECT_EXPLOSION then
@@ -188,6 +207,40 @@ function ItemEffectState.canTrigger(eff: State, targetType: number): boolean
 		return true
 	end
 	return false
+end
+
+-- Trigger upstream RescueAnimation (src/karts/rescue_animation.cpp:L51-L183):
+-- 1.2s total, lifts 2.0m for first 40% (58 ticks) from originPos, then drops onto rescueTargetPos/Rot.
+function ItemEffectState.triggerRescue(
+	eff: State,
+	startPos: Vec3,
+	startRot: Quat,
+	targetPos: Vec3,
+	targetRot: Quat,
+	durationSec: number?,
+	height: number?
+): boolean
+	if eff.effectType == ItemEffectState.EFFECT_RESCUE and eff.ticksRemaining > 0 then
+		return false
+	end
+	local timer = durationSec or ItemEffectState.RESCUE_DURATION_SEC
+	local ticks = FixedStep.timeToTicks(timer)
+
+	eff.effectType = ItemEffectState.EFFECT_RESCUE
+	eff.ticksRemaining = ticks
+	eff.totalTicks = ticks
+	eff.suppressThrottle = true
+	eff.suppressSteer = true
+	eff.suppressDrift = true
+	eff.suppressFire = true
+	eff.originPos = cloneVec3(startPos)
+	eff.originRot = Math3D.quatNormalize(cloneQuat(startRot))
+	eff.rescueTargetPos = cloneVec3(targetPos)
+	eff.rescueTargetRot = Math3D.quatNormalize(cloneQuat(targetRot))
+	eff.rescueHeight = height or ItemEffectState.RESCUE_HEIGHT_M
+	eff.torqueSign = false
+	eff.slowdownFraction = 1.0
+	return true
 end
 
 -- Trigger upstream ExplosionAnimation (explosion_animation.cpp:L44-L240):
@@ -362,6 +415,54 @@ function ItemEffectState.tick(eff: State): StepResult
 			bubblegumTorqueY = 0.0,
 			externalPullAccel = nil,
 		}
+	elseif activeType == ItemEffectState.EFFECT_RESCUE then
+		local elapsedTicks = eff.totalTicks - eff.ticksRemaining + 1
+		local splitTicks = math.max(1, math.round(eff.totalTicks * ItemEffectState.RESCUE_LIFT_FRACTION))
+
+		eff.ticksRemaining -= 1
+		if eff.ticksRemaining <= 0 then
+			local endPos = cloneVec3(eff.rescueTargetPos)
+			local endRot = cloneQuat(eff.rescueTargetRot)
+			clearActiveEffect(eff)
+			return {
+				activeType = ItemEffectState.EFFECT_RESCUE,
+				explosionPos = endPos,
+				explosionRot = endRot,
+				finishedExplosion = true,
+				bubblegumTorqueY = 0.0,
+				externalPullAccel = nil,
+			}
+		end
+
+		local nextPos: Vec3
+		local nextRot: Quat
+		if elapsedTicks <= splitTicks then
+			local liftFrac = elapsedTicks / splitTicks
+			nextPos = {
+				x = eff.originPos.x,
+				y = eff.originPos.y + liftFrac * eff.rescueHeight,
+				z = eff.originPos.z,
+			}
+			nextRot = cloneQuat(eff.originRot)
+		else
+			local dropTicks = math.max(1, eff.totalTicks - splitTicks)
+			local dropFrac = (elapsedTicks - splitTicks) / dropTicks
+			nextPos = {
+				x = eff.rescueTargetPos.x,
+				y = eff.rescueTargetPos.y + (1.0 - dropFrac) * eff.rescueHeight,
+				z = eff.rescueTargetPos.z,
+			}
+			nextRot = cloneQuat(eff.rescueTargetRot)
+		end
+
+		return {
+			activeType = activeType,
+			explosionPos = nextPos,
+			explosionRot = nextRot,
+			finishedExplosion = false,
+			bubblegumTorqueY = 0.0,
+			externalPullAccel = nil,
+		}
 	end
 
 	local torqueY = 0.0
@@ -409,6 +510,14 @@ function ItemEffectState.captureNet(eff: State): NetEffectState
 		plungerFaceTicks = eff.plungerFaceTicks,
 		externalPullAccel = { eff.externalPullAccel.x, eff.externalPullAccel.y, eff.externalPullAccel.z },
 		externalPullTicks = eff.externalPullTicks,
+		rescueTargetPos = { eff.rescueTargetPos.x, eff.rescueTargetPos.y, eff.rescueTargetPos.z },
+		rescueTargetRot = {
+			eff.rescueTargetRot.w,
+			eff.rescueTargetRot.x,
+			eff.rescueTargetRot.y,
+			eff.rescueTargetRot.z,
+		},
+		rescueHeight = eff.rescueHeight,
 	}
 end
 
@@ -443,6 +552,26 @@ function ItemEffectState.applyNet(eff: State, snap: NetEffectState)
 		eff.externalPullAccel = { x = 0, y = 0, z = 0 }
 	end
 	eff.externalPullTicks = snap.externalPullTicks or 0
+	if snap.rescueTargetPos ~= nil then
+		eff.rescueTargetPos = {
+			x = snap.rescueTargetPos[1] or 0,
+			y = snap.rescueTargetPos[2] or 0,
+			z = snap.rescueTargetPos[3] or 0,
+		}
+	else
+		eff.rescueTargetPos = { x = 0, y = 0, z = 0 }
+	end
+	if snap.rescueTargetRot ~= nil then
+		eff.rescueTargetRot = {
+			w = snap.rescueTargetRot[1] or 1,
+			x = snap.rescueTargetRot[2] or 0,
+			y = snap.rescueTargetRot[3] or 0,
+			z = snap.rescueTargetRot[4] or 0,
+		}
+	else
+		eff.rescueTargetRot = Math3D.quatIdentity()
+	end
+	eff.rescueHeight = snap.rescueHeight or ItemEffectState.RESCUE_HEIGHT_M
 end
 
 return table.freeze(ItemEffectState)

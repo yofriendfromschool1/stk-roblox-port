@@ -10,7 +10,7 @@ local SandtrackData = require("./SandtrackData")
 export type DrivelineBranch = {
 	fromQuad: number,
 	toQuad: number,
-	points: { { x: number, z: number } },
+	points: { { x: number, y: number?, z: number } },
 }
 
 export type CheckpointSpec = {
@@ -30,7 +30,7 @@ export type TrackConfig = {
 	startYawRad: number,
 	dummyStartPos: Math3D.Vec3,
 	dummyStartYawRad: number,
-	drivelineQuadCenters: { { x: number, z: number } },
+	drivelineQuadCenters: { { x: number, y: number?, z: number } },
 	drivelineBranches: { DrivelineBranch }?,
 	checkpoints: { CheckpointSpec },
 	minimapBounds: { minX: number, maxX: number, minZ: number, maxZ: number, range: number },

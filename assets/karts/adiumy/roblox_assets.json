@@ -1,0 +1,98 @@
+{
+  "kartId": "adiumy",
+  "kartName": "Adiumy",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "adiumyicon.png",
+  "iconDecalId": "92627507964011",
+  "iconId": "rbxassetid://139012923948080",
+  "textures": {
+    "Adiumy_dif.png": "rbxassetid://101609421666089",
+    "Adiumy_eye_col.png": "rbxassetid://129615143579922",
+    "EggKart_dif.png": "rbxassetid://133362743670831",
+    "EggKart_part_dif.png": "rbxassetid://71983196150045",
+    "EggKart_Wheel_dif.png": "rbxassetid://84644145348597"
+  },
+  "textureDecalIds": {
+    "EggKart_Wheel_dif.png": "122080074653395",
+    "Adiumy_eye_col.png": "117704049033523",
+    "EggKart_part_dif.png": "107640330063516",
+    "EggKart_dif.png": "101566582345156",
+    "Adiumy_dif.png": "84841536905729"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/adiumy/adiumy_Body_0.glb",
+      "meshId": "rbxassetid://89400358256241",
+      "textureId": "rbxassetid://101609421666089",
+      "material": "Adiumy_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "130251660047200"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/adiumy/adiumy_Body_1.glb",
+      "meshId": "rbxassetid://74607483968812",
+      "textureId": "rbxassetid://129615143579922",
+      "material": "Adiumy_eye_col.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "128900607618321"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/adiumy/adiumy_Body_2.glb",
+      "meshId": "rbxassetid://96938994168380",
+      "textureId": "rbxassetid://133362743670831",
+      "material": "EggKart_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "92093991546192"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/adiumy/adiumy_Body_3.glb",
+      "meshId": "rbxassetid://130932606550050",
+      "textureId": "rbxassetid://71983196150045",
+      "material": "EggKart_part_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "127032021367154"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/adiumy/wheel-front-left.glb",
+      "meshId": "rbxassetid://140123602185710",
+      "textureId": "rbxassetid://84644145348597",
+      "material": "EggKart_Wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "98861451651614"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/adiumy/wheel-front-right.glb",
+      "meshId": "rbxassetid://140123602185710",
+      "textureId": "rbxassetid://84644145348597",
+      "material": "EggKart_Wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "71272425288216"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/adiumy/wheel-rear-left.glb",
+      "meshId": "rbxassetid://75100231962318",
+      "textureId": "rbxassetid://84644145348597",
+      "material": "EggKart_Wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "119357861964130"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/adiumy/wheel-rear-right.glb",
+      "meshId": "rbxassetid://75100231962318",
+      "textureId": "rbxassetid://84644145348597",
+      "material": "EggKart_Wheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "85817468845246"
+    }
+  }
+}

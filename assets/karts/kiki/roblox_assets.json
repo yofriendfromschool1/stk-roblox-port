@@ -1,0 +1,142 @@
+{
+  "kartId": "kiki",
+  "kartName": "Kiki",
+  "kartType": "light",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "kiki_icon.png",
+  "iconDecalId": "109578332970741",
+  "iconId": "rbxassetid://134260993630686",
+  "textures": {
+    "Cloth_Kiki01.png": "rbxassetid://122659770562376",
+    "Eyes2.png": "rbxassetid://125796368005615",
+    "PenTablet.png": "rbxassetid://80203991034446",
+    "kiki_exhaust_spoiler.png": "rbxassetid://137799951088393",
+    "kiki_hair_dif.png": "rbxassetid://88162190774945",
+    "kiki_kart.png": "rbxassetid://120665855213323",
+    "kiki_license_plate.png": "rbxassetid://118167890475998",
+    "Kiki_body.png": "rbxassetid://126137892880427",
+    "kiki_wheel.png": "rbxassetid://109704880719200"
+  },
+  "textureDecalIds": {
+    "Eyes2.png": "95726636805002",
+    "Cloth_Kiki01.png": "115755376742979",
+    "PenTablet.png": "112831911933894",
+    "kiki_exhaust_spoiler.png": "127107274284642",
+    "kiki_license_plate.png": "100526667049031",
+    "kiki_hair_dif.png": "138859147769901",
+    "Kiki_body.png": "123271348165139",
+    "kiki_kart.png": "137931616986036",
+    "kiki_wheel.png": "97444726773983"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/kiki/kiki_Body_0.glb",
+      "meshId": "rbxassetid://89276473450076",
+      "textureId": "rbxassetid://122659770562376",
+      "material": "Cloth_Kiki01.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "71623712133741"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/kiki/kiki_Body_1.glb",
+      "meshId": "rbxassetid://118924535304294",
+      "textureId": "rbxassetid://125796368005615",
+      "material": "Eyes2.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "108155361878187"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/kiki/kiki_Body_2.glb",
+      "meshId": "rbxassetid://84570780840060",
+      "textureId": "rbxassetid://80203991034446",
+      "material": "PenTablet.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "83510306354217"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/kiki/kiki_Body_3.glb",
+      "meshId": "rbxassetid://127325478055231",
+      "textureId": "rbxassetid://137799951088393",
+      "material": "kiki_exhaust_spoiler.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "108892969916051"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/kiki/kiki_Body_4.glb",
+      "meshId": "rbxassetid://78555924095365",
+      "textureId": "rbxassetid://88162190774945",
+      "material": "kiki_hair_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "135577284383772"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/kiki/kiki_Body_5.glb",
+      "meshId": "rbxassetid://138178188788825",
+      "textureId": "rbxassetid://120665855213323",
+      "material": "kiki_kart.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "121911739348308"
+    },
+    "Body_6": {
+      "glbFile": "build/karts/kiki/kiki_Body_6.glb",
+      "meshId": "rbxassetid://99030923607903",
+      "textureId": "rbxassetid://118167890475998",
+      "material": "kiki_license_plate.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "79689930163582"
+    },
+    "Driver": {
+      "glbFile": "build/karts/kiki/kiki_driver.glb",
+      "meshId": "rbxassetid://87887440764033",
+      "textureId": "rbxassetid://126137892880427",
+      "material": "Kiki_body.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "119151330527587"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/kiki/wheel-front-left.glb",
+      "meshId": "rbxassetid://114235019103493",
+      "textureId": "rbxassetid://109704880719200",
+      "material": "kiki_wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "88432222809579"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/kiki/wheel-front-right.glb",
+      "meshId": "rbxassetid://89643609783612",
+      "textureId": "rbxassetid://109704880719200",
+      "material": "kiki_wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "117517406319439"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/kiki/wheel-rear-left.glb",
+      "meshId": "rbxassetid://138676496397146",
+      "textureId": "rbxassetid://109704880719200",
+      "material": "kiki_wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "111760417953357"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/kiki/wheel-rear-right.glb",
+      "meshId": "rbxassetid://134572428904451",
+      "textureId": "rbxassetid://109704880719200",
+      "material": "kiki_wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "121510756165179"
+    }
+  }
+}

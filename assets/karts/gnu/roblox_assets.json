@@ -1,0 +1,93 @@
+{
+  "kartId": "gnu",
+  "kartName": "Gnu",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "gnuicon.png",
+  "iconDecalId": "138186103723109",
+  "iconId": "rbxassetid://84998463824090",
+  "textures": {
+    "gnu_Eyeball.png": "rbxassetid://86526491515554",
+    "gnu_accessories.png": "rbxassetid://75480180096794",
+    "gnu_cloth_diff.png": "rbxassetid://85291640199616",
+    "gnu_diffuse.png": "rbxassetid://138172203835064",
+    "gnu_hair.png": "rbxassetid://134412978022099",
+    "gnu_horn_albed.png": "rbxassetid://87408072322076",
+    "Carpet_diffiuse.png": "rbxassetid://90723389465436"
+  },
+  "textureDecalIds": {
+    "gnu_accessories.png": "82949181610077",
+    "gnu_Eyeball.png": "98464846746248",
+    "gnu_cloth_diff.png": "139939332211617",
+    "gnu_diffuse.png": "100707450632694",
+    "gnu_horn_albed.png": "136352178759673",
+    "gnu_hair.png": "123425591820370",
+    "Carpet_diffiuse.png": "111632945835378"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/gnu/gnu_Body_0.glb",
+      "meshId": "rbxassetid://123624393730177",
+      "textureId": "rbxassetid://86526491515554",
+      "material": "gnu_Eyeball.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "79959669903381"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/gnu/gnu_Body_1.glb",
+      "meshId": "rbxassetid://76526750067593",
+      "textureId": "rbxassetid://75480180096794",
+      "material": "gnu_accessories.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "101537660386637"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/gnu/gnu_Body_2.glb",
+      "meshId": "rbxassetid://110921836258837",
+      "textureId": "rbxassetid://85291640199616",
+      "material": "gnu_cloth_diff.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "85083446987688"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/gnu/gnu_Body_3.glb",
+      "meshId": "rbxassetid://91404600885432",
+      "textureId": "rbxassetid://138172203835064",
+      "material": "gnu_diffuse.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "125331652191191"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/gnu/gnu_Body_4.glb",
+      "meshId": "rbxassetid://83034057496596",
+      "textureId": "rbxassetid://134412978022099",
+      "material": "gnu_hair.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "136035840913111"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/gnu/gnu_Body_5.glb",
+      "meshId": "rbxassetid://71798643653126",
+      "textureId": "rbxassetid://87408072322076",
+      "material": "gnu_horn_albed.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "89176964998043"
+    },
+    "Body_6": {
+      "glbFile": "build/karts/gnu/gnu_Body_6.glb",
+      "meshId": "rbxassetid://131969475889113",
+      "textureId": "rbxassetid://90723389465436",
+      "material": "Carpet_diffiuse.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "98497136960217"
+    }
+  }
+}

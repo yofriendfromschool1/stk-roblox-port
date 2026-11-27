@@ -17,6 +17,7 @@ type Vec3 = Math3D.Vec3
 
 export type DrivelinePoint = {
 	x: number,
+	y: number?,
 	z: number,
 }
 

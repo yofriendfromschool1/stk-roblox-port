@@ -7,6 +7,7 @@ local ItemEffectState = require("../sim/ItemEffectState")
 local ItemTuning = require("../ItemTuning")
 local ItemWorld = require("../items/ItemWorld")
 local KartSolver = require("../sim/KartSolver")
+local KartTuning = require("../KartTuning")
 local MaxSpeed = require("../kart/MaxSpeed")
 local RaceState = require("../sim/RaceState")
 local Skidding = require("../kart/Skidding")
@@ -14,6 +15,7 @@ local Slipstream = require("../sim/Slipstream")
 
 export type RemoteKartState = {
 	id: string,
+	kartId: string?,
 	pos: { number },
 	rot: { number },
 	linVel: { number }?,
@@ -21,6 +23,10 @@ export type RemoteKartState = {
 	steer: number,
 	attachmentType: number,
 	attachmentTicksLeft: number?,
+	swatterPhase: number?,
+	swatterAnimTicks: number?,
+	swatterBombMode: boolean?,
+	swatterTargetYawRad: number?,
 	plungerFaceTicks: number,
 	timedImpulseTicks: number?,
 	isSquashed: boolean,
@@ -104,10 +110,18 @@ for idx, name in FLYABLE_KINDS do
 	FLYABLE_KIND_TO_ID[name :: Flyable.FlyableKind] = idx
 end
 
-local CORE_HEADER_BYTES = 252
+local KART_ID_TO_IDX: { [string]: number } = {}
+for idx, kid in ipairs(KartTuning.KART_ORDER) do
+	KART_ID_TO_IDX[kid] = idx
+end
+
+local CORE_HEADER_BYTES = 286
 local ITEM_EFFECT_BASE_BYTES = 12
 local ITEM_EFFECT_EXPLOSION_BYTES = 88
+local ITEM_EFFECT_RESCUE_BYTES = 116
 local ITEM_EFFECT_PULL_BYTES = 16
+local SWATTER_STATE_BYTES = 11
+local REMOTE_SWATTER_BYTES = 5
 local INCREASE_ENTRY_BYTES = 17
 local COOLDOWN_ENTRY_BYTES = 6
 local DYNAMIC_ITEM_ENTRY_BYTES = 28
@@ -116,7 +130,7 @@ local FLYABLE_CUSTOM_PHYS_BYTES = 12
 local FLYABLE_TARGET_BYTES = 8
 local FLYABLE_RUBBER_BYTES = 8
 local FLYABLE_PLUNGER_BYTES = 23
-local REMOTE_KART_FIXED_BYTES = 67
+local REMOTE_KART_FIXED_BYTES = 68
 local SLIPSTREAM_BYTES = 65
 
 local function defaultFlyablePhys(kind: Flyable.FlyableKind): (number, number, number)
@@ -150,6 +164,8 @@ local function computeItemEffectBytes(eff: ItemEffectState.NetEffectState): numb
 	local size = ITEM_EFFECT_BASE_BYTES
 	if eff.effectType == ItemEffectState.EFFECT_EXPLOSION then
 		size += ITEM_EFFECT_EXPLOSION_BYTES
+	elseif eff.effectType == ItemEffectState.EFFECT_RESCUE then
+		size += ITEM_EFFECT_RESCUE_BYTES
 	end
 	if eff.slowdownFraction ~= 1.0 or eff.externalPullTicks > 0 then
 		size += ITEM_EFFECT_PULL_BYTES
@@ -260,8 +276,10 @@ function GreyboxProtocol.packSnapshot(
 	local ss = ns.slipstream
 	local hasSlipstream = isSlipstreamStateActive(ss)
 
+	local hasSwatter = (ns.attachmentType == ItemTuning.ATTACHMENT_SWATTER)
 	local nIncs = math.min(#ns.increases, 255)
 	local totalBytes = CORE_HEADER_BYTES
+		+ (if hasSwatter then SWATTER_STATE_BYTES else 0)
 		+ (if hasItemEffect and eff ~= nil then computeItemEffectBytes(eff) else 0)
 		+ (if hasSlipstream then SLIPSTREAM_BYTES else 0)
 		+ 1
@@ -291,6 +309,9 @@ function GreyboxProtocol.packSnapshot(
 			local rid = string.sub(remoteKarts[idx].id, 1, 255)
 			remoteIds[idx] = rid
 			totalBytes += 1 + #rid + REMOTE_KART_FIXED_BYTES
+			if remoteKarts[idx].attachmentType == ItemTuning.ATTACHMENT_SWATTER then
+				totalBytes += REMOTE_SWATTER_BYTES
+			end
 		end
 	end
 
@@ -401,8 +422,28 @@ function GreyboxProtocol.packSnapshot(
 	buffer.writeu32(buf, off, clampU32(ns.rngState or 135792468))
 	off += 4
 
+	local lrPos = ns.lastRescuePos
+	buffer.writeu16(buf, off, clampU16(ns.lastRescueQuadIdx or 0))
+	buffer.writef64(buf, off + 2, if lrPos then (lrPos[1] or 0) else 0)
+	buffer.writef64(buf, off + 10, if lrPos then (lrPos[2] or 0) else 0)
+	buffer.writef64(buf, off + 18, if lrPos then (lrPos[3] or 0) else 0)
+	buffer.writef64(buf, off + 26, ns.lastRescueYawRad or 0.0)
+	off += 34
+
+	if hasSwatter then
+		local swFlags = bit32.band(ns.swatterPhase or 0, 3)
+			+ (if ns.swatterBombMode then 4 else 0)
+			+ (if ns.swatterDiscardNow then 8 else 0)
+		buffer.writeu8(buf, off, swFlags)
+		buffer.writei16(buf, off + 1, clampI16(ns.swatterAnimTicks or 0))
+		buffer.writei32(buf, off + 3, clampI32(ns.swatterTargetId or 0))
+		buffer.writef32(buf, off + 7, ns.swatterTargetYawRad or 0.0)
+		off += SWATTER_STATE_BYTES
+	end
+
 	if hasItemEffect and eff ~= nil then
 		local hasExp = (eff.effectType == ItemEffectState.EFFECT_EXPLOSION)
+		local hasRescue = (eff.effectType == ItemEffectState.EFFECT_RESCUE)
 		local hasPull = (eff.slowdownFraction ~= 1.0 or eff.externalPullTicks > 0)
 		local effFlags = (if eff.suppressThrottle then 1 else 0)
 			+ (if eff.suppressSteer then 2 else 0)
@@ -437,6 +478,25 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writef32(buf, off + 80, eff.addPitchRate)
 			buffer.writef32(buf, off + 84, eff.addRollRate)
 			off += ITEM_EFFECT_EXPLOSION_BYTES
+		elseif hasRescue then
+			local rtp = eff.rescueTargetPos or { 0, 0, 0 }
+			local rtr = eff.rescueTargetRot or { 1, 0, 0, 0 }
+			buffer.writef64(buf, off, eff.originPos[1])
+			buffer.writef64(buf, off + 8, eff.originPos[2])
+			buffer.writef64(buf, off + 16, eff.originPos[3])
+			buffer.writef64(buf, off + 24, eff.originRot[1])
+			buffer.writef64(buf, off + 32, eff.originRot[2])
+			buffer.writef64(buf, off + 40, eff.originRot[3])
+			buffer.writef64(buf, off + 48, eff.originRot[4])
+			buffer.writef64(buf, off + 56, rtp[1] or 0)
+			buffer.writef64(buf, off + 64, rtp[2] or 0)
+			buffer.writef64(buf, off + 72, rtp[3] or 0)
+			buffer.writef64(buf, off + 80, rtr[1] or 1)
+			buffer.writef64(buf, off + 88, rtr[2] or 0)
+			buffer.writef64(buf, off + 96, rtr[3] or 0)
+			buffer.writef64(buf, off + 104, rtr[4] or 0)
+			buffer.writef32(buf, off + 112, eff.rescueHeight or ItemEffectState.RESCUE_HEIGHT_M)
+			off += ITEM_EFFECT_RESCUE_BYTES
 		end
 		if hasPull then
 			buffer.writef32(buf, off, eff.slowdownFraction)
@@ -619,7 +679,16 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writei16(buf, rOff + 60, clampI16(rk.attachmentTicksLeft or 0))
 			buffer.writeu8(buf, rOff + 62, clampU8(rk.nextCheckpoint or 0))
 			buffer.writei32(buf, rOff + 63, clampI32(rk.finishTick or -1))
+			buffer.writeu8(buf, rOff + 67, clampU8(KART_ID_TO_IDX[rk.kartId or "tux"] or 16))
 			off = rOff + REMOTE_KART_FIXED_BYTES
+			if rk.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
+				local rSwFlags = bit32.band(rk.swatterPhase or 0, 3) + (if rk.swatterBombMode then 4 else 0)
+				buffer.writeu8(buf, off, rSwFlags)
+				buffer.writei16(buf, off + 1, clampI16(rk.swatterAnimTicks or 0))
+				local clampedYaw = math.clamp(rk.swatterTargetYawRad or 0.0, -math.pi, math.pi)
+				buffer.writei16(buf, off + 3, clampI16(clampedYaw * 10000.0))
+				off += REMOTE_SWATTER_BYTES
+			end
 		end
 	end
 
@@ -724,6 +793,35 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 	off += 18
 	local rngState = buffer.readu32(buf, off)
 	off += 4
+
+	local lastRescueQuadIdx = buffer.readu16(buf, off)
+	local lastRescuePos = {
+		buffer.readf64(buf, off + 2),
+		buffer.readf64(buf, off + 10),
+		buffer.readf64(buf, off + 18),
+	}
+	local lastRescueYawRad = buffer.readf64(buf, off + 26)
+	off += 34
+
+	local swatterPhase = ItemTuning.SWATTER_PHASE_AIMING
+	local swatterAnimTicks = 0
+	local swatterTargetId = 0
+	local swatterTargetYawRad = 0.0
+	local swatterBombMode = false
+	local swatterDiscardNow = false
+	if attachmentType == ItemTuning.ATTACHMENT_SWATTER then
+		if off + SWATTER_STATE_BYTES > bufLen then
+			return nil
+		end
+		local swFlags = buffer.readu8(buf, off)
+		swatterPhase = bit32.band(swFlags, 3)
+		swatterBombMode = bit32.btest(swFlags, 4)
+		swatterDiscardNow = bit32.btest(swFlags, 8)
+		swatterAnimTicks = buffer.readi16(buf, off + 1)
+		swatterTargetId = buffer.readi32(buf, off + 3)
+		swatterTargetYawRad = buffer.readf32(buf, off + 7)
+		off += SWATTER_STATE_BYTES
+	end
 	local raceState: KartSolver.KartRaceState = {
 		raceTick = raceTick,
 		phase = RaceState.ID_TO_PHASE[racePhaseId] or "READY_PHASE",
@@ -759,6 +857,9 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		local addHeadingRate = 0.0
 		local addPitchRate = 0.0
 		local addRollRate = 0.0
+		local rescueTargetPos = { 0, 0, 0 }
+		local rescueTargetRot = { 1, 0, 0, 0 }
+		local rescueHeight = ItemEffectState.RESCUE_HEIGHT_M
 		if bit32.btest(effFlags, 64) then
 			if off + ITEM_EFFECT_EXPLOSION_BYTES > bufLen then
 				return nil
@@ -785,6 +886,34 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 			addPitchRate = buffer.readf32(buf, off + 80)
 			addRollRate = buffer.readf32(buf, off + 84)
 			off += ITEM_EFFECT_EXPLOSION_BYTES
+		elseif effType == ItemEffectState.EFFECT_RESCUE then
+			if off + ITEM_EFFECT_RESCUE_BYTES > bufLen then
+				return nil
+			end
+			originPos = {
+				buffer.readf64(buf, off),
+				buffer.readf64(buf, off + 8),
+				buffer.readf64(buf, off + 16),
+			}
+			originRot = {
+				buffer.readf64(buf, off + 24),
+				buffer.readf64(buf, off + 32),
+				buffer.readf64(buf, off + 40),
+				buffer.readf64(buf, off + 48),
+			}
+			rescueTargetPos = {
+				buffer.readf64(buf, off + 56),
+				buffer.readf64(buf, off + 64),
+				buffer.readf64(buf, off + 72),
+			}
+			rescueTargetRot = {
+				buffer.readf64(buf, off + 80),
+				buffer.readf64(buf, off + 88),
+				buffer.readf64(buf, off + 96),
+				buffer.readf64(buf, off + 104),
+			}
+			rescueHeight = buffer.readf32(buf, off + 112)
+			off += ITEM_EFFECT_RESCUE_BYTES
 		end
 
 		local slowdownFraction = 1.0
@@ -825,6 +954,9 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 			plungerFaceTicks = plungerFaceTicks,
 			externalPullAccel = externalPullAccel,
 			externalPullTicks = externalPullTicks,
+			rescueTargetPos = rescueTargetPos,
+			rescueTargetRot = rescueTargetRot,
+			rescueHeight = rescueHeight,
 		}
 	else
 		itemEffect = {
@@ -1108,6 +1240,23 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 			local rid = buffer.readstring(buf, off + 1, idLen)
 			local rOff = off + 1 + idLen
 			local rkFlags = buffer.readu8(buf, rOff + 53)
+			local rAttachType = buffer.readu8(buf, rOff + 48)
+			local rNextOff = rOff + REMOTE_KART_FIXED_BYTES
+			local rSwPhase: number? = nil
+			local rSwAnimTicks: number? = nil
+			local rSwBombMode: boolean? = nil
+			local rSwTargetYawRad: number? = nil
+			if rAttachType == ItemTuning.ATTACHMENT_SWATTER then
+				if rNextOff + REMOTE_SWATTER_BYTES > bufLen then
+					return nil
+				end
+				local rSwFlags = buffer.readu8(buf, rNextOff)
+				rSwPhase = bit32.band(rSwFlags, 3)
+				rSwBombMode = bit32.btest(rSwFlags, 4)
+				rSwAnimTicks = buffer.readi16(buf, rNextOff + 1)
+				rSwTargetYawRad = buffer.readi16(buf, rNextOff + 3) / 10000.0
+				rNextOff += REMOTE_SWATTER_BYTES
+			end
 			table.insert(rList, {
 				id = rid,
 				pos = { buffer.readf32(buf, rOff), buffer.readf32(buf, rOff + 4), buffer.readf32(buf, rOff + 8) },
@@ -1124,7 +1273,11 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				},
 				speed = buffer.readf32(buf, rOff + 40),
 				steer = buffer.readf32(buf, rOff + 44),
-				attachmentType = buffer.readu8(buf, rOff + 48),
+				attachmentType = rAttachType,
+				swatterPhase = rSwPhase,
+				swatterAnimTicks = rSwAnimTicks,
+				swatterBombMode = rSwBombMode,
+				swatterTargetYawRad = rSwTargetYawRad,
 				plungerFaceTicks = buffer.readi16(buf, rOff + 49),
 				timedImpulseTicks = buffer.readi16(buf, rOff + 51),
 				isSquashed = bit32.btest(rkFlags, 1),
@@ -1140,8 +1293,9 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				attachmentTicksLeft = buffer.readi16(buf, rOff + 60),
 				nextCheckpoint = buffer.readu8(buf, rOff + 62),
 				finishTick = buffer.readi32(buf, rOff + 63),
+				kartId = KartTuning.KART_ORDER[buffer.readu8(buf, rOff + 67)] or "tux",
 			})
-			off = rOff + REMOTE_KART_FIXED_BYTES
+			off = rNextOff
 		end
 		remoteKarts = rList
 	end
@@ -1187,6 +1341,12 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		attachmentType = attachmentType,
 		attachmentTicksLeft = attachmentTicksLeft,
 		attachmentInitialSpeed = attachmentInitialSpeed,
+		swatterPhase = swatterPhase,
+		swatterAnimTicks = swatterAnimTicks,
+		swatterTargetId = swatterTargetId,
+		swatterTargetYawRad = swatterTargetYawRad,
+		swatterBombMode = swatterBombMode,
+		swatterDiscardNow = swatterDiscardNow,
 		bubbleFraction = bubbleFraction,
 		bubbleTargetFraction = bubbleTargetFraction,
 		bubbleFadeTicks = bubbleFadeTicks,
@@ -1197,6 +1357,9 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		slipstream = slipstream,
 		race = raceState,
 		rngState = rngState,
+		lastRescueQuadIdx = lastRescueQuadIdx,
+		lastRescuePos = lastRescuePos,
+		lastRescueYawRad = lastRescueYawRad,
 		itemWorldSnapshot = itemWorldSnapshot,
 		flyableSnapshot = flyableSnapshot,
 	}

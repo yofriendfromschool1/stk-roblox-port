@@ -10,6 +10,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CatalogData = require(Shared.menu.CatalogData)
 local ClassicSkin = require("./ClassicSkin")
 local ClientSessionState = require("../ClientSessionState")
+local KartSelectMath = require(Shared.menu.KartSelectMath)
+local KartTuning = require(Shared.KartTuning)
 local LobbyPanel = require("./LobbyPanel")
 local MenuBackdrop = require("./MenuBackdrop")
 local MenuFlow = require(Shared.menu.MenuFlow)
@@ -287,7 +289,7 @@ local trackBox =
 local kartScreen = makeScreenFrame("Screen_KART")
 makeHeader(kartScreen, "Choose a Kart")
 local kartBox =
-	ClassicSkin.makeGlassBox(kartScreen, "KartBox", UDim2.fromScale(0.02, 0.62), UDim2.fromScale(0.96, 0.35), 8)
+	ClassicSkin.makeGlassBox(kartScreen, "KartBox", UDim2.fromScale(0.02, 0.59), UDim2.fromScale(0.96, 0.39), 8)
 
 -- Screen 5: TRACK INFO / CONFIG (track_info.stkgui)
 local configScreen = makeScreenFrame("Screen_CONFIG")
@@ -366,10 +368,12 @@ local function renderScreen()
 	if isRacing then
 		backdrop.setActive(false, false)
 	elseif menuState.screen == "MENU" then
+		backdrop.setKart("tux")
 		backdrop.setViewportRect(UDim2.fromScale(0.52, 0.04), UDim2.fromScale(0.45, 0.44))
 		backdrop.setActive(true, true)
 	elseif menuState.screen == "KART" then
-		backdrop.setViewportRect(UDim2.fromScale(0.24, 0.11), UDim2.fromScale(0.52, 0.48))
+		backdrop.setKart(menuState.config.kartId)
+		backdrop.setViewportRect(UDim2.fromScale(0.05, 0.11), UDim2.fromScale(0.40, 0.42))
 		backdrop.setActive(true, true)
 	else
 		backdrop.setActive(true, false)
@@ -574,52 +578,335 @@ for idx, track in ipairs(CatalogData.tracks) do
 	end))
 end
 
--- Populate karts.stkgui (90x90 kart grid strictly from playable CatalogData.karts)
-for idx, kart in ipairs(CatalogData.karts) do
-	local card = ClassicSkin.makeGlassButton(
-		kartBox,
-		"KartCard_" .. kart.id,
-		"",
-		UDim2.fromOffset(28 + (idx - 1) * 160, 20),
-		UDim2.fromOffset(140, 146),
-		trackConn
-	)
+-- Populate karts.stkgui: 4-bar KartStatsWidget + Class Filter (All/Light/Medium/Heavy) + Search + 2D Icon Grid + Random
+local highlightedKartId = menuState.config.kartId
+local activeClassFilter: KartSelectMath.KartClassFilter = "all"
+local kartSearchQuery = ""
+local randomPickCounter = 0
+
+local statsPanel = Instance.new("Frame")
+statsPanel.Name = "KartStatsPanel"
+statsPanel.Position = UDim2.fromScale(0.48, 0.13)
+statsPanel.Size = UDim2.fromScale(0.48, 0.38)
+statsPanel.BackgroundTransparency = 1
+statsPanel.ZIndex = 12
+statsPanel.Parent = kartScreen
+
+local statRows = {
+	{ key = "mass", label = "Mass", icon = MenuIcons.StatMass },
+	{ key = "speed", label = "Max Speed", icon = MenuIcons.StatSpeed },
+	{ key = "accel", label = "Acceleration", icon = MenuIcons.StatAccel },
+	{ key = "nitro", label = "Nitro Efficiency", icon = MenuIcons.StatNitro },
+}
+local statFills: { [string]: Frame } = {}
+local statValueLabels: { [string]: TextLabel } = {}
+
+for idx, rowDef in ipairs(statRows) do
+	local row = Instance.new("Frame")
+	row.Name = "StatRow_" .. rowDef.key
+	row.Position = UDim2.fromScale(0, (idx - 1) * 0.24)
+	row.Size = UDim2.fromScale(1, 0.19)
+	row.BackgroundTransparency = 1
+	row.ZIndex = 12
+	row.Parent = statsPanel
+
 	local ico = Instance.new("ImageLabel")
+	ico.Name = "Icon"
+	ico.Position = UDim2.fromScale(0, 0)
+	ico.Size = UDim2.fromScale(0.09, 1)
 	ico.BackgroundTransparency = 1
-	ico.Position = UDim2.fromOffset(25, 10)
-	ico.Size = UDim2.fromOffset(90, 90)
-	ico.Image = kart.iconId
+	ico.Image = rowDef.icon
 	ico.ScaleType = Enum.ScaleType.Fit
 	ico.ZIndex = 13
+	ico.Parent = row
+
+	local barBg = Instance.new("Frame")
+	barBg.Name = "BarBg"
+	barBg.Position = UDim2.fromScale(0.11, 0.12)
+	barBg.Size = UDim2.fromScale(0.89, 0.76)
+	barBg.BackgroundColor3 = Color3.fromRGB(130, 138, 150)
+	barBg.BackgroundTransparency = 0.25
+	barBg.BorderSizePixel = 0
+	barBg.ZIndex = 12
+	barBg.Parent = row
+
+	local bgStroke = Instance.new("UIStroke")
+	bgStroke.Color = Color3.fromRGB(32, 36, 44)
+	bgStroke.Thickness = 2
+	bgStroke.Parent = barBg
+
+	local fill = Instance.new("Frame")
+	fill.Name = "StatBar_" .. rowDef.key
+	fill.Position = UDim2.fromScale(0, 0)
+	fill.Size = UDim2.fromScale(0.5, 1)
+	fill.BackgroundColor3 = Color3.fromRGB(255, 118, 28)
+	fill.BorderSizePixel = 0
+	fill.ZIndex = 13
+	fill.Parent = barBg
+
+	local fillGrad = Instance.new("UIGradient")
+	fillGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 175, 55)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 108, 20)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(220, 62, 16)),
+	})
+	fillGrad.Rotation = 90
+	fillGrad.Parent = fill
+
+	local valLbl = Instance.new("TextLabel")
+	valLbl.Name = "ValueLabel"
+	valLbl.Position = UDim2.fromScale(0.02, 0)
+	valLbl.Size = UDim2.fromScale(0.96, 1)
+	valLbl.BackgroundTransparency = 1
+	valLbl.Font = ClassicSkin.FONT_BODY
+	valLbl.TextSize = 13
+	valLbl.TextXAlignment = Enum.TextXAlignment.Right
+	valLbl.TextColor3 = Color3.new(1, 1, 1)
+	valLbl.TextStrokeTransparency = 0.45
+	valLbl.Text = ""
+	valLbl.ZIndex = 14
+	valLbl.Parent = barBg
+
+	statFills[rowDef.key] = fill
+	statValueLabels[rowDef.key] = valLbl
+end
+
+local highlightedKartLabel = Instance.new("TextLabel")
+highlightedKartLabel.Name = "HighlightedKartName"
+highlightedKartLabel.Position = UDim2.fromScale(0.25, 0.525)
+highlightedKartLabel.Size = UDim2.fromScale(0.50, 0.055)
+highlightedKartLabel.BackgroundTransparency = 1
+highlightedKartLabel.Font = ClassicSkin.FONT_TITLE
+highlightedKartLabel.TextScaled = true
+highlightedKartLabel.TextColor3 = Color3.new(1, 1, 1)
+highlightedKartLabel.TextStrokeColor3 = Color3.fromRGB(35, 20, 0)
+highlightedKartLabel.TextStrokeTransparency = 0.2
+highlightedKartLabel.Text = "Tux"
+highlightedKartLabel.ZIndex = 13
+highlightedKartLabel.Parent = kartScreen
+ClassicSkin.applyHeaderGradient(highlightedKartLabel)
+
+local kartFilterBar = Instance.new("Frame")
+kartFilterBar.Name = "KartFilterBar"
+kartFilterBar.Position = UDim2.fromScale(0.02, 0.04)
+kartFilterBar.Size = UDim2.fromScale(0.96, 0.18)
+kartFilterBar.BackgroundTransparency = 1
+kartFilterBar.ZIndex = 12
+kartFilterBar.Parent = kartBox
+
+local classLbl = Instance.new("TextLabel")
+classLbl.Name = "KartClassLabel"
+classLbl.Position = UDim2.fromScale(0, 0)
+classLbl.Size = UDim2.fromScale(0.11, 1)
+classLbl.BackgroundTransparency = 1
+classLbl.Font = ClassicSkin.FONT_BODY
+classLbl.TextScaled = true
+classLbl.TextXAlignment = Enum.TextXAlignment.Left
+classLbl.TextColor3 = ClassicSkin.COLOR_TEXT_NEUTRAL
+classLbl.Text = "Kart Class"
+classLbl.ZIndex = 13
+classLbl.Parent = kartFilterBar
+
+local classPrevBtn = ClassicSkin.makeGlassButton(
+	kartFilterBar,
+	"ClassPrevBtn",
+	"<",
+	UDim2.fromScale(0.12, 0.05),
+	UDim2.fromScale(0.04, 0.90),
+	trackConn
+)
+local classValueLabel = Instance.new("TextLabel")
+classValueLabel.Name = "ClassValueLabel"
+classValueLabel.Position = UDim2.fromScale(0.165, 0.05)
+classValueLabel.Size = UDim2.fromScale(0.15, 0.90)
+classValueLabel.BackgroundColor3 = Color3.fromRGB(165, 175, 190)
+classValueLabel.BackgroundTransparency = 0.2
+classValueLabel.BorderSizePixel = 0
+classValueLabel.Font = ClassicSkin.FONT_BODY
+classValueLabel.TextScaled = true
+classValueLabel.TextColor3 = Color3.fromRGB(20, 24, 32)
+classValueLabel.Text = "All"
+classValueLabel.ZIndex = 13
+classValueLabel.Parent = kartFilterBar
+local classNextBtn = ClassicSkin.makeGlassButton(
+	kartFilterBar,
+	"ClassNextBtn",
+	">",
+	UDim2.fromScale(0.32, 0.05),
+	UDim2.fromScale(0.04, 0.90),
+	trackConn
+)
+
+local kartSearchBox = Instance.new("TextBox")
+kartSearchBox.Name = "KartSearchBox"
+kartSearchBox.Position = UDim2.fromScale(0.40, 0.08)
+kartSearchBox.Size = UDim2.fromScale(0.28, 0.84)
+kartSearchBox.BackgroundColor3 = Color3.fromRGB(220, 226, 236)
+kartSearchBox.BackgroundTransparency = 0.15
+kartSearchBox.BorderSizePixel = 0
+kartSearchBox.Font = ClassicSkin.FONT_BODY
+kartSearchBox.TextSize = 15
+kartSearchBox.PlaceholderText = "Search kart..."
+kartSearchBox.PlaceholderColor3 = Color3.fromRGB(95, 105, 120)
+kartSearchBox.TextColor3 = Color3.fromRGB(20, 24, 32)
+kartSearchBox.ClearTextOnFocus = false
+kartSearchBox.Text = ""
+kartSearchBox.ZIndex = 13
+kartSearchBox.Parent = kartFilterBar
+
+local kartConfirmBtn = ClassicSkin.makeGlassButton(
+	kartFilterBar,
+	"KartConfirmBtn",
+	"Continue",
+	UDim2.fromScale(0.76, 0.05),
+	UDim2.fromScale(0.22, 0.90),
+	trackConn
+)
+
+local kartGridScroll = Instance.new("ScrollingFrame")
+kartGridScroll.Name = "KartGridScroll"
+kartGridScroll.Position = UDim2.fromScale(0.02, 0.25)
+kartGridScroll.Size = UDim2.fromScale(0.96, 0.71)
+kartGridScroll.BackgroundTransparency = 1
+kartGridScroll.BorderSizePixel = 0
+kartGridScroll.ScrollBarThickness = 6
+kartGridScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+kartGridScroll.CanvasSize = UDim2.fromScale(0, 0)
+kartGridScroll.ZIndex = 12
+kartGridScroll.Parent = kartBox
+
+local kartGridLayout = Instance.new("UIGridLayout")
+kartGridLayout.CellSize = UDim2.fromOffset(78, 78)
+kartGridLayout.CellPadding = UDim2.fromOffset(10, 8)
+kartGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+kartGridLayout.Parent = kartGridScroll
+
+local kartTileStrokes: { [string]: UIStroke } = {}
+local kartTileButtons: { [string]: TextButton } = {}
+
+local function refreshHighlightedKartUI(kartId: string)
+	highlightedKartId = kartId
+	local stats = KartTuning.computeKartStatBars(kartId)
+	highlightedKartLabel.Text = stats.name
+	statFills.mass.Size = UDim2.fromScale(math.clamp(stats.massBar / 100.0, 0.02, 1.0), 1)
+	statFills.speed.Size = UDim2.fromScale(math.clamp(stats.speedBar / 100.0, 0.02, 1.0), 1)
+	statFills.accel.Size = UDim2.fromScale(math.clamp(stats.accelBar / 100.0, 0.02, 1.0), 1)
+	statFills.nitro.Size = UDim2.fromScale(math.clamp(stats.nitroBar / 100.0, 0.02, 1.0), 1)
+	statValueLabels.mass.Text = string.format("%.1f kg", stats.massKg)
+	statValueLabels.speed.Text = string.format("%.2f m/s", stats.maxSpeedMps)
+	statValueLabels.accel.Text = string.format("%.2f", stats.accelEff)
+	statValueLabels.nitro.Text = string.format("%.2fx", stats.nitroConsumption)
+	for id, stroke in pairs(kartTileStrokes) do
+		stroke.Color = if id == kartId then Color3.fromRGB(255, 130, 30) else Color3.fromRGB(160, 175, 195)
+		stroke.Thickness = if id == kartId then 3 else 1
+	end
+	if menuState.screen == "KART" then
+		backdrop.setKart(kartId)
+	end
+end
+
+local function refreshKartGridFilter()
+	classValueLabel.Text = KartSelectMath.CLASS_LABELS[activeClassFilter] or "All"
+	local filtered = KartSelectMath.filterKarts(CatalogData.karts, activeClassFilter, kartSearchQuery)
+	local allowed: { [string]: boolean } = {}
+	for _, entry in ipairs(filtered) do
+		allowed[entry.id] = true
+	end
+	for id, btn in pairs(kartTileButtons) do
+		btn.Visible = allowed[id] == true
+	end
+	if not allowed[highlightedKartId] and #filtered > 0 then
+		refreshHighlightedKartUI(filtered[1].id)
+	end
+end
+
+for idx, kart in ipairs(CatalogData.karts) do
+	local card = Instance.new("TextButton")
+	card.Name = "KartTile_" .. kart.id
+	card.LayoutOrder = idx
+	card.BackgroundColor3 = Color3.fromRGB(240, 244, 250)
+	card.BackgroundTransparency = 0.85
+	card.BorderSizePixel = 0
+	card.Text = ""
+	card.ZIndex = 13
+	card.Parent = kartGridScroll
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(160, 175, 195)
+	stroke.Thickness = 1
+	stroke.Parent = card
+
+	local ico = Instance.new("ImageLabel")
+	ico.BackgroundTransparency = 1
+	ico.Position = UDim2.fromOffset(5, 5)
+	ico.Size = UDim2.new(1, -10, 1, -10)
+	ico.Image = kart.iconId
+	ico.ScaleType = Enum.ScaleType.Fit
+	ico.ZIndex = 14
 	ico.Parent = card
 
-	local kname = Instance.new("TextLabel")
-	kname.BackgroundTransparency = 1
-	kname.Position = UDim2.fromOffset(8, 104)
-	kname.Size = UDim2.fromOffset(124, 22)
-	kname.Font = ClassicSkin.FONT_BODY
-	kname.TextSize = 17
-	kname.TextColor3 = ClassicSkin.COLOR_TEXT_NEUTRAL
-	kname.Text = kart.name
-	kname.ZIndex = 13
-	kname.Parent = card
-
-	local ktype = Instance.new("TextLabel")
-	ktype.BackgroundTransparency = 1
-	ktype.Position = UDim2.fromOffset(8, 124)
-	ktype.Size = UDim2.fromOffset(124, 16)
-	ktype.Font = ClassicSkin.FONT_BODY
-	ktype.TextSize = 12
-	ktype.TextColor3 = ClassicSkin.COLOR_TEXT_EMPHASIS
-	ktype.Text = kart.kartType
-	ktype.ZIndex = 13
-	ktype.Parent = card
+	kartTileButtons[kart.id] = card
+	kartTileStrokes[kart.id] = stroke
 
 	trackConn(card.Activated:Connect(function()
-		MenuFlow.selectKart(menuState, kart.id)
-		renderScreen()
+		if highlightedKartId == kart.id then
+			MenuFlow.selectKart(menuState, kart.id)
+			renderScreen()
+		else
+			refreshHighlightedKartUI(kart.id)
+		end
 	end))
 end
+
+local randomTile = Instance.new("TextButton")
+randomTile.Name = "KartRandomBtn"
+randomTile.LayoutOrder = 999
+randomTile.BackgroundColor3 = Color3.fromRGB(240, 244, 250)
+randomTile.BackgroundTransparency = 0.85
+randomTile.BorderSizePixel = 0
+randomTile.Text = ""
+randomTile.ZIndex = 13
+randomTile.Parent = kartGridScroll
+local randStroke = Instance.new("UIStroke")
+randStroke.Color = Color3.fromRGB(160, 175, 195)
+randStroke.Thickness = 1
+randStroke.Parent = randomTile
+local randIco = Instance.new("ImageLabel")
+randIco.BackgroundTransparency = 1
+randIco.Position = UDim2.fromOffset(5, 5)
+randIco.Size = UDim2.new(1, -10, 1, -10)
+randIco.Image = MenuIcons.RandomKart
+randIco.ScaleType = Enum.ScaleType.Fit
+randIco.ZIndex = 14
+randIco.Parent = randomTile
+
+trackConn(randomTile.Activated:Connect(function()
+	randomPickCounter += 1
+	local filtered = KartSelectMath.filterKarts(CatalogData.karts, activeClassFilter, kartSearchQuery)
+	local picked = KartSelectMath.pickRandomKartId(filtered, math.floor(os.clock() * 1000) + randomPickCounter)
+	if picked ~= nil then
+		refreshHighlightedKartUI(picked)
+	end
+end))
+trackConn(classPrevBtn.Activated:Connect(function()
+	activeClassFilter = KartSelectMath.stepClassFilter(activeClassFilter, -1)
+	refreshKartGridFilter()
+end))
+trackConn(classNextBtn.Activated:Connect(function()
+	activeClassFilter = KartSelectMath.stepClassFilter(activeClassFilter, 1)
+	refreshKartGridFilter()
+end))
+trackConn(kartSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+	kartSearchQuery = kartSearchBox.Text
+	refreshKartGridFilter()
+end))
+trackConn(kartConfirmBtn.Activated:Connect(function()
+	MenuFlow.selectKart(menuState, highlightedKartId)
+	renderScreen()
+end))
+
+refreshKartGridFilter()
+refreshHighlightedKartUI(highlightedKartId)
 
 -- Populate track_info.stkgui (Left 68% spinners, Right 30% screenshot + author + 64x64 green_check Start Race)
 summaryLabel = Instance.new("TextLabel")
@@ -798,3 +1085,25 @@ ClientSessionState.subscribe(function(session)
 end)
 
 renderScreen()
+
+if game:GetService("RunService"):IsStudio() then
+	local navHook = Instance.new("BindableFunction")
+	navHook.Name = "StudioKartSelectHook"
+	navHook.OnInvoke = function(classFilter: any, kartId: any)
+		MenuFlow.selectPlayMode(menuState, "SINGLEPLAYER")
+		MenuFlow.selectRaceType(menuState, "NORMAL_RACE")
+		MenuFlow.selectTrack(menuState, "sandtrack")
+		if classFilter == "all" or classFilter == "light" or classFilter == "medium" or classFilter == "heavy" then
+			activeClassFilter = classFilter
+		end
+		kartSearchQuery = ""
+		kartSearchBox.Text = ""
+		renderScreen()
+		refreshKartGridFilter()
+		if type(kartId) == "string" and #kartId > 0 then
+			refreshHighlightedKartUI(kartId)
+		end
+		return menuState.screen, activeClassFilter, highlightedKartId
+	end
+	navHook.Parent = gui
+end

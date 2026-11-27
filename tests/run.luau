@@ -27,6 +27,8 @@ local suites = {
 	{ name = "Difficulty", tests = require("./Difficulty.spec") },
 	{ name = "AIRoutes", tests = require("./AIRoutes.spec") },
 	{ name = "LobbyState", tests = require("./LobbyState.spec") },
+	{ name = "SwatterAndRescue", tests = require("./SwatterAndRescue.spec") },
+	{ name = "KartRoster", tests = require("./KartRoster.spec") },
 }
 
 local passed = 0

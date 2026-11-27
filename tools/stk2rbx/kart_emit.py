@@ -54,6 +54,30 @@ BODY_TEXTURE_PART_NAMES = {
     "wheel.png": "Body_Steering",
 }
 
+OMITTED_UNVERIFIED_TEXTURES = {
+    "",
+    "gfxglow_white_a.png",
+    "gfxglow_blue_a.png",
+    "gfxglow_red_a.png",
+    "stk_conelight_a.png",
+    "stk_headlight_halo_a.png",
+}
+
+CC0_SUBSTITUTE_TEXTURES = {
+    "stk_headlight_a.png": "cc0_headlight_lens.png",
+    "stk_darkgraymetal_a.png": "cc0_dark_gray_metal.png",
+    "stk_generic_sand_b.png": "cc0_generic_sand.png",
+    "stktex_generic_underwaterrock_a.png": "cc0_underwater_rock.png",
+}
+
+
+def resolve_kart_texture_name(raw_tex: str) -> str:
+    return CC0_SUBSTITUTE_TEXTURES.get(raw_tex.lower(), raw_tex)
+
+
+def is_omitted_texture(raw_tex: str) -> bool:
+    return raw_tex.strip().lower() in OMITTED_UNVERIFIED_TEXTURES
+
 
 def _parse_vec3(raw: Optional[str], default: Vec3 = (0.0, 0.0, 0.0)) -> Vec3:
     if not raw:
@@ -1089,9 +1113,39 @@ def convert_kart(
     materials: list[MaterialData] = parse_materials_xml(materials_path) if materials_path.exists() else []
 
     main_spm = read_spm_mesh(kart_dir / spec.model_file)
-    main_rbx_subs = [convert_submesh_to_rbx(s) for s in main_spm.submeshes]
+    main_rbx_subs = [
+        convert_submesh_to_rbx(s)
+        for s in main_spm.submeshes
+        if not is_omitted_texture(s.texture_1)
+    ]
     for sub in main_rbx_subs:
         verify_submesh_outward_winding(sub)
+        sub.texture_1 = resolve_kart_texture_name(sub.texture_1)
+
+    # Also include structural speed-weighted objects (e.g. Gnu carpet, Xue propeller, Kiki tail, Sara rail)
+    root_xml = ET.parse(kart_dir / "kart.xml").getroot()
+    swo_el = root_xml.find("speed-weighted-objects")
+    if swo_el is not None:
+        for obj_el in swo_el.findall("object"):
+            swo_model = obj_el.get("model", "")
+            if not swo_model or not (kart_dir / swo_model).is_file():
+                continue
+            swo_spm = read_spm_mesh(kart_dir / swo_model)
+            pos_m = _parse_vec3(obj_el.get("position"))
+            off_rbx = stk_to_rbx_pos(*pos_m)
+            for s in swo_spm.submeshes:
+                if is_omitted_texture(s.texture_1):
+                    continue
+                rsub = convert_submesh_to_rbx(s)
+                verify_submesh_outward_winding(rsub)
+                rsub.texture_1 = resolve_kart_texture_name(rsub.texture_1)
+                if any(abs(v) > 1e-6 for v in off_rbx):
+                    rsub.positions_studs = [
+                        (p[0] + off_rbx[0], p[1] + off_rbx[1], p[2] + off_rbx[2])
+                        for p in rsub.positions_studs
+                    ]
+                    rsub.bbox_min_studs, rsub.bbox_max_studs = _bbox_from_points(rsub.positions_studs)
+                main_rbx_subs.append(rsub)
 
     body_subs, driver_subs = _split_body_and_driver(kart_id, main_rbx_subs)
     combined_chassis_bounds = _merge_bboxes(
@@ -1112,14 +1166,16 @@ def convert_kart(
         metrics["node_name"] = "Body"
         metrics["glb_file"] = body_glb_name
         metrics["origin_studs"] = [0.0, 0.0, 0.0]
-        metrics["subparts"] = [
-            {
-                "part_name": _body_subpart_name(sub.texture_1, idx),
-                "texture_1": sub.texture_1,
-                **_part_metrics([sub]),
-            }
-            for idx, sub in enumerate(body_subs)
-        ]
+        metrics["subparts"] = []
+        for idx, sub in enumerate(body_subs):
+            sp_name = _body_subpart_name(sub.texture_1, idx)
+            sp_glb_name = f"{kart_id}_{sp_name}.glb"
+            write_glb_scene([GlbNodeSpec(name=sp_name, translation_studs=(0.0, 0.0, 0.0), submeshes=[sub])], out_glb_dir / sp_glb_name, root_name=sp_name)
+            sp_m = _part_metrics([sub])
+            sp_m["part_name"] = sp_name
+            sp_m["texture_1"] = sub.texture_1
+            sp_m["glb_file"] = sp_glb_name
+            metrics["subparts"].append(sp_m)
         part_entries.append(metrics)
 
     if driver_subs:
@@ -1137,9 +1193,14 @@ def convert_kart(
         if not w.model_file:
             continue
         w_spm = read_spm_mesh(kart_dir / w.model_file)
-        w_subs = [convert_submesh_to_rbx(s) for s in w_spm.submeshes]
+        w_subs = [
+            convert_submesh_to_rbx(s)
+            for s in w_spm.submeshes
+            if not is_omitted_texture(s.texture_1)
+        ]
         for sub in w_subs:
             verify_submesh_outward_winding(sub)
+            sub.texture_1 = resolve_kart_texture_name(sub.texture_1)
         origin_pos = stk_to_rbx_pos(*w.position_m)
         origin_tuple: Vec3 = (origin_pos[0], origin_pos[1], origin_pos[2])
         w_glb_name = f"{Path(w.model_file).stem}.glb"
@@ -1215,3 +1276,42 @@ def convert_kart(
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     return report
+
+
+def emit_kart_bounds_luau(reports: list[dict[str, Any]], out_path: Path) -> None:
+    """Emit src/shared/kart/KartBoundsData.lua with expected submesh bounds for all converted karts."""
+    lines = [
+        "--!strict",
+        "-- src/shared/kart/KartBoundsData.lua",
+        "-- SPDX-License-Identifier: GPL-3.0-or-later",
+        "-- AUTO-GENERATED by tools/stk2rbx/kart_emit.py (METERS_PER_STUD = 1.0, rev 18627).",
+        "",
+        "local KartBoundsData = {}",
+        "",
+        "KartBoundsData.TOLERANCE_STUDS = 0.005",
+        "",
+        "KartBoundsData.karts = table.freeze({",
+    ]
+    for rep in sorted(reports, key=lambda r: r["kart_id"]):
+        kid = rep["kart_id"]
+        lines.append(f'\t["{kid}"] = table.freeze({{')
+        for p in rep.get("parts", []):
+            subparts = p.get("subparts")
+            if subparts:
+                for sp in subparts:
+                    sz = sp["size_studs"]
+                    lines.append(
+                        f'\t\t["{sp["part_name"]}"] = table.freeze({{ {sz[0]}, {sz[1]}, {sz[2]} }}),'
+                    )
+            else:
+                sz = p["size_studs"]
+                lines.append(
+                    f'\t\t["{p["node_name"]}"] = table.freeze({{ {sz[0]}, {sz[1]}, {sz[2]} }}),'
+                )
+        lines.append("\t}),")
+    lines.append("}) :: { [string]: { [string]: { number } } }")
+    lines.append("")
+    lines.append("return table.freeze(KartBoundsData)")
+    lines.append("")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines), encoding="utf-8")

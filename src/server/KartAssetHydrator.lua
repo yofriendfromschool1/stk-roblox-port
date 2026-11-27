@@ -9,10 +9,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemBoundsData = require(Shared.items.ItemBoundsData)
+local KartBoundsData = require(Shared.kart.KartBoundsData)
 local SandtrackData = require(Shared.track.SandtrackData)
-local TuxBoundsData = require(Shared.kart.TuxBoundsData)
 
 local KartAssetHydrator = {}
+local hydratedKartCache: { [string]: boolean } = {}
+local inFlightKarts: { [string]: boolean } = {}
 
 local function getTargetCollisionFidelity(placeholder: MeshPart): Enum.CollisionFidelity
 	if placeholder:GetAttribute("DesiredCollisionFidelity") == "PreciseConvexDecomposition" then
@@ -109,12 +111,15 @@ function KartAssetHydrator.assertSubmeshBounds(model: Model, expectedByPart: { [
 				)
 			)
 		end
-		local dx = math.abs(mp.Size.X - exp[1])
-		local dy = math.abs(mp.Size.Y - exp[2])
-		local dz = math.abs(mp.Size.Z - exp[3])
-		local mdx = math.abs(mp.MeshSize.X - exp[1])
-		local mdy = math.abs(mp.MeshSize.Y - exp[2])
-		local mdz = math.abs(mp.MeshSize.Z - exp[3])
+		local expX = math.max(exp[1], 0.05)
+		local expY = math.max(exp[2], 0.05)
+		local expZ = math.max(exp[3], 0.05)
+		local dx = math.abs(mp.Size.X - expX)
+		local dy = math.abs(mp.Size.Y - expY)
+		local dz = math.abs(mp.Size.Z - expZ)
+		local mdx = math.abs(mp.MeshSize.X - expX)
+		local mdy = math.abs(mp.MeshSize.Y - expY)
+		local mdz = math.abs(mp.MeshSize.Z - expZ)
 		if
 			dx > tolerance
 			or dy > tolerance
@@ -212,15 +217,88 @@ local function hydrateModelFolder(folder: Instance?, boundsLookup: { [string]: {
 	return hydratedCount
 end
 
+-- Lazy per-kart hydration: hydrates only the requested kart template on demand (never the full roster at boot).
+function KartAssetHydrator.hydrateKart(kartId: string): boolean
+	if hydratedKartCache[kartId] then
+		return true
+	end
+	while inFlightKarts[kartId] do
+		task.wait(0.05)
+	end
+	if hydratedKartCache[kartId] then
+		return true
+	end
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local kartsFolder = if assets then assets:FindFirstChild("Karts") else nil
+	if kartsFolder == nil then
+		return false
+	end
+	local template = kartsFolder:FindFirstChild(kartId)
+	if not (template and template:IsA("Model")) then
+		return false
+	end
+
+	inFlightKarts[kartId] = true
+	local toHydrate: { MeshPart } = {}
+	for _, child in template:GetChildren() do
+		if child:IsA("MeshPart") and needsHydration(child) then
+			table.insert(toHydrate, child)
+		end
+	end
+	if #toHydrate > 0 then
+		local t0 = os.clock()
+		local pending = #toHydrate
+		local hydratedCount = 0
+		for _, part in toHydrate do
+			task.spawn(function()
+				local mp = hydrateMeshPart(part)
+				if mp ~= nil and mp.MeshId ~= "" and mp.MeshSize.Magnitude > 1e-4 then
+					hydratedCount += 1
+				end
+				pending -= 1
+			end)
+		end
+		while pending > 0 do
+			task.wait()
+		end
+		print(
+			string.format(
+				"[OpenKart] Lazy hydrated kart '%s' (%d/%d MeshParts in %.1f ms)",
+				kartId,
+				hydratedCount,
+				#toHydrate,
+				(os.clock() - t0) * 1000
+			)
+		)
+	end
+
+	local allReady = true
+	for _, child in template:GetChildren() do
+		if child:IsA("MeshPart") and (child.MeshId == "" or child.MeshSize.Magnitude <= 1e-4) then
+			allReady = false
+			break
+		end
+	end
+	if allReady then
+		local expected = KartBoundsData.karts[kartId]
+		if expected ~= nil then
+			KartAssetHydrator.assertSubmeshBounds(template, expected, KartBoundsData.TOLERANCE_STUDS)
+		end
+		hydratedKartCache[kartId] = true
+	end
+	template:SetAttribute("MeshesHydrated", allReady)
+	inFlightKarts[kartId] = nil
+	return allReady
+end
+
 function KartAssetHydrator.hydrateAll(): number
 	local t0 = os.clock()
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	if assets == nil then
 		return 0
 	end
-	local kartsCount = hydrateModelFolder(assets:FindFirstChild("Karts"), {
-		tux = TuxBoundsData.submeshes,
-	})
+	-- Boot hydrates ONLY Items and Tracks (0 karts hydrated at boot; karts hydrate lazily on preview/race).
+	local kartsCount = 0
 	local itemBounds: { [string]: { [string]: { number } } } = {}
 	for itemId, subs in ItemBoundsData.items do
 		local byPart: { [string]: { number } } = {}

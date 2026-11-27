@@ -13,6 +13,7 @@ export type Backdrop = {
 	viewport: ViewportFrame,
 	setActive: (active: boolean, showKart: boolean?) -> (),
 	setViewportRect: (pos: UDim2, size: UDim2) -> (),
+	setKart: (kartId: string) -> (),
 	destroy: () -> (),
 }
 
@@ -58,36 +59,68 @@ function MenuBackdrop.create(parent: Instance): Backdrop
 	viewport.CurrentCamera = cam
 
 	local kartPivot: Model? = nil
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	local kartsFolder = if assets then assets:FindFirstChild("Karts") else nil
-	local tuxTemplate = if kartsFolder then kartsFolder:FindFirstChild("tux") else nil
-	if tuxTemplate and tuxTemplate:IsA("Model") then
-		local clone = tuxTemplate:Clone()
-		for _, desc in clone:GetDescendants() do
-			if desc:IsA("BasePart") then
-				desc.Anchored = true
-				desc.CanCollide = false
-				desc.CanQuery = false
+	local currentKartId = ""
+	local previewSeq = 0
+
+	local function loadKartIntoViewport(kartId: string)
+		previewSeq += 1
+		local mySeq = previewSeq
+		currentKartId = kartId
+		task.spawn(function()
+			local assets = ReplicatedStorage:FindFirstChild("Assets") or ReplicatedStorage:WaitForChild("Assets", 5)
+			local kartsFolder = if assets then assets:FindFirstChild("Karts") else nil
+			local template = if kartsFolder then kartsFolder:FindFirstChild(kartId) else nil
+			if template == nil then
+				return
 			end
-		end
-		clone.Parent = world
-		local cf, size = clone:GetBoundingBox()
-		local center = cf.Position
-		if clone.PrimaryPart == nil then
-			local anchor = Instance.new("Part")
-			anchor.Name = "TurntablePivot"
-			anchor.Size = Vector3.new(0.2, 0.2, 0.2)
-			anchor.Transparency = 1
-			anchor.Anchored = true
-			anchor.CanCollide = false
-			anchor.CFrame = CFrame.new(center)
-			anchor.Parent = clone
-			clone.PrimaryPart = anchor
-		end
-		local dist = math.max(size.Magnitude * 1.15, 5.2)
-		cam.CFrame = CFrame.lookAt(center + Vector3.new(dist * 0.45, dist * 0.28, -dist * 0.85), center)
-		kartPivot = clone
+			if template:GetAttribute("MeshesHydrated") ~= true then
+				local remotes = ReplicatedStorage:FindFirstChild("OpenKartRemotes")
+				local hydrateRf = if remotes then remotes:FindFirstChild("HydrateKart") else nil
+				if hydrateRf and hydrateRf:IsA("RemoteFunction") then
+					pcall(function()
+						(hydrateRf :: RemoteFunction):InvokeServer(kartId)
+					end)
+				end
+			end
+			if mySeq ~= previewSeq then
+				return
+			end
+			if kartPivot ~= nil then
+				kartPivot:Destroy()
+				kartPivot = nil
+			end
+			if not (template:IsA("Model") and template:GetAttribute("MeshesHydrated") == true) then
+				return
+			end
+			local clone = template:Clone()
+			for _, desc in clone:GetDescendants() do
+				if desc:IsA("BasePart") then
+					desc.Anchored = true
+					desc.CanCollide = false
+					desc.CanQuery = false
+				end
+			end
+			clone.Parent = world
+			local cf, size = clone:GetBoundingBox()
+			local center = cf.Position
+			if clone.PrimaryPart == nil then
+				local anchor = Instance.new("Part")
+				anchor.Name = "TurntablePivot"
+				anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+				anchor.Transparency = 1
+				anchor.Anchored = true
+				anchor.CanCollide = false
+				anchor.CFrame = CFrame.new(center)
+				anchor.Parent = clone
+				clone.PrimaryPart = anchor
+			end
+			local dist = math.max(size.Magnitude * 1.15, 5.2)
+			cam.CFrame = CFrame.lookAt(center + Vector3.new(dist * 0.45, dist * 0.28, -dist * 0.85), center)
+			kartPivot = clone
+		end)
 	end
+
+	loadKartIntoViewport("tux")
 
 	local active = true
 	local showViewport = true
@@ -123,11 +156,19 @@ function MenuBackdrop.create(parent: Instance): Backdrop
 		frame:Destroy()
 	end
 
+	local function setKart(kartId: string)
+		if kartId == currentKartId and kartPivot ~= nil then
+			return
+		end
+		loadKartIntoViewport(kartId)
+	end
+
 	return {
 		frame = frame,
 		viewport = viewport,
 		setActive = setActive :: any,
 		setViewportRect = setViewportRect,
+		setKart = setKart,
 		destroy = destroy,
 	}
 end

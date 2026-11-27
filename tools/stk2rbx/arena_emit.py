@@ -71,6 +71,7 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
         "",
         "export type ArenaDrivelinePoint = {",
         "\tx: number,",
+        "\ty: number,",
         "\tz: number,",
         "}",
         "",
@@ -175,11 +176,12 @@ def emit_roblox_luau(spec: dict[str, Any], out_luau_path: Path = DEFAULT_LUAU_OU
     if driveline_pts:
         for pt in driveline_pts:
             # driveline.points are authored in STK XZ coordinates (matching Flyable / KartSolver)
-            lines.append(f"\t\t{{ x = {float(pt[0])}, z = {float(pt[1])} }},")
+            py = float(pt[2]) if len(pt) >= 3 else 0.0
+            lines.append(f"\t\t{{ x = {float(pt[0])}, y = {py}, z = {float(pt[1])} }},")
     else:
         for qi in range(len(q_edges) - 1):
             z_mid = 0.5 * (q_edges[qi] + q_edges[qi + 1])
-            lines.append(f"\t\t{{ x = 0.0, z = {z_mid} }},")
+            lines.append(f"\t\t{{ x = 0.0, y = 0.0, z = {z_mid} }},")
     closed_str = "true" if driveline_closed else "false"
     lines.extend([
         "\t},",

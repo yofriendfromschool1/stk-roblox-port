@@ -1,0 +1,109 @@
+{
+  "kartId": "gavroche",
+  "kartName": "Gavroche",
+  "kartType": "medium",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "gavroche_icon.png",
+  "iconDecalId": "104697506593506",
+  "iconId": "rbxassetid://120723389570581",
+  "textures": {
+    "car.png": "rbxassetid://126380366548126",
+    "clothes.png": "rbxassetid://82470515846247",
+    "gavroche.png": "rbxassetid://98584500704144",
+    "motor_steer.png": "rbxassetid://107976749320072",
+    "seat.png": "rbxassetid://133043836077038",
+    "wheel.png": "rbxassetid://73331123625917"
+  },
+  "textureDecalIds": {
+    "clothes.png": "94173112202381",
+    "car.png": "128720342315059",
+    "gavroche.png": "121029831077513",
+    "motor_steer.png": "105037901544288",
+    "seat.png": "77543963716528",
+    "wheel.png": "120272555946966"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/gavroche/gavroche_Body_0.glb",
+      "meshId": "rbxassetid://114950382204322",
+      "textureId": "rbxassetid://126380366548126",
+      "material": "car.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "86763207138065"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/gavroche/gavroche_Body_1.glb",
+      "meshId": "rbxassetid://123242608481382",
+      "textureId": "rbxassetid://82470515846247",
+      "material": "clothes.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "128466368018277"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/gavroche/gavroche_Body_2.glb",
+      "meshId": "rbxassetid://103720134687752",
+      "textureId": "rbxassetid://98584500704144",
+      "material": "gavroche.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "88169766122510"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/gavroche/gavroche_Body_3.glb",
+      "meshId": "rbxassetid://82072516524967",
+      "textureId": "rbxassetid://107976749320072",
+      "material": "motor_steer.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "129817272529714"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/gavroche/gavroche_Body_4.glb",
+      "meshId": "rbxassetid://126713826167846",
+      "textureId": "rbxassetid://133043836077038",
+      "material": "seat.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "93887222290713"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/gavroche/wheel-front-left.glb",
+      "meshId": "rbxassetid://82122971520013",
+      "textureId": "rbxassetid://73331123625917",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "82166313631539"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/gavroche/wheel-front-right.glb",
+      "meshId": "rbxassetid://127611835792339",
+      "textureId": "rbxassetid://73331123625917",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "93076667674913"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/gavroche/wheel-rear-left.glb",
+      "meshId": "rbxassetid://82122971520013",
+      "textureId": "rbxassetid://73331123625917",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "81005278537246"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/gavroche/wheel-rear-right.glb",
+      "meshId": "rbxassetid://127611835792339",
+      "textureId": "rbxassetid://73331123625917",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "72797201767210"
+    }
+  }
+}

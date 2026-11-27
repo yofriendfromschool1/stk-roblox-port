@@ -71,14 +71,17 @@ local function acquireOneShotSound(player: Player, entry: SfxCatalog.SfxEntry, p
 		player.oneShotPools[entry.id] = pool
 	end
 
-	for _, snd in pool do
-		if not snd.IsPlaying then
+	for i = #pool, 1, -1 do
+		local snd = pool[i]
+		if snd.Parent == nil then
+			table.remove(pool, i)
+		elseif not snd.IsPlaying then
 			return snd
 		end
 	end
 
 	if #pool >= MAX_POOL_PER_SFX then
-		-- Reuse oldest instance if pool is saturated
+		-- Reuse oldest live instance if pool is saturated
 		return pool[1]
 	end
 
@@ -104,13 +107,22 @@ local function getOrCreateLoopSound(
 	end
 	local existing = kartLoops[entry.id]
 	if existing then
-		local group = player.groups[entry.group] or player.groups.sfx
-		existing.Volume = entry.volume
-		existing.SoundGroup = group
-		if existing.Parent ~= kartPart then
-			existing.Parent = kartPart
+		if existing.Parent == nil then
+			kartLoops[entry.id] = nil
+		else
+			local group = player.groups[entry.group] or player.groups.sfx
+			local ok = pcall(function()
+				existing.Volume = entry.volume
+				existing.SoundGroup = group
+				if existing.Parent ~= kartPart then
+					existing.Parent = kartPart
+				end
+			end)
+			if ok then
+				return existing
+			end
+			kartLoops[entry.id] = nil
 		end
-		return existing
 	end
 
 	local snd = Instance.new("Sound")

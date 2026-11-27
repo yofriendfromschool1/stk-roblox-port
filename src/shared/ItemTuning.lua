@@ -158,13 +158,27 @@ ItemTuning.switch = table.freeze({
 	DURATION_SEC = 5.0,
 })
 
--- Swatter constants (data/kart_characteristics.xml:L260-L261, src/items/swatter.cpp:L79-L82)
+-- Swatter constants (data/kart_characteristics.xml:L260-L261, src/items/swatter.cpp:L48-L83, L151-L166, L253-L305)
+ItemTuning.SWATTER_PHASE_AIMING = 0
+ItemTuning.SWATTER_PHASE_TO_TARGET = 1
+ItemTuning.SWATTER_PHASE_FROM_TARGET = 2
+
 ItemTuning.swatter = table.freeze({
 	DURATION_SEC = 10.0,
 	DISTANCE_SQUARED = 9.0,
 	SQUASH_DURATION_SEC = 5.0,
 	SQUASH_SLOWDOWN = 0.5,
 	BOMB_REMOVE_SEC = 40.0 / 25.0,
+	POS_OFFSET = table.freeze({ x = 0.0, y = 0.2, z = -0.4 }),
+	START_GUARD_SEC = 0.5,
+	END_GUARD_SEC = 0.75,
+	SWING_DOWN_SEC = 0.166666672,
+	SWING_UP_SEC = 0.5,
+	ANGLE_OFFSET_DEG = 105.0,
+	BOMB_FPS = 25.0,
+	BOMB_TOTAL_FRAMES = 40.0,
+	BOMB_FLY_START_FRAME = 32.5,
+	BOMB_HIDE_FRAME = 35.0,
 })
 
 -- Flyable base constants (src/items/flyable.cpp:L537-L542)
@@ -347,5 +361,16 @@ ItemTuning.WEIGHT_LISTS = table.freeze({
 		}),
 	}),
 })
+
+-- StandardRace::getDefaultCollectibles (src/modes/standard_race.cpp:L49-L59) &
+-- World::getDefaultCollectibles (src/modes/world.cpp:L1476-L1480).
+-- Time Trial grants numLaps zippers at race start; all other modes start empty.
+function ItemTuning.getDefaultCollectibles(raceType: string?, totalLaps: number?): (number, number)
+	if raceType == "TIME_TRIAL" then
+		local laps = if type(totalLaps) == "number" then math.floor(totalLaps) else 1
+		return ItemTuning.POWERUP_ZIPPER, math.clamp(laps, 1, 255)
+	end
+	return ItemTuning.POWERUP_NONE, 0
+end
 
 return ItemTuning

@@ -25,6 +25,11 @@ local MenuIcons = {
 	GreenCheck = "rbxassetid://89540791355659",
 	SandtrackScreenshot = "rbxassetid://92416856454068",
 	TuxIcon = "rbxassetid://106784086588016",
+	StatMass = "rbxassetid://83202121137921",
+	StatSpeed = "rbxassetid://131800057210071",
+	StatAccel = "rbxassetid://75003417981493",
+	StatNitro = "rbxassetid://90535008544816",
+	RandomKart = "rbxassetid://139486669216604",
 	-- Classic skin assets (data/skins/classic/stkskin.xml, common/)
 	SkinBackground = "rbxassetid://84866299725968",
 	SkinBottomBar = "rbxassetid://124443261362862",

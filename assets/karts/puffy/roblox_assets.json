@@ -1,0 +1,118 @@
+{
+  "kartId": "puffy",
+  "kartName": "Puffy",
+  "kartType": "heavy",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "puffy-icon.png",
+  "iconDecalId": "104965704628498",
+  "iconId": "rbxassetid://139475093302901",
+  "textures": {
+    "fog.png": "rbxassetid://90550589989462",
+    "puffy.png": "rbxassetid://79395007048513",
+    "cc0_generic_sand.png": "rbxassetid://73493003489640",
+    "cc0_underwater_rock.png": "rbxassetid://114808949920090",
+    "water-P.png": "rbxassetid://79359898159419",
+    "window.png": "rbxassetid://123788659378447"
+  },
+  "textureDecalIds": {
+    "fog.png": "120838851658004",
+    "puffy.png": "71363562538802",
+    "cc0_generic_sand.png": "110753831561825",
+    "water-P.png": "71894501162518",
+    "cc0_underwater_rock.png": "135002069974598",
+    "window.png": "133956027057421"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/puffy/puffy_Body_0.glb",
+      "meshId": "rbxassetid://123114472612091",
+      "textureId": "rbxassetid://90550589989462",
+      "material": "fog.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "123822264628012"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/puffy/puffy_Body_1.glb",
+      "meshId": "rbxassetid://98003042581885",
+      "textureId": "rbxassetid://79395007048513",
+      "material": "puffy.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "110977641434657"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/puffy/puffy_Body_2.glb",
+      "meshId": "rbxassetid://120457794960314",
+      "textureId": "rbxassetid://73493003489640",
+      "material": "cc0_generic_sand.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "91486072619184"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/puffy/puffy_Body_3.glb",
+      "meshId": "rbxassetid://130207546559756",
+      "textureId": "rbxassetid://114808949920090",
+      "material": "cc0_underwater_rock.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "95762880202763"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/puffy/puffy_Body_4.glb",
+      "meshId": "rbxassetid://119863435741556",
+      "textureId": "rbxassetid://79359898159419",
+      "material": "water-P.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "80298615200974"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/puffy/puffy_Body_5.glb",
+      "meshId": "rbxassetid://117833593887204",
+      "textureId": "rbxassetid://123788659378447",
+      "material": "window.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "130509276751230"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/puffy/wheel-front-left.glb",
+      "meshId": "rbxassetid://122043193327006",
+      "textureId": "rbxassetid://79395007048513",
+      "material": "puffy.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "135661766816657"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/puffy/wheel-front-right.glb",
+      "meshId": "rbxassetid://86269067077664",
+      "textureId": "rbxassetid://79395007048513",
+      "material": "puffy.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "89807425488751"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/puffy/wheel-rear-left.glb",
+      "meshId": "rbxassetid://123700919357123",
+      "textureId": "rbxassetid://79395007048513",
+      "material": "puffy.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "107986338808855"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/puffy/wheel-rear-right.glb",
+      "meshId": "rbxassetid://75781125738557",
+      "textureId": "rbxassetid://79395007048513",
+      "material": "puffy.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "92436598319934"
+    }
+  }
+}

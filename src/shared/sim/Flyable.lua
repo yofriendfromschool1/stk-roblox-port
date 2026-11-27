@@ -18,6 +18,7 @@ export type FlyableKind = "bowling" | "cake" | "plunger" | "rubber_ball"
 
 export type DrivelinePoint = {
 	x: number,
+	y: number?,
 	z: number,
 }
 

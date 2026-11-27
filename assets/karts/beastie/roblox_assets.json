@@ -1,0 +1,197 @@
+{
+  "kartId": "beastie",
+  "kartName": "Godette",
+  "kartType": "heavy",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "godette-icon.png",
+  "iconDecalId": "88468619946663",
+  "iconId": "rbxassetid://77386102688459",
+  "textures": {
+    "GDBot_screen01.png": "rbxassetid://117864922597355",
+    "GDKart-part_dif.png": "rbxassetid://125869489553658",
+    "GDKartSeat_dif.png": "rbxassetid://84470922574670",
+    "GDKart_01_dif.png": "rbxassetid://113527819670977",
+    "GDKart_02_dif.png": "rbxassetid://71845964470463",
+    "GDbot01_dif.png": "rbxassetid://98674885818797",
+    "GDbot02_dif.png": "rbxassetid://124832101421067",
+    "Sophia-acce_dif.png": "rbxassetid://111702322207243",
+    "Sophia_Eyes.png": "rbxassetid://101120678308343",
+    "Sophia_Necker_dif.png": "rbxassetid://107870651106585",
+    "Sophia_dif.png": "rbxassetid://109032713743500",
+    "Sophia_hair_dif.png": "rbxassetid://109655865242869",
+    "Sophia_shirt_dif.png": "rbxassetid://81871944375890",
+    "GDWheel_dif.png": "rbxassetid://118192159123363"
+  },
+  "textureDecalIds": {
+    "GDBot_screen01.png": "124909754877042",
+    "GDKartSeat_dif.png": "113284150665192",
+    "GDKart-part_dif.png": "137901404547182",
+    "GDKart_02_dif.png": "112390038487245",
+    "GDbot01_dif.png": "107179360992865",
+    "GDKart_01_dif.png": "114209619489132",
+    "GDbot02_dif.png": "75383544049094",
+    "Sophia_Eyes.png": "80029569687171",
+    "Sophia-acce_dif.png": "103884187478978",
+    "Sophia_Necker_dif.png": "131684476103970",
+    "Sophia_hair_dif.png": "114613809466803",
+    "GDWheel_dif.png": "132675799945880",
+    "Sophia_shirt_dif.png": "87114987412051",
+    "Sophia_dif.png": "74663345759843"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/beastie/beastie_Body_0.glb",
+      "meshId": "rbxassetid://91971330588697",
+      "textureId": "rbxassetid://117864922597355",
+      "material": "GDBot_screen01.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "88224611260268"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/beastie/beastie_Body_1.glb",
+      "meshId": "rbxassetid://78851685019344",
+      "textureId": "rbxassetid://125869489553658",
+      "material": "GDKart-part_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "89022259355698"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/beastie/beastie_Body_2.glb",
+      "meshId": "rbxassetid://109797923603179",
+      "textureId": "rbxassetid://84470922574670",
+      "material": "GDKartSeat_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "124967262939291"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/beastie/beastie_Body_3.glb",
+      "meshId": "rbxassetid://137644553261839",
+      "textureId": "rbxassetid://113527819670977",
+      "material": "GDKart_01_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "139779766521932"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/beastie/beastie_Body_4.glb",
+      "meshId": "rbxassetid://108812928152926",
+      "textureId": "rbxassetid://71845964470463",
+      "material": "GDKart_02_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "133904933967409"
+    },
+    "Body_5": {
+      "glbFile": "build/karts/beastie/beastie_Body_5.glb",
+      "meshId": "rbxassetid://82714815798897",
+      "textureId": "rbxassetid://98674885818797",
+      "material": "GDbot01_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "70477374355974"
+    },
+    "Body_6": {
+      "glbFile": "build/karts/beastie/beastie_Body_6.glb",
+      "meshId": "rbxassetid://86902135994754",
+      "textureId": "rbxassetid://124832101421067",
+      "material": "GDbot02_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "82096397236574"
+    },
+    "Body_7": {
+      "glbFile": "build/karts/beastie/beastie_Body_7.glb",
+      "meshId": "rbxassetid://73956046836704",
+      "textureId": "rbxassetid://111702322207243",
+      "material": "Sophia-acce_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "133062888828972"
+    },
+    "Body_8": {
+      "glbFile": "build/karts/beastie/beastie_Body_8.glb",
+      "meshId": "rbxassetid://98473825632162",
+      "textureId": "rbxassetid://101120678308343",
+      "material": "Sophia_Eyes.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "108749460699697"
+    },
+    "Body_9": {
+      "glbFile": "build/karts/beastie/beastie_Body_9.glb",
+      "meshId": "rbxassetid://81168510835838",
+      "textureId": "rbxassetid://107870651106585",
+      "material": "Sophia_Necker_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "72352753568679"
+    },
+    "Body_10": {
+      "glbFile": "build/karts/beastie/beastie_Body_10.glb",
+      "meshId": "rbxassetid://78755466061207",
+      "textureId": "rbxassetid://109032713743500",
+      "material": "Sophia_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "97940789708302"
+    },
+    "Body_11": {
+      "glbFile": "build/karts/beastie/beastie_Body_11.glb",
+      "meshId": "rbxassetid://129932971649242",
+      "textureId": "rbxassetid://109655865242869",
+      "material": "Sophia_hair_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "94455962136123"
+    },
+    "Body_12": {
+      "glbFile": "build/karts/beastie/beastie_Body_12.glb",
+      "meshId": "rbxassetid://98439774288774",
+      "textureId": "rbxassetid://81871944375890",
+      "material": "Sophia_shirt_dif.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "98637588380734"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/beastie/wheel-front-left.glb",
+      "meshId": "rbxassetid://123247049667317",
+      "textureId": "rbxassetid://118192159123363",
+      "material": "GDWheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "70914988703858"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/beastie/wheel-front-right.glb",
+      "meshId": "rbxassetid://124492841615567",
+      "textureId": "rbxassetid://118192159123363",
+      "material": "GDWheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "106898439602509"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/beastie/wheel-rear-left.glb",
+      "meshId": "rbxassetid://115883565420844",
+      "textureId": "rbxassetid://118192159123363",
+      "material": "GDWheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "105803714744484"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/beastie/wheel-rear-right.glb",
+      "meshId": "rbxassetid://128312121090844",
+      "textureId": "rbxassetid://118192159123363",
+      "material": "GDWheel_dif.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "92342900731686"
+    }
+  }
+}

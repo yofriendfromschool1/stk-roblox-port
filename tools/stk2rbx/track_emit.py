@@ -191,8 +191,9 @@ def _parse_graph_branches(graph_path: Path, quads: list[list[Vec3]]) -> list[dic
         for qi in seq:
             q = quads[qi]
             cx = 0.25 * sum(p[0] for p in q)
+            cy = 0.25 * sum(p[1] for p in q)
             cz = 0.25 * sum(p[2] for p in q)
-            pts.append({"x": round(cx, 4), "z": round(cz, 4)})
+            pts.append({"x": round(cx, 4), "y": round(cy, 4), "z": round(cz, 4)})
         branches.append(
             {
                 "id": b_idx,
@@ -522,8 +523,9 @@ def export_track_glbs(
     for qi in main_loop:
         q = quads[qi]
         cx = 0.25 * sum(p[0] for p in q)
+        cy = 0.25 * sum(p[1] for p in q)
         cz = 0.25 * sum(p[2] for p in q)
-        driveline_centers.append({"x": round(cx, 4), "z": round(cz, 4)})
+        driveline_centers.append({"x": round(cx, 4), "y": round(cy, 4), "z": round(cz, 4)})
     # Include ALL quads (main loop + shortcut branches) in minimapBounds
     for q in quads:
         for p in q:
@@ -850,7 +852,7 @@ def emit_sandtrack_data_lua(report: dict[str, Any], out_lua: Path, revision: str
 
     lines.append("SandtrackData.drivelineQuadCenters = table.freeze({")
     for pt in report["drivelineQuadCenters"]:
-        lines.append(f"\ttable.freeze({{ x = {pt['x']}, z = {pt['z']} }}),")
+        lines.append(f"\ttable.freeze({{ x = {pt['x']}, y = {pt['y']}, z = {pt['z']} }}),")
     lines.append("})")
     lines.append("")
 
@@ -861,7 +863,7 @@ def emit_sandtrack_data_lua(report: dict[str, Any], out_lua: Path, revision: str
         lines.append(f"\t\ttoQuad = {br['toQuad']},")
         lines.append("\t\tpoints = table.freeze({")
         for pt in br["points"]:
-            lines.append(f"\t\t\ttable.freeze({{ x = {pt['x']}, z = {pt['z']} }}),")
+            lines.append(f"\t\t\ttable.freeze({{ x = {pt['x']}, y = {pt['y']}, z = {pt['z']} }}),")
         lines.append("\t\t}),")
         lines.append("\t}),")
     lines.append("})")

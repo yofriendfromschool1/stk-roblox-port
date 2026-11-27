@@ -1,0 +1,118 @@
+{
+  "kartId": "pidgin",
+  "kartName": "Pidgin",
+  "kartType": "heavy",
+  "sourceRevision": "18627",
+  "importFlipY180": true,
+  "iconFile": "pidginicon.png",
+  "iconDecalId": "102809307907230",
+  "iconId": "rbxassetid://108652599682353",
+  "textures": {
+    "pidgin-kart.png": "rbxassetid://99578476283071",
+    "pidgin-plate.png": "rbxassetid://74599320731830",
+    "pidgin.png": "rbxassetid://103912562612894",
+    "pidginwindow.png": "rbxassetid://78579162063619",
+    "stktex_aztekFeather_a.png": "rbxassetid://126654675328271",
+    "wheel.png": "rbxassetid://73043148893440"
+  },
+  "textureDecalIds": {
+    "pidgin-plate.png": "138805406697585",
+    "pidginwindow.png": "88946312170466",
+    "pidgin-kart.png": "119199722547597",
+    "stktex_aztekFeather_a.png": "80978126468814",
+    "pidgin.png": "72740602702533",
+    "wheel.png": "125349620134749"
+  },
+  "parts": {
+    "Body_0": {
+      "glbFile": "build/karts/pidgin/pidgin_Body_0.glb",
+      "meshId": "rbxassetid://137639368171317",
+      "textureId": "rbxassetid://99578476283071",
+      "material": "pidgin-kart.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "135920332043048"
+    },
+    "Body_1": {
+      "glbFile": "build/karts/pidgin/pidgin_Body_1.glb",
+      "meshId": "rbxassetid://108292178463080",
+      "textureId": "rbxassetid://74599320731830",
+      "material": "pidgin-plate.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "105734258094870"
+    },
+    "Body_2": {
+      "glbFile": "build/karts/pidgin/pidgin_Body_2.glb",
+      "meshId": "rbxassetid://72134405751283",
+      "textureId": "rbxassetid://103912562612894",
+      "material": "pidgin.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "77577687991550"
+    },
+    "Body_3": {
+      "glbFile": "build/karts/pidgin/pidgin_Body_3.glb",
+      "meshId": "rbxassetid://86883511782710",
+      "textureId": "rbxassetid://78579162063619",
+      "material": "pidginwindow.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "83568366857905"
+    },
+    "Body_4": {
+      "glbFile": "build/karts/pidgin/pidgin_Body_4.glb",
+      "meshId": "rbxassetid://97701388611251",
+      "textureId": "rbxassetid://126654675328271",
+      "material": "stktex_aztekFeather_a.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "105979673311723"
+    },
+    "Body_Steering": {
+      "glbFile": "build/karts/pidgin/pidgin_Body_Steering.glb",
+      "meshId": "rbxassetid://75227029503471",
+      "textureId": "rbxassetid://73043148893440",
+      "material": "wheel.png",
+      "robloxMaterial": "SmoothPlastic",
+      "importFlipY180": true,
+      "modelAssetId": "113671287319661"
+    },
+    "WheelFrontLeft": {
+      "glbFile": "build/karts/pidgin/wheel-front-left.glb",
+      "meshId": "rbxassetid://130033890244642",
+      "textureId": "rbxassetid://73043148893440",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "103411126375766"
+    },
+    "WheelFrontRight": {
+      "glbFile": "build/karts/pidgin/wheel-front-right.glb",
+      "meshId": "rbxassetid://114692690591805",
+      "textureId": "rbxassetid://73043148893440",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "77243015035946"
+    },
+    "WheelRearLeft": {
+      "glbFile": "build/karts/pidgin/wheel-rear-left.glb",
+      "meshId": "rbxassetid://124980479737961",
+      "textureId": "rbxassetid://73043148893440",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "121123539757413"
+    },
+    "WheelRearRight": {
+      "glbFile": "build/karts/pidgin/wheel-rear-right.glb",
+      "meshId": "rbxassetid://132646244433684",
+      "textureId": "rbxassetid://73043148893440",
+      "material": "wheel.png",
+      "robloxMaterial": "Rubber",
+      "importFlipY180": true,
+      "modelAssetId": "84222020197143"
+    }
+  }
+}
