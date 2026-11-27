@@ -567,6 +567,30 @@ function RaceHudMath.formatLapText(lap: number, totalLaps: number): string
 	return string.format("Lap %d / %d", displayLap, totalLaps)
 end
 
+-- Exact STK time formatter (src/utils/string_utils.cpp:L554-L682, default precision = 2: mm:ss.cc).
+function RaceHudMath.formatStkTime(seconds: number, precision: number?, displayMinutesIfZero: boolean?): string
+	local prec = math.clamp(math.floor(precision or 2), 0, 3)
+	local power = 10 ^ prec
+	local neg = seconds < 0
+	local absSec = if neg then -seconds else seconds
+	local intTime = math.floor(absSec * power + 0.5)
+	local sub = intTime % power
+	local totalSec = math.floor(intTime / power)
+	local sec = totalSec % 60
+	local totalMin = math.floor(totalSec / 60)
+	local sign = if neg then "-" else ""
+	if totalMin > 0 or displayMinutesIfZero ~= false then
+		if prec == 0 then
+			return string.format("%s%02d:%02d", sign, totalMin, sec)
+		end
+		return string.format("%s%02d:%02d.%0" .. tostring(prec) .. "d", sign, totalMin, sec, sub)
+	end
+	if prec == 0 then
+		return string.format("%s%d", sign, sec)
+	end
+	return string.format("%s%d.%0" .. tostring(prec) .. "d", sign, sec, sub)
+end
+
 function RaceHudMath.formatOrdinal(rank: number): string
 	local r = math.max(1, math.floor(rank))
 	local mod100 = r % 100

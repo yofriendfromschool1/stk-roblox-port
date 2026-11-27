@@ -29,6 +29,8 @@ local suites = {
 	{ name = "LobbyState", tests = require("./LobbyState.spec") },
 	{ name = "SwatterAndRescue", tests = require("./SwatterAndRescue.spec") },
 	{ name = "KartRoster", tests = require("./KartRoster.spec") },
+	{ name = "PhaseABFixes", tests = require("./PhaseABFixes.spec") },
+	{ name = "CameraProjectileAnim", tests = require("./CameraProjectileAnim.spec") },
 }
 
 local passed = 0

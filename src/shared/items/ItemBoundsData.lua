@@ -141,6 +141,18 @@ ItemBoundsData.items = table.freeze({
 			texture = "bubblegum_shield.png",
 		}),
 	}),
+	["referee"] = table.freeze({
+		["Body"] = table.freeze({
+			size = table.freeze({ 2.33735, 0.75507, 0.92775 }),
+			center = table.freeze({ -0.0, -0.25977, 0.12416 }),
+			texture = "thunderbird.png",
+		}),
+		["TrafficLight"] = table.freeze({
+			size = table.freeze({ 0.5472, 0.49046, 0.26386 }),
+			center = table.freeze({ -0.0, -0.2708, 0.44128 }),
+			texture = "traffic_light.png",
+		}),
+	}),
 }) :: { [string]: { [string]: ItemSubmeshBounds } }
 
 return ItemBoundsData

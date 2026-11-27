@@ -235,6 +235,27 @@
           "modelAssetId": "102581588103773"
         }
       }
+    },
+    "referee": {
+      "spm_file": "thunderbird.spm",
+      "parts": {
+        "Body": {
+          "glbFile": "build/items/referee/referee_0_thunderbird.glb",
+          "meshId": "rbxassetid://105683098751269",
+          "textureId": "rbxassetid://128827511685602",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "104006565081298"
+        },
+        "TrafficLight": {
+          "glbFile": "build/items/referee/referee_1_traffic_light.glb",
+          "meshId": "rbxassetid://116528927038044",
+          "textureId": "rbxassetid://116341572804380",
+          "importFlipY180": true,
+          "robloxMaterial": "SmoothPlastic",
+          "modelAssetId": "96667120546356"
+        }
+      }
     }
   }
 }

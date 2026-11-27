@@ -62,6 +62,7 @@ export type LiveOptions = {
 	getTouchState: (() -> TouchState?)?,
 	onToggleDebugHud: (() -> ())?,
 	onToggleLocalMode: (() -> ())?,
+	onPause: (() -> ())?,
 }
 
 export type KeyboardBindings = {
@@ -507,6 +508,10 @@ function InputMapper.createLive(options: LiveOptions): LiveMapper
 			and ((rescueKey ~= nil and inputObj.KeyCode == rescueKey) or inputObj.KeyCode == Enum.KeyCode.Backspace)
 		then
 			resetPulse = true
+		elseif inputObj.KeyCode == Enum.KeyCode.P or inputObj.KeyCode == Enum.KeyCode.ButtonStart then
+			if options.onPause then
+				options.onPause()
+			end
 		elseif inputObj.KeyCode == Enum.KeyCode.F3 then
 			if options.onToggleDebugHud then
 				options.onToggleDebugHud()

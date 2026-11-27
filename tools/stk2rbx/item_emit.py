@@ -30,6 +30,7 @@ class ItemDef:
     spm_file: str
     xml_key: str
     emit_model_json: bool = True
+    scale: float = 1.0
 
 
 AUTHORITATIVE_ITEMS: tuple[ItemDef, ...] = (
@@ -49,6 +50,7 @@ AUTHORITATIVE_ITEMS: tuple[ItemDef, ...] = (
     ItemDef("swatter", "swatter.spm", "swatter", emit_model_json=True),
     ItemDef("bomb", "bomb.spm", "bomb", emit_model_json=True),
     ItemDef("bubblegum_shield", "bubblegum_shield.spm", "bubblegum-shield", emit_model_json=True),
+    ItemDef("referee", "thunderbird.spm", "referee", emit_model_json=True, scale=0.2),
 )
 
 SUBMESH_FRIENDLY_NAMES: dict[str, str] = {
@@ -57,6 +59,8 @@ SUBMESH_FRIENDLY_NAMES: dict[str, str] = {
     "stk_mod_nitrobarrel.png": "Barrel",
     "stk_mod_nitrobottle.png": "Bottle",
     "stk_mod_nitrologo.png": "Logo",
+    "thunderbird.png": "Body",
+    "traffic_light.png": "TrafficLight",
 }
 
 
@@ -196,6 +200,10 @@ def convert_items(
             raise FileNotFoundError(f"Missing authoritative item mesh: {spm_path}")
 
         spm = read_spm_mesh(spm_path)
+        if item_def.scale != 1.0:
+            sc = item_def.scale
+            for s in spm.submeshes:
+                s.positions_stk = [(x * sc, y * sc, z * sc) for (x, y, z) in s.positions_stk]
         rbx_subs: list[RbxSubmeshGeom] = [convert_submesh_to_rbx(s) for s in spm.submeshes]
         for sub in rbx_subs:
             verify_submesh_outward_winding(sub, max_opposed_ratio=0.10)

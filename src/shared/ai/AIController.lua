@@ -33,6 +33,8 @@ export type RouteGraph = {
 	nodes: { DrivelinePoint },
 	successors: { { number } },
 	isBranch: { boolean },
+	branchIdx: { number },
+	branchQuadIdx: { number },
 	mainEquiv: { number },
 	cumDistances: { number },
 	totalMainLength: number,
@@ -198,17 +200,21 @@ local function buildRouteGraph(points: { DrivelinePoint }, branches: { Driveline
 	local nodes: { DrivelinePoint } = table.create(mainCount)
 	local successors: { { number } } = table.create(mainCount)
 	local isBranch: { boolean } = table.create(mainCount)
+	local branchIdx: { number } = table.create(mainCount)
+	local branchQuadIdx: { number } = table.create(mainCount)
 	local mainEquiv: { number } = table.create(mainCount)
 
 	for i = 1, mainCount do
 		nodes[i] = points[i]
 		isBranch[i] = false
+		branchIdx[i] = 0
+		branchQuadIdx[i] = i
 		mainEquiv[i] = i
 		successors[i] = if mainCount > 0 then { wrapIdx(i + 1, mainCount) } else { 1 }
 	end
 
 	if branches ~= nil and mainCount >= 2 then
-		for _, br in branches do
+		for bIdx, br in branches do
 			local bPts = br.points
 			local bLen = #bPts
 			if bLen > 0 then
@@ -221,6 +227,8 @@ local function buildRouteGraph(points: { DrivelinePoint }, branches: { Driveline
 					local idx = #nodes + 1
 					nodes[idx] = bPts[j]
 					isBranch[idx] = true
+					branchIdx[idx] = bIdx
+					branchQuadIdx[idx] = j
 					local frac = j / (bLen + 1)
 					local eq = fromIdx + spanEquiv * frac
 					if eq > mainCount then
@@ -243,6 +251,8 @@ local function buildRouteGraph(points: { DrivelinePoint }, branches: { Driveline
 		nodes = nodes,
 		successors = successors,
 		isBranch = isBranch,
+		branchIdx = branchIdx,
+		branchQuadIdx = branchQuadIdx,
 		mainEquiv = mainEquiv,
 		cumDistances = cum,
 		totalMainLength = totalMain,
@@ -1115,6 +1125,46 @@ function AIController.computeInput(
 		fire = fire,
 		lookBack = lookBack,
 	}
+end
+
+function AIController.getCurrentBranchAndNode(
+	ai: AIState,
+	points: { DrivelinePoint },
+	branches: { DrivelineBranch }?
+): (number, number)
+	local g = buildRouteGraph(points, branches)
+	local nodeIdx = ai.trackNodeIdx
+	local bIdx = g.branchIdx[nodeIdx] or 0
+	local qIdx = g.branchQuadIdx[nodeIdx] or math.clamp(nodeIdx, 1, math.max(1, g.mainCount))
+	return bIdx, qIdx
+end
+
+function AIController.stepStuckWatchdog(
+	ai: AIState,
+	kartState: KartSolver.KartState,
+	isDrivingPhase: boolean,
+	animSuppressed: boolean
+): boolean
+	if not isDrivingPhase or kartState.race.raceFinished or animSuppressed or kartState.itemEffect.effectType == 2 then
+		kartState.aiStuckTicks = 0
+		kartState.aiLastProgressDist = ai.totalDistance
+		return false
+	end
+
+	local progress = math.abs(ai.totalDistance - kartState.aiLastProgressDist)
+	if kartState.speed < 2.0 and progress < 0.015 then
+		kartState.aiStuckTicks += 1
+	else
+		kartState.aiStuckTicks = 0
+		kartState.aiLastProgressDist = ai.totalDistance
+	end
+
+	if kartState.aiStuckTicks >= 240 then
+		kartState.aiStuckTicks = 0
+		kartState.aiLastProgressDist = ai.totalDistance
+		return true
+	end
+	return false
 end
 
 -- Post-finish coasting: follow driveline lookahead steering at zero throttle/brake (no freeze/despawn).

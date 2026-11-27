@@ -38,6 +38,8 @@ export type RemoteKartState = {
 	nextCheckpoint: number?,
 	raceFinished: boolean?,
 	finishTick: number?,
+	bestLapTicks: number?,
+	rescueTicks: number?,
 	trackNodeIdx: number?,
 	slipstreamTime: number?,
 	slipstreamBonusTime: number?,
@@ -115,7 +117,7 @@ for idx, kid in ipairs(KartTuning.KART_ORDER) do
 	KART_ID_TO_IDX[kid] = idx
 end
 
-local CORE_HEADER_BYTES = 286
+local CORE_HEADER_BYTES = 310
 local ITEM_EFFECT_BASE_BYTES = 12
 local ITEM_EFFECT_EXPLOSION_BYTES = 88
 local ITEM_EFFECT_RESCUE_BYTES = 116
@@ -130,7 +132,7 @@ local FLYABLE_CUSTOM_PHYS_BYTES = 12
 local FLYABLE_TARGET_BYTES = 8
 local FLYABLE_RUBBER_BYTES = 8
 local FLYABLE_PLUNGER_BYTES = 23
-local REMOTE_KART_FIXED_BYTES = 68
+local REMOTE_KART_FIXED_BYTES = 74
 local SLIPSTREAM_BYTES = 65
 
 local function defaultFlyablePhys(kind: Flyable.FlyableKind): (number, number, number)
@@ -277,8 +279,12 @@ function GreyboxProtocol.packSnapshot(
 	local hasSlipstream = isSlipstreamStateActive(ss)
 
 	local hasSwatter = (ns.attachmentType == ItemTuning.ATTACHMENT_SWATTER)
+	local fastestKartIdStr = string.sub(ns.fastestLapKartId or "", 1, 255)
+	local holderName = string.sub(ns.fastestLapHolderName or "", 1, 255)
 	local nIncs = math.min(#ns.increases, 255)
 	local totalBytes = CORE_HEADER_BYTES
+		+ #fastestKartIdStr
+		+ #holderName
 		+ (if hasSwatter then SWATTER_STATE_BYTES else 0)
 		+ (if hasItemEffect and eff ~= nil then computeItemEffectBytes(eff) else 0)
 		+ (if hasSlipstream then SLIPSTREAM_BYTES else 0)
@@ -429,6 +435,24 @@ function GreyboxProtocol.packSnapshot(
 	buffer.writef64(buf, off + 18, if lrPos then (lrPos[3] or 0) else 0)
 	buffer.writef64(buf, off + 26, ns.lastRescueYawRad or 0.0)
 	off += 34
+
+	buffer.writeu32(buf, off, clampU32(if race ~= nil then (race.lapStartTick or 0) else 0))
+	buffer.writei32(buf, off + 4, clampI32(if race ~= nil then (race.bestLapTicks or -1) else -1))
+	buffer.writeu16(buf, off + 8, clampU16(ns.lastRescueBranchIdx or 0))
+	buffer.writeu16(buf, off + 10, clampU16(ns.aiStuckTicks or 0))
+	buffer.writef32(buf, off + 12, ns.aiLastProgressDist or 0.0)
+	buffer.writei32(buf, off + 16, clampI32(ns.fastestLapTicks or -1))
+	buffer.writeu16(buf, off + 20, clampU16(ns.rescueTicks or 0))
+	buffer.writeu8(buf, off + 22, #fastestKartIdStr)
+	if #fastestKartIdStr > 0 then
+		buffer.writestring(buf, off + 23, fastestKartIdStr)
+	end
+	off += 23 + #fastestKartIdStr
+	buffer.writeu8(buf, off, #holderName)
+	if #holderName > 0 then
+		buffer.writestring(buf, off + 1, holderName)
+	end
+	off += 1 + #holderName
 
 	if hasSwatter then
 		local swFlags = bit32.band(ns.swatterPhase or 0, 3)
@@ -680,6 +704,8 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writeu8(buf, rOff + 62, clampU8(rk.nextCheckpoint or 0))
 			buffer.writei32(buf, rOff + 63, clampI32(rk.finishTick or -1))
 			buffer.writeu8(buf, rOff + 67, clampU8(KART_ID_TO_IDX[rk.kartId or "tux"] or 16))
+			buffer.writei32(buf, rOff + 68, clampI32(rk.bestLapTicks or -1))
+			buffer.writeu16(buf, rOff + 72, clampU16(rk.rescueTicks or 0))
 			off = rOff + REMOTE_KART_FIXED_BYTES
 			if rk.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
 				local rSwFlags = bit32.band(rk.swatterPhase or 0, 3) + (if rk.swatterBombMode then 4 else 0)
@@ -803,6 +829,31 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 	local lastRescueYawRad = buffer.readf64(buf, off + 26)
 	off += 34
 
+	if off + 23 > bufLen then
+		return nil
+	end
+	local lapStartTick = buffer.readu32(buf, off)
+	local bestLapTicks = buffer.readi32(buf, off + 4)
+	local lastRescueBranchIdx = buffer.readu16(buf, off + 8)
+	local aiStuckTicks = buffer.readu16(buf, off + 10)
+	local aiLastProgressDist = buffer.readf32(buf, off + 12)
+	local fastestLapTicks = buffer.readi32(buf, off + 16)
+	local rescueTicks = buffer.readu16(buf, off + 20)
+	local fastestKartIdLen = buffer.readu8(buf, off + 22)
+	off += 23
+	if off + fastestKartIdLen + 1 > bufLen then
+		return nil
+	end
+	local fastestLapKartId = if fastestKartIdLen > 0 then buffer.readstring(buf, off, fastestKartIdLen) else ""
+	off += fastestKartIdLen
+	local holderNameLen = buffer.readu8(buf, off)
+	off += 1
+	if off + holderNameLen > bufLen then
+		return nil
+	end
+	local fastestLapHolderName = if holderNameLen > 0 then buffer.readstring(buf, off, holderNameLen) else ""
+	off += holderNameLen
+
 	local swatterPhase = ItemTuning.SWATTER_PHASE_AIMING
 	local swatterAnimTicks = 0
 	local swatterTargetId = 0
@@ -833,6 +884,8 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		startupBoostMps = startupBoostMps,
 		startupPenaltyTicks = startupPenaltyTicks,
 		startupBoostFired = bit32.btest(raceFlags, 4),
+		lapStartTick = lapStartTick,
+		bestLapTicks = bestLapTicks,
 	}
 
 	local itemEffect: ItemEffectState.NetEffectState
@@ -1294,6 +1347,8 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				nextCheckpoint = buffer.readu8(buf, rOff + 62),
 				finishTick = buffer.readi32(buf, rOff + 63),
 				kartId = KartTuning.KART_ORDER[buffer.readu8(buf, rOff + 67)] or "tux",
+				bestLapTicks = buffer.readi32(buf, rOff + 68),
+				rescueTicks = buffer.readu16(buf, rOff + 72),
 			})
 			off = rNextOff
 		end
@@ -1358,8 +1413,15 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 		race = raceState,
 		rngState = rngState,
 		lastRescueQuadIdx = lastRescueQuadIdx,
+		lastRescueBranchIdx = lastRescueBranchIdx,
 		lastRescuePos = lastRescuePos,
 		lastRescueYawRad = lastRescueYawRad,
+		aiStuckTicks = aiStuckTicks,
+		aiLastProgressDist = aiLastProgressDist,
+		fastestLapTicks = fastestLapTicks,
+		fastestLapKartId = fastestLapKartId,
+		fastestLapHolderName = fastestLapHolderName,
+		rescueTicks = rescueTicks,
 		itemWorldSnapshot = itemWorldSnapshot,
 		flyableSnapshot = flyableSnapshot,
 	}

@@ -12,8 +12,16 @@ local Standings = require(Shared.race.Standings)
 
 export type RemoteMinimapPose = {
 	id: string,
+	kartId: string?,
 	x: number,
 	z: number,
+}
+
+export type FastestLapRecord = {
+	kartId: number,
+	holderName: string,
+	timeTicks: number,
+	receivedAtSec: number,
 }
 
 export type RaceHudPayload = {
@@ -44,6 +52,10 @@ export type InterpolatedHudState = {
 	standingsEntries: { Standings.StandingsEntry }?,
 	remotePoses: { RemoteMinimapPose }?,
 	localKartId: number,
+	localKartSpecId: string,
+	bestLapTicks: number,
+	fastestLap: FastestLapRecord?,
+	isPaused: boolean,
 	raceMode: RaceHudMath.RaceMode,
 	raceStartServerTime: number,
 	lap: number,
@@ -76,6 +88,10 @@ local currentState: InterpolatedHudState = {
 	standingsEntries = nil,
 	remotePoses = nil,
 	localKartId = 1,
+	localKartSpecId = "tux",
+	bestLapTicks = -1,
+	fastestLap = nil,
+	isPaused = false,
 	raceMode = "TIME_TRIAL",
 	raceStartServerTime = 0.0,
 	lap = -1,
@@ -94,6 +110,25 @@ local currentState: InterpolatedHudState = {
 }
 
 local HudState = {}
+local pauseHandler: (() -> ())? = nil
+
+function HudState.setFastestLap(record: FastestLapRecord?)
+	currentState.fastestLap = record
+end
+
+function HudState.setPaused(paused: boolean)
+	currentState.isPaused = paused
+end
+
+function HudState.setPauseHandler(fn: (() -> ())?)
+	pauseHandler = fn
+end
+
+function HudState.requestPause()
+	if pauseHandler ~= nil then
+		pauseHandler()
+	end
+end
 
 function HudState.publish(
 	posX: number,
@@ -115,7 +150,9 @@ function HudState.publish(
 	standingsEntries: { Standings.StandingsEntry }?,
 	remotePoses: { RemoteMinimapPose }?,
 	localKartId: number?,
-	raceHud: RaceHudPayload?
+	raceHud: RaceHudPayload?,
+	localKartSpecId: string?,
+	bestLapTicks: number?
 )
 	currentState.ready = true
 	currentState.pos.x = posX
@@ -132,6 +169,12 @@ function HudState.publish(
 	currentState.standingsEntries = standingsEntries
 	currentState.remotePoses = remotePoses
 	currentState.localKartId = localKartId or 1
+	if localKartSpecId ~= nil then
+		currentState.localKartSpecId = localKartSpecId
+	end
+	if bestLapTicks ~= nil then
+		currentState.bestLapTicks = bestLapTicks
+	end
 	currentState.raceMode = raceMode
 	currentState.raceStartServerTime = raceStartServerTime
 	currentState.lap = lap

@@ -436,22 +436,16 @@ function ItemEffectState.tick(eff: State): StepResult
 
 		local nextPos: Vec3
 		local nextRot: Quat
+		local rescueVel = eff.rescueHeight / math.max(1e-6, FixedStep.ticksToTime(eff.totalTicks))
 		if elapsedTicks <= splitTicks then
-			local liftFrac = elapsedTicks / splitTicks
-			nextPos = {
-				x = eff.originPos.x,
-				y = eff.originPos.y + liftFrac * eff.rescueHeight,
-				z = eff.originPos.z,
-			}
+			local dur = FixedStep.ticksToTime(elapsedTicks)
+			local _, originUp = Math3D.quatBasis(eff.originRot)
+			nextPos = Math3D.add(eff.originPos, Math3D.scale(originUp, dur * rescueVel))
 			nextRot = cloneQuat(eff.originRot)
 		else
-			local dropTicks = math.max(1, eff.totalTicks - splitTicks)
-			local dropFrac = (elapsedTicks - splitTicks) / dropTicks
-			nextPos = {
-				x = eff.rescueTargetPos.x,
-				y = eff.rescueTargetPos.y + (1.0 - dropFrac) * eff.rescueHeight,
-				z = eff.rescueTargetPos.z,
-			}
+			local remDur = math.max(0.0, FixedStep.ticksToTime(eff.totalTicks - elapsedTicks))
+			local _, targetUp = Math3D.quatBasis(eff.rescueTargetRot)
+			nextPos = Math3D.add(eff.rescueTargetPos, Math3D.scale(targetUp, remDur * rescueVel))
 			nextRot = cloneQuat(eff.rescueTargetRot)
 		end
 

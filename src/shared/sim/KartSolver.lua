@@ -90,6 +90,8 @@ export type KartRaceState = {
 	nextCheckpoint: number,
 	raceFinished: boolean,
 	finishTick: number,
+	lapStartTick: number?,
+	bestLapTicks: number?,
 	startupHasPressed: boolean,
 	startupBoostMps: number,
 	startupPenaltyTicks: number,
@@ -146,8 +148,16 @@ export type KartState = {
 	stuckTicks: number,
 	-- Continuous driveline rescue pose (src/tracks/track_sector.cpp:L54-L139)
 	lastRescueQuadIdx: number,
+	lastRescueBranchIdx: number,
 	lastRescuePos: Vec3,
 	lastRescueYawRad: number,
+	rescueTicks: number,
+	-- AI stuck watchdog & race-wide fastest lap (deterministic, replicated in NetState)
+	aiStuckTicks: number,
+	aiLastProgressDist: number,
+	fastestLapTicks: number,
+	fastestLapKartId: string,
+	fastestLapHolderName: string,
 	-- Telemetry
 	maxSlipAngleRad: number,
 	frontSteerAngleRad: number,
@@ -225,8 +235,15 @@ export type NetState = {
 	race: KartRaceState?,
 	rngState: number?,
 	lastRescueQuadIdx: number?,
+	lastRescueBranchIdx: number?,
 	lastRescuePos: { number }?,
 	lastRescueYawRad: number?,
+	rescueTicks: number?,
+	aiStuckTicks: number?,
+	aiLastProgressDist: number?,
+	fastestLapTicks: number?,
+	fastestLapKartId: string?,
+	fastestLapHolderName: string?,
 	itemWorldSnapshot: ItemWorld.ItemWorldSnapshot?,
 	flyableSnapshot: Flyable.FlyableSnapshot?,
 }
@@ -268,6 +285,7 @@ export type KartTelemetry = {
 	bubblegumTicks: number,
 	effectType: number,
 	effectTicksRemaining: number,
+	rescueTicks: number,
 	inputSuppressed: boolean,
 	invulnerableTicks: number,
 	isSquashed: boolean,
@@ -364,6 +382,8 @@ function KartSolver.createState(
 			nextCheckpoint = 0,
 			raceFinished = false,
 			finishTick = -1,
+			lapStartTick = 240,
+			bestLapTicks = 0,
 			startupHasPressed = false,
 			startupBoostMps = 0.0,
 			startupPenaltyTicks = 0,
@@ -394,8 +414,15 @@ function KartSolver.createState(
 		lastSafeRot = { w = rot.w, x = rot.x, y = rot.y, z = rot.z },
 		stuckTicks = 0,
 		lastRescueQuadIdx = 0,
+		lastRescueBranchIdx = 0,
 		lastRescuePos = { x = pos.x, y = pos.y, z = pos.z },
 		lastRescueYawRad = spawnYawRad or 0.0,
+		rescueTicks = 0,
+		aiStuckTicks = 0,
+		aiLastProgressDist = 0.0,
+		fastestLapTicks = 0,
+		fastestLapKartId = "",
+		fastestLapHolderName = "",
 		maxSlipAngleRad = 0,
 		frontSteerAngleRad = 0,
 		maxCompressionRatio = 0,
@@ -492,6 +519,8 @@ function KartSolver.captureNetState(
 			nextCheckpoint = state.race.nextCheckpoint,
 			raceFinished = state.race.raceFinished,
 			finishTick = state.race.finishTick,
+			lapStartTick = state.race.lapStartTick or 240,
+			bestLapTicks = state.race.bestLapTicks or 0,
 			startupHasPressed = state.race.startupHasPressed,
 			startupBoostMps = state.race.startupBoostMps,
 			startupPenaltyTicks = state.race.startupPenaltyTicks,
@@ -499,8 +528,15 @@ function KartSolver.captureNetState(
 		},
 		rngState = state.rngState,
 		lastRescueQuadIdx = state.lastRescueQuadIdx,
+		lastRescueBranchIdx = state.lastRescueBranchIdx,
 		lastRescuePos = { state.lastRescuePos.x, state.lastRescuePos.y, state.lastRescuePos.z },
 		lastRescueYawRad = state.lastRescueYawRad,
+		rescueTicks = state.rescueTicks,
+		aiStuckTicks = state.aiStuckTicks,
+		aiLastProgressDist = state.aiLastProgressDist,
+		fastestLapTicks = state.fastestLapTicks,
+		fastestLapKartId = state.fastestLapKartId,
+		fastestLapHolderName = state.fastestLapHolderName,
 		itemWorldSnapshot = if itemWorld ~= nil then ItemWorld.captureSnapshot(itemWorld) else nil,
 		flyableSnapshot = if flyableWorld ~= nil then Flyable.captureSnapshot(flyableWorld) else nil,
 	}
@@ -577,6 +613,9 @@ function KartSolver.applyNetState(
 	if snap.lastRescueQuadIdx ~= nil then
 		state.lastRescueQuadIdx = snap.lastRescueQuadIdx
 	end
+	if snap.lastRescueBranchIdx ~= nil then
+		state.lastRescueBranchIdx = snap.lastRescueBranchIdx
+	end
 	if snap.lastRescuePos ~= nil then
 		state.lastRescuePos = {
 			x = snap.lastRescuePos[1] or state.pos.x,
@@ -586,6 +625,28 @@ function KartSolver.applyNetState(
 	end
 	if snap.lastRescueYawRad ~= nil then
 		state.lastRescueYawRad = snap.lastRescueYawRad
+	end
+	if snap.aiStuckTicks ~= nil then
+		state.aiStuckTicks = snap.aiStuckTicks
+	end
+	if snap.aiLastProgressDist ~= nil then
+		state.aiLastProgressDist = snap.aiLastProgressDist
+	end
+	if snap.fastestLapTicks ~= nil then
+		state.fastestLapTicks = snap.fastestLapTicks
+	end
+	if snap.fastestLapKartId ~= nil then
+		state.fastestLapKartId = snap.fastestLapKartId
+	end
+	if snap.fastestLapHolderName ~= nil then
+		state.fastestLapHolderName = snap.fastestLapHolderName
+	end
+	if snap.rescueTicks ~= nil then
+		state.rescueTicks = snap.rescueTicks
+	elseif state.itemEffect.effectType == ItemEffectState.EFFECT_RESCUE then
+		state.rescueTicks = state.itemEffect.ticksRemaining
+	else
+		state.rescueTicks = 0
 	end
 
 	MaxSpeed.reset(state.maxSpeedState)
@@ -657,6 +718,12 @@ function KartSolver.applyNetState(
 		state.race.nextCheckpoint = snap.race.nextCheckpoint
 		state.race.raceFinished = snap.race.raceFinished
 		state.race.finishTick = snap.race.finishTick
+		if snap.race.lapStartTick ~= nil then
+			state.race.lapStartTick = snap.race.lapStartTick
+		end
+		if snap.race.bestLapTicks ~= nil then
+			state.race.bestLapTicks = snap.race.bestLapTicks
+		end
 		state.race.startupHasPressed = snap.race.startupHasPressed
 		state.race.startupBoostMps = snap.race.startupBoostMps
 		state.race.startupPenaltyTicks = snap.race.startupPenaltyTicks
@@ -713,7 +780,10 @@ function KartSolver.updateLastRescuePose(
 	state: KartState,
 	checkpoints: { any },
 	drivelinePoints: { { x: number, y: number?, z: number } },
-	_worldQuery: WorldQuery?
+	_worldQuery: WorldQuery?,
+	branches: { any }?,
+	followerBranchIdx: number?,
+	followerQuadIdx: number?
 ): boolean
 	if
 		KartSolver.isRescuing(state)
@@ -730,7 +800,10 @@ function KartSolver.updateLastRescuePose(
 		return false
 	end
 	local hint = if state.lastRescueQuadIdx > 0 then state.lastRescueQuadIdx else nil
-	local quadIdx = CheckManager.findNearestQuadIndex(drivelinePoints, state.pos.x, state.pos.z, hint)
+	local activeBranch = if followerBranchIdx ~= nil then followerBranchIdx else state.lastRescueBranchIdx
+	local activeHint = if followerQuadIdx ~= nil then followerQuadIdx else hint
+	local quadIdx, branchIdx =
+		CheckManager.findNearestQuadOnGraph(drivelinePoints, branches, state.pos, activeBranch, activeHint, nil)
 	if quadIdx <= 0 then
 		return false
 	end
@@ -740,17 +813,27 @@ function KartSolver.updateLastRescuePose(
 			state.race.lap,
 			state.race.nextCheckpoint,
 			checkpoints :: any,
-			drivelinePoints
+			drivelinePoints,
+			branchIdx,
+			branches
 		)
 	then
 		return false
 	end
-	local qPos, qYaw, valid =
-		CheckManager.computeDrivelineQuadPose(drivelinePoints, quadIdx, nil, nil, state.profile.collisionHeight)
+	local qPos, qYaw, valid = CheckManager.computeDrivelineQuadPose(
+		drivelinePoints,
+		quadIdx,
+		nil,
+		nil,
+		state.profile.collisionHeight,
+		branches,
+		branchIdx
+	)
 	if not valid then
 		return false
 	end
 	state.lastRescueQuadIdx = quadIdx
+	state.lastRescueBranchIdx = branchIdx
 	state.lastRescuePos = qPos
 	state.lastRescueYawRad = qYaw
 	return true
@@ -790,7 +873,7 @@ function KartSolver.triggerRescue(state: KartState, targetPos: Vec3, targetYawRa
 	local targetRot = if targetYawRad ~= 0
 		then Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, targetYawRad)
 		else Math3D.quatIdentity()
-	return ItemEffectState.triggerRescue(
+	local ok = ItemEffectState.triggerRescue(
 		state.itemEffect,
 		state.pos,
 		state.rot,
@@ -799,6 +882,10 @@ function KartSolver.triggerRescue(state: KartState, targetPos: Vec3, targetYawRa
 		ItemEffectState.RESCUE_DURATION_SEC,
 		ItemEffectState.RESCUE_HEIGHT_M
 	)
+	if ok then
+		state.rescueTicks = state.itemEffect.ticksRemaining
+	end
+	return ok
 end
 
 -- Ported from ExplosionAnimation::create & constructor (explosion_animation.cpp:L44-L124).
@@ -979,12 +1066,38 @@ function KartSolver.applyRubberBandPull(state: KartState, forceVec: Vec3, grantB
 	end
 end
 
+-- Ported from Kart::getAlignedTransform (src/karts/kart.cpp:L629-L647):
+-- Physical kart transform post-multiplied by visual skid rotation around Y.
+function KartSolver.getAlignedRotation(state: KartState): Quat
+	local visYaw = state.skid.visualRotation
+	if visYaw == 0.0 then
+		return { w = state.rot.w, x = state.rot.x, y = state.rot.y, z = state.rot.z }
+	end
+	return Math3D.quatNormalize(Math3D.quatMul(state.rot, Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, visYaw)))
+end
+
+function KartSolver.refreshFlyableProxy(proxy: Flyable.KartProxy, state: KartState, rank: number?)
+	proxy.pos = state.pos
+	proxy.rot = state.rot
+	proxy.alignedRot = KartSolver.getAlignedRotation(state)
+	proxy.linVel = state.linVel
+	proxy.speed = state.speed
+	proxy.isInvulnerable = ItemEffectState.isInvulnerable(state.itemEffect)
+	proxy.isInAnimation = ItemEffectState.isDriverInputSuppressed(state.itemEffect)
+	proxy.isShielded = KartSolver.isShielded(state)
+	proxy.hasBomb = (state.attachmentType == ItemTuning.ATTACHMENT_BOMB and state.attachmentTicksLeft > 0)
+	if rank ~= nil then
+		proxy.rank = rank
+	end
+end
+
 function KartSolver.makeFlyableProxy(id: number, state: KartState, rank: number, difficulty: string?): Flyable.KartProxy
 	return {
 		_state = state,
 		id = id,
 		pos = state.pos,
 		rot = state.rot,
+		alignedRot = KartSolver.getAlignedRotation(state),
 		linVel = state.linVel,
 		speed = state.speed,
 		width = state.profile.width,
@@ -1572,6 +1685,10 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 	state.prevPos = { x = state.pos.x, y = state.pos.y, z = state.pos.z }
 	if ItemEffectState.isDriverInputSuppressed(state.itemEffect) then
 		local effStep = ItemEffectState.tick(state.itemEffect)
+		state.rescueTicks = 0
+		state.rescueTicks = if state.itemEffect.effectType == ItemEffectState.EFFECT_RESCUE
+			then state.itemEffect.ticksRemaining
+			else 0
 		if effStep.explosionPos ~= nil then
 			state.pos = effStep.explosionPos
 		end
@@ -1594,6 +1711,7 @@ function KartSolver.step(state: KartState, input: KartInput, worldQuery: WorldQu
 		return
 	end
 	local effStep = ItemEffectState.tick(state.itemEffect)
+	state.rescueTicks = 0
 
 	local profile = state.profile
 	local suspCfg = KartTuning.suspension
@@ -2351,6 +2469,14 @@ function KartSolver.stepWithItems(
 			Flyable.spawnBowling(options.flyableWorld, ownerProxy, input.lookBack == true)
 		elseif firedPowerup == ItemTuning.POWERUP_CAKE and options.flyableWorld ~= nil then
 			local ownerProxy = KartSolver.makeFlyableProxy(kartId, state, options.rank or 1, options.difficulty)
+			if options.allKartProxies ~= nil then
+				for _, p in options.allKartProxies do
+					local pState = (p :: any)._state
+					if pState ~= nil then
+						KartSolver.refreshFlyableProxy(p, pState, p.rank)
+					end
+				end
+			end
 			Flyable.spawnCake(
 				options.flyableWorld,
 				ownerProxy,
@@ -2359,6 +2485,14 @@ function KartSolver.stepWithItems(
 			)
 		elseif firedPowerup == ItemTuning.POWERUP_PLUNGER and options.flyableWorld ~= nil then
 			local ownerProxy = KartSolver.makeFlyableProxy(kartId, state, options.rank or 1, options.difficulty)
+			if options.allKartProxies ~= nil then
+				for _, p in options.allKartProxies do
+					local pState = (p :: any)._state
+					if pState ~= nil then
+						KartSolver.refreshFlyableProxy(p, pState, p.rank)
+					end
+				end
+			end
 			Flyable.spawnPlunger(
 				options.flyableWorld,
 				ownerProxy,
@@ -2907,6 +3041,7 @@ function KartSolver.getTelemetry(state: KartState): KartTelemetry
 		bubblegumTicks = bubbleTicks,
 		effectType = eff.effectType,
 		effectTicksRemaining = eff.ticksRemaining,
+		rescueTicks = state.rescueTicks,
 		inputSuppressed = ItemEffectState.isDriverInputSuppressed(eff),
 		invulnerableTicks = eff.invulnerableTicks,
 		isSquashed = MaxSpeed.isSpeedDecreaseActive(state.maxSpeedState, "SQUASH")

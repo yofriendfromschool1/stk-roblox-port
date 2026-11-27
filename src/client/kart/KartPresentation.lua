@@ -15,6 +15,7 @@ local ItemVisuals = require("../items/ItemVisuals")
 local KartBoundsData = require(Shared.kart.KartBoundsData)
 local KartTuning = require(Shared.KartTuning)
 local KartVisualMath = require(Shared.kart.KartVisualMath)
+local RefereePresentation = require("./RefereePresentation")
 local SlipstreamVfx = require("./SlipstreamVfx")
 local SlipstreamVfxMath = require(Shared.kart.SlipstreamVfxMath)
 local Units = require(Shared.Units)
@@ -61,6 +62,8 @@ export type VisualKart = {
 	nitroEmitterR: ParticleEmitter,
 	nitroLight: PointLight,
 	slipstreamVfx: SlipstreamVfx.SlipstreamVfxInstance,
+	rescueBird: RefereePresentation.RescueBirdHandle?,
+	kartHeightM: number,
 }
 
 local TIER_COLORS: { [number]: Color3 } = {
@@ -498,6 +501,7 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 	end
 
 	local slipstreamVfx = SlipstreamVfx.create(model, profile)
+	local rescueBird = RefereePresentation.createRescueBird(model)
 
 	model.Parent = folder
 
@@ -523,6 +527,8 @@ function KartPresentation.create(kartKey: Player | string, profile: KartTuning.K
 		nitroEmitterR = nitroEmitterR,
 		nitroLight = nitroLight,
 		slipstreamVfx = slipstreamVfx,
+		rescueBird = rescueBird,
+		kartHeightM = profile.collisionHeight,
 	}
 end
 
@@ -548,7 +554,8 @@ function KartPresentation.update(
 	plungerFaceTicks: number?,
 	slipstreamVfxInput: SlipstreamVfxMath.SlipstreamVfxInput?,
 	attachmentTicksLeft: number?,
-	swatterAnimInput: SwatterAnimInput?
+	swatterAnimInput: SwatterAnimInput?,
+	rescueTicks: number?
 )
 	local groundOffsetY = Units.metersToStuds(KartVisualMath.computeBodyGroundOffsetY())
 	local kartOriginCf = bodyCFrame * CFrame.new(0, groundOffsetY, 0)
@@ -661,6 +668,7 @@ function KartPresentation.update(
 	end
 
 	SlipstreamVfx.update(visuals.slipstreamVfx, kartOriginCf, slipstreamVfxInput)
+	RefereePresentation.updateRescueBird(visuals.rescueBird, kartOriginCf, visuals.kartHeightM, rescueTicks or 0)
 end
 
 local function applyEmitterSettings(emitter: ParticleEmitter, particleMultiplier: number)

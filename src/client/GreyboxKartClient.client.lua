@@ -26,6 +26,7 @@ local ItemPresentation = require("./items/ItemPresentation")
 local ItemTuning = require(Shared.ItemTuning)
 local ItemWorld = require(Shared.items.ItemWorld)
 local KartPresentation = require("./kart/KartPresentation")
+local RefereePresentation = require("./kart/RefereePresentation")
 local KartSolver = require(Shared.sim.KartSolver)
 local KartTuning = require(Shared.KartTuning)
 local Math3D = require(Shared.sim.Math3D)
@@ -184,6 +185,9 @@ local hydrateKartRemote = if remotesFolder then remotesFolder:FindFirstChild("Hy
 
 local profile = KartTuning.buildProfileForKart("tux", "best")
 local visuals = KartPresentation.create(localPlayer, profile, "tux")
+local startReferee = RefereePresentation.createStartReferee()
+local smoothedCamYaw: number? = nil
+local smoothedCamY: number? = nil
 
 local localKartId = if localPlayer.UserId ~= 0 then localPlayer.UserId else 2
 local activeTrack = TrackRegistry.get(
@@ -317,7 +321,8 @@ Workspace:GetAttributeChangedSignal("OpenKartActiveTrack"):Connect(function()
 	local rawId = Workspace:GetAttribute("OpenKartActiveTrack")
 	activeTrack = TrackRegistry.get(if type(rawId) == "string" then rawId else TrackRegistry.DEFAULT_TRACK_ID)
 	cachedWorldQuery = nil
-	localItemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, "NORMAL_RACE")
+	localItemWorld =
+		ItemWorld.fromArenaSpec(activeTrack :: any, ClientSessionState.get().config.raceType or "NORMAL_RACE")
 	localFlyableWorld = Flyable.createWorld()
 	localState = KartSolver.createState(profile, activeTrack.startPos, activeTrack.startYawRad)
 	local p = CheckManager.initKartProgress(activeTrack.checkpoints, activeTrack.startPos, activeTrack.startYawRad)
@@ -328,6 +333,8 @@ Workspace:GetAttributeChangedSignal("OpenKartActiveTrack"):Connect(function()
 	localProgress = AIController.createState(activeTrack.drivelineQuadCenters, localState.pos)
 	table.clear(inputHistory)
 	ReconciliationSmoother.reset(reconciler)
+	smoothedCamYaw = nil
+	smoothedCamY = nil
 	prevPose = capturePose(localState)
 	currPose = capturePose(localState)
 end)
@@ -344,10 +351,26 @@ local lastSent: ClientInputPacket = {
 	debugGrantNitro = false,
 }
 local lastSentTime = 0.0
-local touchControls = TouchControls.create()
-local inputMapper = InputMapper.createLive({
+local inputMapper: any = nil
+local function triggerPauseMenu()
+	if ClientSessionState.get().phase ~= "RACING" then
+		return
+	end
+	local paused = not HudState.get().isPaused
+	HudState.setPaused(paused)
+	if inputMapper ~= nil then
+		inputMapper.setSuppressed(paused)
+	end
+end
+HudState.setPauseHandler(triggerPauseMenu)
+
+local touchControls = TouchControls.create({
+	onPause = triggerPauseMenu,
+})
+inputMapper = InputMapper.createLive({
 	isStudio = IS_STUDIO,
 	getTouchState = touchControls.getState,
+	onPause = triggerPauseMenu,
 	onToggleDebugHud = function()
 		hud.gui.Enabled = not hud.gui.Enabled
 	end,
@@ -369,7 +392,21 @@ local activeCameraPreset: SettingsSchema.CameraPreset = "Normal"
 local sessionCommandRemote = remotesFolder:WaitForChild("SessionCommand", 10) :: RemoteEvent?
 local sessionStateRemote = remotesFolder:WaitForChild("SessionState", 10) :: RemoteEvent?
 local localP2InputRemote = remotesFolder:WaitForChild("LocalP2Input", 10) :: RemoteEvent?
+local fastestLapRemote = remotesFolder:WaitForChild("FastestLap", 10) :: RemoteEvent?
 local lastP2SentTime = 0.0
+
+if fastestLapRemote then
+	fastestLapRemote.OnClientEvent:Connect(function(payload: any)
+		if type(payload) == "table" and type(payload.timeTicks) == "number" and payload.timeTicks > 0 then
+			HudState.setFastestLap({
+				kartId = tonumber(payload.kartId) or 0,
+				holderName = tostring(payload.holderName or ""),
+				timeTicks = payload.timeTicks,
+				receivedAtSec = os.clock(),
+			})
+		end
+	end)
+end
 
 ClientSettingsState.subscribe(function(settings)
 	inputMapper.setBindings(settings.input)
@@ -399,6 +436,9 @@ if sessionStateRemote then
 			inputMapper.setSuppressed(true)
 			inputMapper.setLocalTwoPlayer(cfg ~= nil and cfg.playMode == "LOCAL_2P")
 			visuals.model.Parent = nil
+			if startReferee ~= nil then
+				startReferee.model.Parent = nil
+			end
 			for _, rv in remoteKartVisuals do
 				rv.model:Destroy()
 			end
@@ -408,10 +448,18 @@ if sessionStateRemote then
 			SfxPlayer.clearMatchSounds(sfxPlayer)
 			SfxEvents.resetTracker(localAudioTracker)
 			table.clear(remoteAudioTrackers)
+			HudState.setPaused(false)
+			HudState.setFastestLap(nil)
 			HudState.get().ready = false
 		else
 			-- Keep input/render suppressed while hydrating and rebuilding models (prevents re-entrant yield/Parent-locked errors)
 			inputMapper.setSuppressed(true)
+			HudState.setPaused(false)
+			HudState.setFastestLap(nil)
+			localItemWorld = ItemWorld.fromArenaSpec(
+				activeTrack :: any,
+				if cfg and cfg.raceType then cfg.raceType else "NORMAL_RACE"
+			)
 			localTotalLaps = if cfg and type(cfg.laps) == "number" then cfg.laps else KartTuning.race.DEFAULT_LAPS
 			local selectedKartId = if cfg and type(cfg.kartId) == "string" then cfg.kartId else "tux"
 			local selectedDiff = if cfg and cfg.difficulty then cfg.difficulty else "intermediate"
@@ -465,6 +513,8 @@ if sessionStateRemote then
 			pendingSnapshot = nil
 			lastAppliedServerTick = 0
 			lastReceivedServerTick = 0
+			smoothedCamYaw = nil
+			smoothedCamY = nil
 			ReconciliationSmoother.reset(reconciler)
 			prevPose = capturePose(localState)
 			currPose = capturePose(localState)
@@ -551,10 +601,18 @@ local function buildClientCollisionParticipants(): { KartSolver.CollisionPartici
 	return list
 end
 
+local function formatKartDisplayName(kartId: string?): string
+	local k = kartId or "tux"
+	return string.upper(string.sub(k, 1, 1)) .. string.sub(k, 2)
+end
+
 local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, number, { Flyable.KartProxy })
+	local localName = if #localPlayer.DisplayName > 0 then localPlayer.DisplayName else localPlayer.Name
 	local entries: { Standings.StandingsEntry } = {
 		{
 			id = "local",
+			kartId = profile.kartId,
+			displayName = localName,
 			lap = localState.race.lap,
 			checkpoint = CheckManager.getMonotonicCheckpoint(
 				localState.race.lap,
@@ -567,6 +625,7 @@ local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, 
 			finishTime = if localState.race.raceFinished and localState.race.finishTick >= 0
 				then RaceState.getRaceElapsedSec(localState.race.finishTick)
 				else nil,
+			bestLapTicks = localState.race.bestLapTicks,
 		},
 	}
 	for idx, rk in latestRemoteKarts do
@@ -576,14 +635,21 @@ local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, 
 		local rNextChk = rk.nextCheckpoint or 0
 		local rFin = rk.raceFinished == true
 		local rFinTick = rk.finishTick or -1
+		local rName = if rk.id == "local_p2"
+			then "Player 2"
+			elseif rk.id == "dummy" or string.sub(rk.id, 1, 3) == "ai_" then formatKartDisplayName(rk.kartId)
+			else rk.id
 		table.insert(entries, {
 			id = rk.id,
+			kartId = rk.kartId,
+			displayName = rName,
 			lap = rLap,
 			checkpoint = CheckManager.getMonotonicCheckpoint(rLap, rNextChk, activeTrack.checkpoints),
 			distance = rDist,
 			initialPosition = idx,
 			finished = rFin,
 			finishTime = if rFin and rFinTick >= 0 then RaceState.getRaceElapsedSec(rFinTick) else nil,
+			bestLapTicks = rk.bestLapTicks,
 		})
 	end
 	local myRank = Standings.getRankForId(entries, "local")
@@ -626,7 +692,6 @@ local camCfg = KartTuning.camera
 local camOffsetX = 0.0
 local camOffsetY = camCfg.heightBase
 local camOffsetZ = -camCfg.distanceBase * math.sqrt(camCfg.smoothPosition)
-local smoothedCamRot: CFrame? = nil
 local wasLookingBack = false
 
 local function signedYawAngleDeg(fromDir: Vector3, toDir: Vector3): number
@@ -806,7 +871,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 								localState,
 								activeTrack.checkpoints,
 								activeTrack.drivelineQuadCenters,
-								worldQuery
+								worldQuery,
+								activeTrack.drivelineBranches
 							)
 						end
 						local rParticipants = buildClientCollisionParticipants()
@@ -821,6 +887,12 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 						end
 						AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
 						local _, _, postProxies = buildClientStandingsAndProxies()
+						for _, proxy in postProxies do
+							local pState = (proxy :: any)._state
+							if pState ~= nil then
+								KartSolver.refreshFlyableProxy(proxy, pState, proxy.rank)
+							end
+						end
 						Flyable.step(
 							localFlyableWorld,
 							postProxies,
@@ -974,7 +1046,8 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					localState,
 					activeTrack.checkpoints,
 					activeTrack.drivelineQuadCenters,
-					worldQuery
+					worldQuery,
+					activeTrack.drivelineBranches
 				)
 			end
 			local lParticipants = buildClientCollisionParticipants()
@@ -989,6 +1062,12 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			end
 			AIController.updateProgress(localProgress, localState.pos, activeTrack.drivelineQuadCenters)
 			local _, _, postProxies = buildClientStandingsAndProxies()
+			for _, proxy in postProxies do
+				local pState = (proxy :: any)._state
+				if pState ~= nil then
+					KartSolver.refreshFlyableProxy(proxy, pState, proxy.rank)
+				end
+			end
 			Flyable.step(
 				localFlyableWorld,
 				postProxies,
@@ -1065,12 +1144,13 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					bombMode = rk.swatterBombMode == true,
 					targetYawRad = rk.swatterTargetYawRad or 0.0,
 				}
-				else nil
+				else nil,
+			rk.rescueTicks
 		)
 		local numericId = tonumber(rk.id) or -(1000 + idx)
 		kartPositionsById[numericId] =
 			Vector3.new(Units.metersToStuds(rPos.x), Units.metersToStuds(rPos.y), Units.metersToStuds(-rPos.z))
-		table.insert(remoteMinimapPoses, { id = rk.id, x = rPos.x, z = rPos.z })
+		table.insert(remoteMinimapPoses, { id = rk.id, kartId = rk.kartId, x = rPos.x, z = rPos.z })
 
 		local rTr = remoteAudioTrackers[rk.id]
 		if not rTr then
@@ -1188,8 +1268,10 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				bombMode = tel.swatterBombMode,
 				targetYawRad = tel.swatterTargetYawRad,
 			}
-			else nil
+			else nil,
+		tel.rescueTicks
 	)
+	RefereePresentation.updateStartReferee(startReferee, renderPose, localState.race.phase, localState.race.raceTick)
 	kartPositionsById[localKartId] = bodyCFrame.Position
 	FlyablePresentation.sync(flyableVisuals, localFlyableWorld, now, kartPositionsById)
 	if localFlyableWorld.cancelEffects and #localFlyableWorld.cancelEffects > 0 then
@@ -1268,7 +1350,9 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			startupBoostMps = localState.race.startupBoostMps,
 			startupBoostFired = localState.race.startupBoostFired,
 			startupPenaltyTicks = localState.race.startupPenaltyTicks,
-		}
+		},
+		profile.kartId,
+		localState.race.bestLapTicks
 	)
 
 	-- STK CameraNormal speed-proportional pull-back + skid_angle/2 offset + constant 80 deg vertical FOV
@@ -1303,14 +1387,26 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 		camOffsetZ += (wantedOffsetZ - camOffsetZ) * posLerp
 
 		local flatLook = Vector3.new(renderPose.LookVector.X, 0, renderPose.LookVector.Z)
-		local targetRotCf = if flatLook.Magnitude > 1e-4
-			then CFrame.lookAt(Vector3.zero, flatLook.Unit, Vector3.yAxis)
-			else (smoothedCamRot or CFrame.identity)
-		if smoothedCamRot == nil then
-			smoothedCamRot = targetRotCf
+		local targetYaw: number
+		if flatLook.Magnitude > 1e-4 then
+			targetYaw = math.atan2(-flatLook.X, -flatLook.Z)
 		else
-			smoothedCamRot = smoothedCamRot:Lerp(targetRotCf, rotLerp)
+			targetYaw = smoothedCamYaw or 0.0
 		end
+		if smoothedCamYaw == nil then
+			smoothedCamYaw = targetYaw
+		else
+			local dYaw = ((targetYaw - (smoothedCamYaw :: number) + math.pi) % (2.0 * math.pi)) - math.pi
+			smoothedCamYaw = (smoothedCamYaw :: number) + dYaw * rotLerp
+		end
+		if smoothedCamY == nil then
+			smoothedCamY = renderPose.Position.Y
+		else
+			smoothedCamY = (smoothedCamY :: number) + (renderPose.Position.Y - (smoothedCamY :: number)) * posLerp
+		end
+
+		local targetYawCf = CFrame.fromOrientation(0, targetYaw, 0)
+		local yawOnly = CFrame.fromOrientation(0, smoothedCamYaw :: number, 0)
 
 		if lookBack then
 			-- CM_REVERSE snaps immediately (smoothing = false, camera_normal.cpp:L226-L230)
@@ -1319,19 +1415,22 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			local aboveStuds = Units.metersToStuds(camCfg.backwardAboveKart)
 			local upTanStuds = backDistStuds * math.tan(math.rad(camCfg.backwardUpAngleDeg))
 			local reversePos = renderPose.Position
-				+ targetRotCf.LookVector * backDistStuds
+				+ targetYawCf.LookVector * backDistStuds
 				+ Vector3.new(0, aboveStuds + upTanStuds, 0)
 			local reverseTarget = renderPose.Position + Vector3.new(0, aboveStuds, 0)
 			camera.CFrame = CFrame.lookAt(reversePos, reverseTarget)
 		else
 			if wasLookingBack then
 				-- CM_REVERSE -> CM_NORMAL snaps behind kart cleanly instead of sweeping through chassis (camera.cpp:L200-L204)
-				smoothedCamRot = targetRotCf
+				smoothedCamYaw = targetYaw
+				smoothedCamY = renderPose.Position.Y
+				yawOnly = targetYawCf
 				camOffsetX = 0.0
 				camOffsetY = camCfg.reverseReturnUp
 				camOffsetZ = -camCfg.reverseReturnBack
 			end
-			local rotOnly = smoothedCamRot :: CFrame
+			local camBaseY = math.max(smoothedCamY :: number, renderPose.Position.Y - 0.15)
+			local lookLeadY = renderPose.LookVector.Y * Units.metersToStuds(2.0)
 			local p2Visual = if sessionState.config.playMode == "LOCAL_2P" then remoteKartVisuals["local_p2"] else nil
 			if p2Visual ~= nil and p2Visual.model.PrimaryPart ~= nil then
 				local p1Pos = renderPose.Position
@@ -1339,22 +1438,29 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				local midpoint = (p1Pos + p2Pos) * 0.5
 				local sep = (p1Pos - p2Pos).Magnitude
 				local extraPull = math.clamp(sep * 0.75, 0, 32)
-				local camPos = midpoint
-					+ rotOnly.RightVector * Units.metersToStuds(camOffsetX)
+				local camPos = Vector3.new(midpoint.X, camBaseY, midpoint.Z)
+					+ yawOnly.RightVector * Units.metersToStuds(camOffsetX)
 					+ Vector3.new(0, Units.metersToStuds(camOffsetY) + extraPull * 0.35, 0)
-					+ rotOnly.LookVector * (Units.metersToStuds(camOffsetZ) - extraPull)
-				local lookTarget = midpoint + Vector3.new(0, Units.metersToStuds(camCfg.lookTargetY), 0)
+					+ yawOnly.LookVector * (Units.metersToStuds(camOffsetZ) - extraPull)
+				local lookTarget = midpoint + Vector3.new(0, Units.metersToStuds(camCfg.lookTargetY) + lookLeadY, 0)
 				camera.CFrame = CFrame.lookAt(camPos, lookTarget)
 			else
-				local camPos = renderPose.Position
-					+ rotOnly.RightVector * Units.metersToStuds(camOffsetX)
+				local camPos = Vector3.new(renderPose.Position.X, camBaseY, renderPose.Position.Z)
+					+ yawOnly.RightVector * Units.metersToStuds(camOffsetX)
 					+ Vector3.new(0, Units.metersToStuds(camOffsetY), 0)
-					+ rotOnly.LookVector * Units.metersToStuds(camOffsetZ)
-				local lookTarget = renderPose.Position + Vector3.new(0, Units.metersToStuds(camCfg.lookTargetY), 0)
+					+ yawOnly.LookVector * Units.metersToStuds(camOffsetZ)
+				if camPos.Y < renderPose.Position.Y + 0.5 then
+					camPos = Vector3.new(camPos.X, renderPose.Position.Y + 0.5, camPos.Z)
+				end
+				local lookTarget = renderPose.Position
+					+ Vector3.new(0, Units.metersToStuds(camCfg.lookTargetY) + lookLeadY, 0)
 				camera.CFrame = CFrame.lookAt(camPos, lookTarget)
 			end
 		end
 		cameraDirFlat = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
+		localPlayer:SetAttribute("DebugCamPitchDeg", math.deg(math.asin(math.clamp(camera.CFrame.LookVector.Y, -1, 1))))
+		localPlayer:SetAttribute("DebugCamPosY", camera.CFrame.Position.Y)
+		localPlayer:SetAttribute("DebugKartPosY", renderPose.Position.Y)
 		wasLookingBack = lookBack
 		debug.profileend()
 	end

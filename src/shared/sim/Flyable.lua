@@ -26,6 +26,7 @@ export type KartProxy = {
 	id: number,
 	pos: Vec3,
 	rot: Quat,
+	alignedRot: Quat?,
 	linVel: Vec3,
 	speed: number,
 	width: number?,
@@ -284,11 +285,16 @@ local function spawnProjectileBase(
 	return entry
 end
 
+local function getAlignedRot(owner: KartProxy): Quat
+	return owner.alignedRot or owner.rot
+end
+
 -- Ported from Bowling::onFireFlyable (src/items/bowling.cpp:L201-L239).
 function Flyable.spawnBowling(world: FlyableWorldState, owner: KartProxy, lookBack: boolean): FlyableEntry
 	local cfg = ItemTuning.bowling
 	local forwardOffset = 0.5 * owner.length + cfg.RADIUS
-	local _, up, fwd = Math3D.quatBasis(owner.rot)
+	local alignedRot = getAlignedRot(owner)
+	local _, up, fwd = Math3D.quatBasis(alignedRot)
 	local speed = cfg.SPEED
 	local launchDir: Vec3
 	if lookBack then
@@ -308,7 +314,7 @@ function Flyable.spawnBowling(world: FlyableWorldState, owner: KartProxy, lookBa
 		owner.id,
 		spawnPos,
 		launchVel,
-		cloneQuat(owner.rot),
+		cloneQuat(alignedRot),
 		cfg.RADIUS,
 		cfg.GRAVITY,
 		cfg.RESTITUTION,
@@ -356,9 +362,13 @@ function Flyable.spawnCake(
 			Math3D.quatMul(owner.rot, Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, fireAngle))
 		)
 		upVel = leadUpVel
-	elseif lookBack then
-		rot =
-			Math3D.quatNormalize(Math3D.quatMul(owner.rot, Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, math.pi)))
+	else
+		local alignedRot = getAlignedRot(owner)
+		rot = if lookBack
+			then Math3D.quatNormalize(
+				Math3D.quatMul(alignedRot, Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, math.pi))
+			)
+			else cloneQuat(alignedRot)
 	end
 
 	local _, _, aimFwd = Math3D.quatBasis(rot)
@@ -418,9 +428,13 @@ function Flyable.spawnPlunger(
 			Math3D.quatMul(owner.rot, Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, fireAngle))
 		)
 		upVel = leadUp
-	elseif lookBack then
-		rot =
-			Math3D.quatNormalize(Math3D.quatMul(owner.rot, Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, math.pi)))
+	else
+		local alignedRot = getAlignedRot(owner)
+		rot = if lookBack
+			then Math3D.quatNormalize(
+				Math3D.quatMul(alignedRot, Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, math.pi))
+			)
+			else cloneQuat(alignedRot)
 	end
 
 	local _, _, aimFwd = Math3D.quatBasis(rot)
@@ -495,7 +509,8 @@ function Flyable.spawnRubberBall(
 	local cfg = ItemTuning.rubberBall
 	local target, delTicks = selectRubberBallTarget(owner.id, karts)
 	local forwardOffset = 0.5 * owner.length + cfg.RADIUS
-	local _, up, fwd = Math3D.quatBasis(owner.rot)
+	local alignedRot = getAlignedRot(owner)
+	local _, up, fwd = Math3D.quatBasis(alignedRot)
 	local spawnPos = Math3D.add(owner.pos, Math3D.add(Math3D.scale(fwd, forwardOffset), Math3D.scale(up, 0.8)))
 	local initSpeed = math.max(cfg.SPEED, owner.baseMaxSpeed + cfg.MIN_SPEED_OFFSET)
 	local launchVel = Math3D.scale(fwd, initSpeed)
@@ -506,7 +521,7 @@ function Flyable.spawnRubberBall(
 		owner.id,
 		spawnPos,
 		launchVel,
-		cloneQuat(owner.rot),
+		cloneQuat(alignedRot),
 		cfg.RADIUS,
 		0.0,
 		0.0,

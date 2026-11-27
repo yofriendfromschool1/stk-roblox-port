@@ -856,7 +856,7 @@ class TestStk2Rbx(unittest.TestCase):
                     audit = audit_mesh(stk_models / item_def.spm_file)
                     emitted = by_id[item_def.item_id]
                     for ax in range(3):
-                        src_size = (audit.bbox_max_m[ax] - audit.bbox_min_m[ax]) * STUDS_PER_METER
+                        src_size = (audit.bbox_max_m[ax] - audit.bbox_min_m[ax]) * STUDS_PER_METER * item_def.scale
                         self.assertAlmostEqual(emitted["size_studs"][ax], src_size, delta=0.001)
 
                     # Also verify every exported GLB file accessor bounds match its subpart size
@@ -869,7 +869,7 @@ class TestStk2Rbx(unittest.TestCase):
                         pos_acc = next(a for a in gltf["accessors"] if a.get("type") == "VEC3" and "min" in a)
                         for ax in range(3):
                             glb_size = pos_acc["max"][ax] - pos_acc["min"][ax]
-                            src_sub_size = (src_sub.bbox_max_m[ax] - src_sub.bbox_min_m[ax]) * STUDS_PER_METER
+                            src_sub_size = (src_sub.bbox_max_m[ax] - src_sub.bbox_min_m[ax]) * STUDS_PER_METER * item_def.scale
                             self.assertAlmostEqual(glb_size, sp["size_studs"][ax], delta=0.001)
                             self.assertAlmostEqual(glb_size, src_sub_size, delta=0.001)
 

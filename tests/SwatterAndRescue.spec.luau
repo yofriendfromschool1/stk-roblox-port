@@ -429,7 +429,7 @@ return {
 					FixedStep.FIXED_DT
 				)
 			end
-			assertTrue(k.pos.y > -160.0 + 1.5, "kart lifts during first 40% of rescue")
+			assertTrue(k.pos.y > -160.0 + 0.75, "kart lifts during first 40% of rescue")
 			assertTrue(math.abs(k.pos.x - -250) < 1e-4, "XZ fixed during lift phase")
 
 			-- Finish remaining 86 ticks (total 144 ticks = 1.2 s)

@@ -6,12 +6,15 @@
 
 export type StandingsEntry = {
 	id: string,
+	kartId: string?,
+	displayName: string?,
 	lap: number,
 	checkpoint: number,
 	distance: number,
 	initialPosition: number?,
 	finished: boolean?,
 	finishTime: number?,
+	bestLapTicks: number?,
 }
 
 export type RankedEntry = {

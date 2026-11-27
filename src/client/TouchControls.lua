@@ -38,6 +38,10 @@ local BTN_SMALL_SIZE = SMALL_RATIO * BTN_SIZE -- 0.1125 of screen height
 local MARGIN_SMALL = SMALL_RATIO * MARGIN -- 0.0675 of screen height
 local WHEEL_MARGIN = 0.6 * MARGIN -- 0.054 of screen height
 
+export type Options = {
+	onPause: (() -> ())?,
+}
+
 export type Controller = {
 	gui: ScreenGui,
 	getState: () -> InputMapper.TouchState?,
@@ -50,7 +54,7 @@ local function isPointInside(guiObj: GuiObject, pos: Vector3): boolean
 	return pos.X >= absPos.X and pos.X <= absPos.X + absSize.X and pos.Y >= absPos.Y and pos.Y <= absPos.Y + absSize.Y
 end
 
-function TouchControls.create(): Controller
+function TouchControls.create(options: Options?): Controller
 	local localPlayer = Players.LocalPlayer
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
 
@@ -316,6 +320,12 @@ function TouchControls.create(): Controller
 		if not gui.Enabled or inputObj.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
+		if isPointInside(pauseBtn, inputObj.Position) then
+			if options ~= nil and options.onPause ~= nil then
+				options.onPause()
+			end
+			return
+		end
 		if wheelTouch == nil and isPointInside(wheelFrame, inputObj.Position) then
 			wheelTouch = inputObj
 			updateWheelFromPos(inputObj.Position)
@@ -358,6 +368,14 @@ function TouchControls.create(): Controller
 	local gpDiscConn = UserInputService.GamepadDisconnected:Connect(updateVisibility)
 	local touchPropConn = UserInputService:GetPropertyChangedSignal("TouchEnabled"):Connect(updateVisibility)
 	local previewConn = localPlayer:GetAttributeChangedSignal("ForceTouchPreview"):Connect(updateVisibility)
+	local simPauseConn = pauseBtn:GetAttributeChangedSignal("SimulatedPauseClick"):Connect(function()
+		if pauseBtn:GetAttribute("SimulatedPauseClick") == true then
+			pauseBtn:SetAttribute("SimulatedPauseClick", false)
+			if options ~= nil and options.onPause ~= nil then
+				options.onPause()
+			end
+		end
+	end)
 
 	updateVisibility()
 
@@ -392,6 +410,7 @@ function TouchControls.create(): Controller
 		gpDiscConn:Disconnect()
 		touchPropConn:Disconnect()
 		previewConn:Disconnect()
+		simPauseConn:Disconnect()
 		gui:Destroy()
 	end
 

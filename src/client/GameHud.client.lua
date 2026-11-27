@@ -15,14 +15,29 @@ local Workspace = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CatalogData = require(Shared.menu.CatalogData)
+local ClassicSkin = require("./menu/ClassicSkin")
 local ClientSessionState = require("./ClientSessionState")
 local ClientSettingsState = require("./ClientSettingsState")
+local FixedStep = require(Shared.sim.FixedStep)
 local HudState = require("./HudState")
 local ItemTuning = require(Shared.ItemTuning)
 local RaceHudMath = require(Shared.hud.RaceHudMath)
 local RaceState = require(Shared.sim.RaceState)
 local Standings = require(Shared.race.Standings)
 local TrackRegistry = require(Shared.track.TrackRegistry)
+
+local KART_ICON_BY_ID: { [string]: string } = {}
+for _, kEntry in CatalogData.karts do
+	KART_ICON_BY_ID[kEntry.id] = kEntry.iconId
+end
+
+local function getKartIconAsset(kartId: string?): string
+	if kartId ~= nil and KART_ICON_BY_ID[kartId] ~= nil then
+		return KART_ICON_BY_ID[kartId]
+	end
+	return KART_ICON_BY_ID["tux"] or "rbxassetid://106784086588016"
+end
 
 -- Verified CC0 GUI icons (author: Alayan, stk-code data/gui/icons/licenses.txt:L193-L198; audited in assets/CREDITS.md)
 local SPEED_BACK_ASSET = "rbxassetid://118820075105703"
@@ -31,9 +46,8 @@ local GAUGE_EMPTY_ASSET = "rbxassetid://86943125927894"
 local GAUGE_FULL_ASSET = "rbxassetid://125310951299234"
 local GAUGE_FULL_BRIGHT_ASSET = "rbxassetid://103689241713508"
 
--- Verified GPL 2.0 kart icon (author: Anthony "yeKcim" Carré, karts/tux/licenses.txt:L7-L9, rev 18627;
--- Tux character by Larry Ewing using The GIMP; audited in assets/CREDITS.md)
-local TUX_ICON_ASSET = "rbxassetid://106784086588016"
+-- Verified GPL 2.0 frame icon (author: Anthony "yeKcim" Carré, karts/tux/licenses.txt:L7-L9, rev 18627;
+-- audited in assets/CREDITS.md)
 local ICONS_FRAME_ASSET = "rbxassetid://128866264800446"
 
 -- Powerup HUD icons mapped per data/powerup.xml & DEP-5 re-audit (data/gui/icons/licenses.txt:L13-L24 + data/models/licenses.txt;
@@ -334,67 +348,6 @@ subBannerLabel.Visible = false
 subBannerLabel.ZIndex = 20
 subBannerLabel.Parent = hudSafeRoot
 
--- Finish Results Card
-local finishCard = Instance.new("Frame")
-finishCard.Name = "FinishBanner"
-finishCard.AnchorPoint = Vector2.new(0.5, 0.5)
-finishCard.Position = UDim2.fromScale(0.5, 0.38)
-finishCard.Size = UDim2.fromOffset(380, 200)
-finishCard.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
-finishCard.BackgroundTransparency = 0.2
-finishCard.BorderSizePixel = 0
-finishCard.Visible = false
-finishCard.ZIndex = 25
-finishCard.Parent = hudSafeRoot
-
-local finishCorner = Instance.new("UICorner")
-finishCorner.CornerRadius = UDim.new(0, 12)
-finishCorner.Parent = finishCard
-
-local finishStroke = Instance.new("UIStroke")
-finishStroke.Color = Color3.fromRGB(255, 215, 80)
-finishStroke.Thickness = 2
-finishStroke.Parent = finishCard
-
-local finishTitle = Instance.new("TextLabel")
-finishTitle.Name = "Title"
-finishTitle.BackgroundTransparency = 1
-finishTitle.Position = UDim2.fromOffset(16, 12)
-finishTitle.Size = UDim2.new(1, -32, 0, 42)
-finishTitle.Font = Enum.Font.GothamBlack
-finishTitle.TextColor3 = Color3.fromRGB(255, 225, 90)
-finishTitle.TextStrokeTransparency = 0.2
-finishTitle.TextScaled = true
-finishTitle.Text = "FINISHED!"
-finishTitle.ZIndex = 26
-finishTitle.Parent = finishCard
-
-local finishRankLabel = Instance.new("TextLabel")
-finishRankLabel.Name = "RankSummary"
-finishRankLabel.BackgroundTransparency = 1
-finishRankLabel.Position = UDim2.fromOffset(16, 56)
-finishRankLabel.Size = UDim2.new(1, -32, 0, 32)
-finishRankLabel.Font = Enum.Font.GothamBold
-finishRankLabel.TextColor3 = Color3.fromRGB(240, 244, 252)
-finishRankLabel.TextScaled = true
-finishRankLabel.Text = "1st Place — 00:00.000"
-finishRankLabel.ZIndex = 26
-finishRankLabel.Parent = finishCard
-
-local finishStandingsLabel = Instance.new("TextLabel")
-finishStandingsLabel.Name = "StandingsList"
-finishStandingsLabel.BackgroundTransparency = 1
-finishStandingsLabel.Position = UDim2.fromOffset(20, 94)
-finishStandingsLabel.Size = UDim2.new(1, -40, 0, 94)
-finishStandingsLabel.Font = Enum.Font.Code
-finishStandingsLabel.TextSize = 15
-finishStandingsLabel.TextYAlignment = Enum.TextYAlignment.Top
-finishStandingsLabel.TextXAlignment = Enum.TextXAlignment.Left
-finishStandingsLabel.TextColor3 = Color3.fromRGB(215, 225, 240)
-finishStandingsLabel.Text = ""
-finishStandingsLabel.ZIndex = 26
-finishStandingsLabel.Parent = finishCard
-
 local function sendReturnToMenu()
 	local remotes = ReplicatedStorage:FindFirstChild("OpenKartRemotes")
 	local cmd = if remotes then remotes:FindFirstChild("SessionCommand") else nil
@@ -403,24 +356,358 @@ local function sendReturnToMenu()
 	end
 end
 
-local finishMenuBtn = Instance.new("TextButton")
-finishMenuBtn.Name = "FinishBackToMenuBtn"
-finishMenuBtn.Size = UDim2.fromOffset(180, 32)
-finishMenuBtn.AnchorPoint = Vector2.new(0.5, 1)
-finishMenuBtn.Position = UDim2.new(0.5, 0, 1, -10)
-finishMenuBtn.BackgroundColor3 = Color3.fromRGB(36, 98, 178)
-finishMenuBtn.BorderSizePixel = 0
-finishMenuBtn.Font = Enum.Font.GothamBold
-finishMenuBtn.TextSize = 14
-finishMenuBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-finishMenuBtn.Text = "Back to Menu"
-finishMenuBtn.ZIndex = 27
-finishMenuBtn.Parent = finishCard
+local function sendRestartRace()
+	local remotes = ReplicatedStorage:FindFirstChild("OpenKartRemotes")
+	local cmd = if remotes then remotes:FindFirstChild("SessionCommand") else nil
+	if cmd and cmd:IsA("RemoteEvent") then
+		cmd:FireServer("START_RACE", ClientSessionState.get().config)
+	end
+end
 
-local finishMenuBtnCorner = Instance.new("UICorner")
-finishMenuBtnCorner.CornerRadius = UDim.new(0, 6)
-finishMenuBtnCorner.Parent = finishMenuBtn
+-- STK bottom-center 2-line fastest-lap banner (linear_world.cpp:L561-L567, race_gui_base.cpp:L270-L320)
+local fastestLapBanner = Instance.new("TextLabel")
+fastestLapBanner.Name = "FastestLapBanner"
+fastestLapBanner.BackgroundTransparency = 1
+fastestLapBanner.AnchorPoint = Vector2.new(0.5, 1)
+fastestLapBanner.Position = UDim2.new(0.5, 0, 1, -34)
+fastestLapBanner.Size = UDim2.fromOffset(540, 58)
+fastestLapBanner.Font = ClassicSkin.FONT_BODY
+fastestLapBanner.TextSize = 22
+fastestLapBanner.TextColor3 = Color3.fromRGB(255, 255, 255)
+fastestLapBanner.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+fastestLapBanner.TextStrokeTransparency = 0.0
+fastestLapBanner.TextYAlignment = Enum.TextYAlignment.Bottom
+fastestLapBanner.Visible = false
+fastestLapBanner.ZIndex = 18
+fastestLapBanner.Parent = hudSafeRoot
+
+-- Unified In-Race Pause Modal (mobile Pause / keyboard P / gamepad ButtonStart / desktop Menu)
+local noopConn = function(_c: RBXScriptConnection) end
+local pauseModal =
+	ClassicSkin.makeGlassBox(hudSafeRoot, "PauseModal", UDim2.fromScale(0.5, 0.5), UDim2.fromOffset(320, 224), 30)
+pauseModal.AnchorPoint = Vector2.new(0.5, 0.5)
+pauseModal.Visible = false
+
+local pauseTitle = Instance.new("TextLabel")
+pauseTitle.Name = "PauseTitle"
+pauseTitle.BackgroundTransparency = 1
+pauseTitle.Position = UDim2.fromOffset(16, 12)
+pauseTitle.Size = UDim2.new(1, -32, 0, 38)
+pauseTitle.TextScaled = true
+pauseTitle.Text = "Paused"
+pauseTitle.ZIndex = 31
+ClassicSkin.applyHeaderGradient(pauseTitle)
+pauseTitle.Parent = pauseModal
+
+local pauseResumeBtn = ClassicSkin.makeGlassButton(
+	pauseModal,
+	"ResumeBtn",
+	"Resume",
+	UDim2.new(0.5, -120, 0, 62),
+	UDim2.fromOffset(240, 42),
+	noopConn
+)
+pauseResumeBtn.ZIndex = 32
+pauseResumeBtn.Activated:Connect(function()
+	HudState.requestPause()
+end)
+
+local pauseRestartBtn = ClassicSkin.makeGlassButton(
+	pauseModal,
+	"RestartBtn",
+	"Restart Race",
+	UDim2.new(0.5, -120, 0, 112),
+	UDim2.fromOffset(240, 42),
+	noopConn
+)
+pauseRestartBtn.ZIndex = 32
+pauseRestartBtn.Activated:Connect(function()
+	if HudState.get().isPaused then
+		HudState.requestPause()
+	end
+	sendRestartRace()
+end)
+
+local pauseMenuBtn = ClassicSkin.makeGlassButton(
+	pauseModal,
+	"BackToMenuBtn",
+	"Back to the menu",
+	UDim2.new(0.5, -120, 0, 162),
+	UDim2.fromOffset(240, 42),
+	noopConn
+)
+pauseMenuBtn.ZIndex = 32
+pauseMenuBtn.Activated:Connect(function()
+	if HudState.get().isPaused then
+		HudState.requestPause()
+	end
+	sendReturnToMenu()
+end)
+
+-- 1:1 STK Race Results Screen (data/gui/screens/race_result.stkgui + src/states_screens/race_result_gui.cpp)
+local finishCard = Instance.new("Frame")
+finishCard.Name = "FinishBanner"
+finishCard.AnchorPoint = Vector2.new(0.5, 0.5)
+finishCard.Position = UDim2.fromScale(0.5, 0.5)
+finishCard.Size = UDim2.fromScale(0.86, 0.80)
+finishCard.BackgroundTransparency = 1
+finishCard.BorderSizePixel = 0
+finishCard.Visible = false
+finishCard.ZIndex = 25
+finishCard.Parent = hudSafeRoot
+
+local finishTitle = Instance.new("TextLabel")
+finishTitle.Name = "Title"
+finishTitle.BackgroundTransparency = 1
+finishTitle.Position = UDim2.fromOffset(0, 0)
+finishTitle.Size = UDim2.new(1, 0, 0, 44)
+finishTitle.TextScaled = true
+finishTitle.Text = "Race Results"
+finishTitle.ZIndex = 26
+ClassicSkin.applyHeaderGradient(finishTitle)
+finishTitle.Parent = finishCard
+
+local resultsTableBox =
+	ClassicSkin.makeGlassBox(finishCard, "ResultsTableBox", UDim2.fromOffset(0, 52), UDim2.new(0.66, -8, 1, -114), 25)
+
+local resultsHeader = Instance.new("Frame")
+resultsHeader.Name = "HeaderRow"
+resultsHeader.BackgroundTransparency = 1
+resultsHeader.Position = UDim2.fromOffset(12, 8)
+resultsHeader.Size = UDim2.new(1, -24, 0, 26)
+resultsHeader.ZIndex = 26
+resultsHeader.Parent = resultsTableBox
+
+local function makeHeaderCell(name: string, text: string, xScale: number, wScale: number, align: Enum.TextXAlignment)
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = name
+	lbl.BackgroundTransparency = 1
+	lbl.Position = UDim2.fromScale(xScale, 0)
+	lbl.Size = UDim2.fromScale(wScale, 1)
+	lbl.Font = ClassicSkin.FONT_TITLE
+	lbl.TextSize = 15
+	lbl.TextColor3 = ClassicSkin.COLOR_HEADER_BOTTOM
+	lbl.TextStrokeColor3 = Color3.fromRGB(45, 18, 0)
+	lbl.TextStrokeTransparency = 0.2
+	lbl.TextXAlignment = align
+	lbl.Text = text
+	lbl.ZIndex = 27
+	lbl.Parent = resultsHeader
+end
+makeHeaderCell("PosCol", "Pos", 0.00, 0.11, Enum.TextXAlignment.Left)
+makeHeaderCell("NameCol", "Kart", 0.18, 0.36, Enum.TextXAlignment.Left)
+makeHeaderCell("TimeCol", "Finish Time", 0.54, 0.24, Enum.TextXAlignment.Right)
+makeHeaderCell("BestCol", "Best Lap", 0.78, 0.22, Enum.TextXAlignment.Right)
+
+local resultsRowsArea = Instance.new("Frame")
+resultsRowsArea.Name = "RowsArea"
+resultsRowsArea.BackgroundTransparency = 1
+resultsRowsArea.ClipsDescendants = true
+resultsRowsArea.Position = UDim2.fromOffset(10, 38)
+resultsRowsArea.Size = UDim2.new(1, -20, 1, -48)
+resultsRowsArea.ZIndex = 26
+resultsRowsArea.Parent = resultsTableBox
+
+type ResultRowWidget = {
+	container: Frame,
+	bg: Frame,
+	posLabel: TextLabel,
+	icon: ImageLabel,
+	nameLabel: TextLabel,
+	timeLabel: TextLabel,
+	bestLapLabel: TextLabel,
+}
+local resultRows: { ResultRowWidget } = {}
+local finishShownAtSec: number? = nil
+
+local function getOrCreateResultRow(idx: number): ResultRowWidget
+	local existing = resultRows[idx]
+	if existing then
+		return existing
+	end
+	local container = Instance.new("Frame")
+	container.Name = "ResultRow_" .. tostring(idx)
+	container.BackgroundTransparency = 1
+	container.Size = UDim2.new(1, 0, 0, 34)
+	container.ZIndex = 27
+	container.Parent = resultsRowsArea
+
+	local bg = Instance.new("Frame")
+	bg.Name = "Bg"
+	bg.Size = UDim2.fromScale(1, 1)
+	bg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	bg.BackgroundTransparency = 0.88
+	bg.BorderSizePixel = 0
+	bg.ZIndex = 27
+	bg.Parent = container
+	local bgCorner = Instance.new("UICorner")
+	bgCorner.CornerRadius = UDim.new(0, 6)
+	bgCorner.Parent = bg
+
+	local posLabel = Instance.new("TextLabel")
+	posLabel.Name = "Pos"
+	posLabel.BackgroundTransparency = 1
+	posLabel.Position = UDim2.fromScale(0.01, 0)
+	posLabel.Size = UDim2.fromScale(0.10, 1)
+	posLabel.Font = ClassicSkin.FONT_TITLE
+	posLabel.TextSize = 16
+	posLabel.TextColor3 = ClassicSkin.COLOR_TEXT_FOCUSED
+	posLabel.TextStrokeTransparency = 0.25
+	posLabel.TextXAlignment = Enum.TextXAlignment.Left
+	posLabel.ZIndex = 28
+	posLabel.Parent = container
+
+	local icon = Instance.new("ImageLabel")
+	icon.Name = "KartIcon"
+	icon.BackgroundTransparency = 1
+	icon.Position = UDim2.new(0.11, 0, 0.5, -14)
+	icon.Size = UDim2.fromOffset(28, 28)
+	icon.ScaleType = Enum.ScaleType.Fit
+	icon.ZIndex = 28
+	icon.Parent = container
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "RacerName"
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Position = UDim2.fromScale(0.18, 0)
+	nameLabel.Size = UDim2.fromScale(0.36, 1)
+	nameLabel.Font = ClassicSkin.FONT_BODY
+	nameLabel.TextSize = 16
+	nameLabel.TextColor3 = ClassicSkin.COLOR_TEXT_FOCUSED
+	nameLabel.TextStrokeTransparency = 0.35
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLabel.ZIndex = 28
+	nameLabel.Parent = container
+
+	local timeLabel = Instance.new("TextLabel")
+	timeLabel.Name = "FinishTime"
+	timeLabel.BackgroundTransparency = 1
+	timeLabel.Position = UDim2.fromScale(0.54, 0)
+	timeLabel.Size = UDim2.fromScale(0.24, 1)
+	timeLabel.Font = Enum.Font.Code
+	timeLabel.TextSize = 15
+	timeLabel.TextColor3 = ClassicSkin.COLOR_TEXT_FOCUSED
+	timeLabel.TextStrokeTransparency = 0.35
+	timeLabel.TextXAlignment = Enum.TextXAlignment.Right
+	timeLabel.ZIndex = 28
+	timeLabel.Parent = container
+
+	local bestLapLabel = Instance.new("TextLabel")
+	bestLapLabel.Name = "BestLap"
+	bestLapLabel.BackgroundTransparency = 1
+	bestLapLabel.Position = UDim2.fromScale(0.78, 0)
+	bestLapLabel.Size = UDim2.fromScale(0.21, 1)
+	bestLapLabel.Font = Enum.Font.Code
+	bestLapLabel.TextSize = 15
+	bestLapLabel.TextColor3 = Color3.fromRGB(255, 225, 110)
+	bestLapLabel.TextStrokeTransparency = 0.35
+	bestLapLabel.TextXAlignment = Enum.TextXAlignment.Right
+	bestLapLabel.ZIndex = 28
+	bestLapLabel.Parent = container
+
+	local row: ResultRowWidget = {
+		container = container,
+		bg = bg,
+		posLabel = posLabel,
+		icon = icon,
+		nameLabel = nameLabel,
+		timeLabel = timeLabel,
+		bestLapLabel = bestLapLabel,
+	}
+	resultRows[idx] = row
+	return row
+end
+
+local resultsInfoBox =
+	ClassicSkin.makeGlassBox(finishCard, "ResultsInfoBox", UDim2.new(0.66, 8, 0, 52), UDim2.new(0.34, -8, 1, -114), 25)
+
+local bestLapHeaderLabel = Instance.new("TextLabel")
+bestLapHeaderLabel.Name = "BestLapHeader"
+bestLapHeaderLabel.BackgroundTransparency = 1
+bestLapHeaderLabel.Position = UDim2.fromOffset(14, 16)
+bestLapHeaderLabel.Size = UDim2.new(1, -28, 0, 28)
+bestLapHeaderLabel.Font = ClassicSkin.FONT_TITLE
+bestLapHeaderLabel.TextSize = 18
+bestLapHeaderLabel.TextColor3 = ClassicSkin.COLOR_HEADER_BOTTOM
+bestLapHeaderLabel.TextStrokeTransparency = 0.2
+bestLapHeaderLabel.TextXAlignment = Enum.TextXAlignment.Left
+bestLapHeaderLabel.Text = "Best lap time:"
+bestLapHeaderLabel.ZIndex = 27
+bestLapHeaderLabel.Parent = resultsInfoBox
+
+local bestLapValueLabel = Instance.new("TextLabel")
+bestLapValueLabel.Name = "BestLapValue"
+bestLapValueLabel.BackgroundTransparency = 1
+bestLapValueLabel.Position = UDim2.fromOffset(14, 48)
+bestLapValueLabel.Size = UDim2.new(1, -28, 0, 64)
+bestLapValueLabel.Font = ClassicSkin.FONT_BODY
+bestLapValueLabel.TextSize = 20
+bestLapValueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+bestLapValueLabel.TextStrokeTransparency = 0.25
+bestLapValueLabel.TextXAlignment = Enum.TextXAlignment.Left
+bestLapValueLabel.TextYAlignment = Enum.TextYAlignment.Top
+bestLapValueLabel.TextWrapped = true
+bestLapValueLabel.Text = "--:--.--"
+bestLapValueLabel.ZIndex = 27
+bestLapValueLabel.Parent = resultsInfoBox
+
+local resultsSummaryLabel = Instance.new("TextLabel")
+resultsSummaryLabel.Name = "Summary"
+resultsSummaryLabel.BackgroundTransparency = 1
+resultsSummaryLabel.Position = UDim2.fromOffset(14, 126)
+resultsSummaryLabel.Size = UDim2.new(1, -28, 1, -140)
+resultsSummaryLabel.Font = ClassicSkin.FONT_BODY
+resultsSummaryLabel.TextSize = 15
+resultsSummaryLabel.TextColor3 = Color3.fromRGB(235, 240, 250)
+resultsSummaryLabel.TextStrokeTransparency = 0.35
+resultsSummaryLabel.TextXAlignment = Enum.TextXAlignment.Left
+resultsSummaryLabel.TextYAlignment = Enum.TextYAlignment.Top
+resultsSummaryLabel.TextWrapped = true
+resultsSummaryLabel.Text = ""
+resultsSummaryLabel.ZIndex = 27
+resultsSummaryLabel.Parent = resultsInfoBox
+
+local resultsBtnBar = Instance.new("Frame")
+resultsBtnBar.Name = "BottomButtons"
+resultsBtnBar.BackgroundTransparency = 1
+resultsBtnBar.Position = UDim2.new(0, 0, 1, -48)
+resultsBtnBar.Size = UDim2.new(1, 0, 0, 48)
+resultsBtnBar.ZIndex = 26
+resultsBtnBar.Parent = finishCard
+
+local finishMenuBtn = ClassicSkin.makeGlassButton(
+	resultsBtnBar,
+	"FinishBackToMenuBtn",
+	"Back to the menu",
+	UDim2.fromScale(0.00, 0),
+	UDim2.fromScale(0.32, 1),
+	noopConn
+)
+finishMenuBtn.ZIndex = 27
 finishMenuBtn.Activated:Connect(sendReturnToMenu)
+
+local finishSetupBtn = ClassicSkin.makeGlassButton(
+	resultsBtnBar,
+	"FinishSetupNewRaceBtn",
+	"Setup New Race",
+	UDim2.fromScale(0.34, 0),
+	UDim2.fromScale(0.32, 1),
+	noopConn
+)
+finishSetupBtn.ZIndex = 27
+finishSetupBtn.Activated:Connect(sendReturnToMenu)
+
+local finishRestartBtn = ClassicSkin.makeGlassButton(
+	resultsBtnBar,
+	"FinishRestartBtn",
+	"Restart",
+	UDim2.fromScale(0.68, 0),
+	UDim2.fromScale(0.32, 1),
+	noopConn
+)
+finishRestartBtn.ZIndex = 27
+finishRestartBtn.Activated:Connect(sendRestartRace)
 
 local raceMenuBtn = Instance.new("TextButton")
 raceMenuBtn.Name = "RaceBackToMenuBtn"
@@ -439,7 +726,9 @@ raceMenuBtn.Parent = hudSafeRoot
 local raceMenuBtnCorner = Instance.new("UICorner")
 raceMenuBtnCorner.CornerRadius = UDim.new(0, 6)
 raceMenuBtnCorner.Parent = raceMenuBtn
-raceMenuBtn.Activated:Connect(sendReturnToMenu)
+raceMenuBtn.Activated:Connect(function()
+	HudState.requestPause()
+end)
 
 local fpsLabel = Instance.new("TextLabel")
 fpsLabel.Name = "FpsCounter"
@@ -505,7 +794,7 @@ local function getOrCreatePlayerIconRow(idx: number): PlayerIconRow
 	icon.BackgroundTransparency = 1
 	icon.BorderSizePixel = 0
 	icon.Size = UDim2.fromScale(1, 1)
-	icon.Image = TUX_ICON_ASSET
+	icon.Image = getKartIconAsset("tux")
 	icon.ScaleType = Enum.ScaleType.Fit
 	icon.ZIndex = 3
 	icon.Parent = rowFrame
@@ -731,7 +1020,7 @@ mmKartIcon.Name = "PlayerKartIcon"
 mmKartIcon.BackgroundTransparency = 1
 mmKartIcon.BorderSizePixel = 0
 mmKartIcon.Size = UDim2.fromScale(1, 1)
-mmKartIcon.Image = TUX_ICON_ASSET
+mmKartIcon.Image = getKartIconAsset("tux")
 mmKartIcon.ScaleType = Enum.ScaleType.Fit
 mmKartIcon.ZIndex = 5
 mmKartIcon.Parent = mmKartMarker
@@ -760,7 +1049,7 @@ local function getOrCreateRemoteMinimapMarker(id: string): Frame
 	icon.BackgroundTransparency = 1
 	icon.BorderSizePixel = 0
 	icon.Size = UDim2.fromScale(1, 1)
-	icon.Image = TUX_ICON_ASSET
+	icon.Image = getKartIconAsset("tux")
 	icon.ScaleType = Enum.ScaleType.Fit
 	icon.ZIndex = 5
 	icon.Parent = marker
@@ -1161,26 +1450,87 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 		subBannerLabel.Visible = false
 	end
 
+	pauseModal.Visible = renderHud.isPaused and not renderHud.raceFinished
+
+	local fl = renderHud.fastestLap
+	if fl ~= nil and fl.timeTicks > 0 and (nowSec - fl.receivedAtSec) < 4.0 and not renderHud.raceFinished then
+		fastestLapBanner.Visible = true
+		fastestLapBanner.Text = string.format(
+			"New fastest lap\n%s by %s",
+			RaceHudMath.formatStkTime(FixedStep.ticksToTime(fl.timeTicks)),
+			fl.holderName
+		)
+	else
+		fastestLapBanner.Visible = false
+	end
+
 	if renderHud.raceFinished then
+		if finishShownAtSec == nil then
+			finishShownAtSec = nowSec
+		end
 		finishCard.Visible = true
-		local finSec = renderHud.finishTimeSec or renderHud.raceElapsedSec
-		finishRankLabel.Text =
-			string.format("%s Place — %s", RaceHudMath.formatOrdinal(rank), RaceHudMath.formatRaceTime(finSec))
+		local animElapsed = nowSec - (finishShownAtSec :: number)
 		local sortedFinish = Standings.compute(standingsInput)
-		local lines: { string } = {}
-		for _, r in sortedFinish do
-			local label = if r.id == "local" or r.id == tostring(renderHud.localKartId) then "You" else r.id
-			local status = if r.entry.finished == true and r.entry.finishTime ~= nil
-				then RaceHudMath.formatRaceTime(r.entry.finishTime)
+		local bestLapOverallTicks = if fl ~= nil and fl.timeTicks > 0 then fl.timeTicks else renderHud.bestLapTicks
+		local bestLapHolder = if fl ~= nil and fl.timeTicks > 0 then fl.holderName else "You"
+		if bestLapOverallTicks > 0 then
+			bestLapValueLabel.Text = string.format(
+				"%s\nby %s",
+				RaceHudMath.formatStkTime(FixedStep.ticksToTime(bestLapOverallTicks)),
+				bestLapHolder
+			)
+		else
+			bestLapValueLabel.Text = "--:--.--"
+		end
+
+		local finSec = renderHud.finishTimeSec or renderHud.raceElapsedSec
+		resultsSummaryLabel.Text = string.format(
+			"Your Rank: %s\nYour Time: %s\nTrack: %s",
+			RaceHudMath.formatOrdinal(rank),
+			RaceHudMath.formatStkTime(finSec),
+			activeHudTrack.name or ClientSessionState.get().config.trackId
+		)
+
+		for idx, r in sortedFinish do
+			local row = getOrCreateResultRow(idx)
+			row.container.Visible = true
+			local tSlide = math.clamp((animElapsed - (idx - 1) * 0.1) / 0.2, 0.0, 1.0)
+			local xSlide = -320 * (1.0 - tSlide)
+			row.container.Position = UDim2.fromOffset(math.round(xSlide), (idx - 1) * 38)
+
+			local isLocal = (r.id == "local" or r.id == tostring(renderHud.localKartId))
+			local rBestTicks = r.entry.bestLapTicks or -1
+			local holdsFastest = bestLapOverallTicks > 0 and rBestTicks == bestLapOverallTicks
+			row.posLabel.Text = RaceHudMath.formatOrdinal(r.rank)
+			row.icon.Image = getKartIconAsset(r.entry.kartId)
+			local displayName = r.entry.displayName or (if isLocal then "You" else r.id)
+			row.nameLabel.Text = if holdsFastest then ("★ " .. displayName) else displayName
+			row.timeLabel.Text = if r.entry.finished == true and r.entry.finishTime ~= nil
+				then RaceHudMath.formatStkTime(r.entry.finishTime)
 				else string.format(
 					"Lap %d/%d",
 					math.clamp(r.entry.lap + 1, 1, renderHud.totalLaps),
 					renderHud.totalLaps
 				)
-			table.insert(lines, string.format("%s  %-10s  %s", RaceHudMath.formatOrdinal(r.rank), label, status))
+			row.bestLapLabel.Text = if rBestTicks > 0
+				then RaceHudMath.formatStkTime(FixedStep.ticksToTime(rBestTicks))
+				else "--:--.--"
+			if holdsFastest then
+				row.bg.BackgroundColor3 = Color3.fromRGB(255, 200, 60)
+				row.bg.BackgroundTransparency = 0.65
+			elseif isLocal then
+				row.bg.BackgroundColor3 = Color3.fromRGB(80, 170, 255)
+				row.bg.BackgroundTransparency = 0.72
+			else
+				row.bg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				row.bg.BackgroundTransparency = 0.88
+			end
 		end
-		finishStandingsLabel.Text = table.concat(lines, "\n")
+		for idx = #sortedFinish + 1, #resultRows do
+			resultRows[idx].container.Visible = false
+		end
 	else
+		finishShownAtSec = nil
 		finishCard.Visible = false
 	end
 
@@ -1288,6 +1638,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 
 	-- 5) Minimap interpolated kart dots (local + RemoteInterp remote karts)
 	if vis.showMiniMap then
+		mmKartIcon.Image = getKartIconAsset(renderHud.localKartSpecId)
 		local kx, ky = RaceHudMath.projectToMinimap(
 			renderHud.pos.x,
 			renderHud.pos.z,
@@ -1309,6 +1660,10 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 				local marker = getOrCreateRemoteMinimapMarker(rp.id)
 				marker.Visible = true
 				marker.Size = UDim2.fromOffset(cachedMinimapLayout.aiIconSize, cachedMinimapLayout.aiIconSize)
+				local rIcon = marker:FindFirstChild("KartIcon")
+				if rIcon and rIcon:IsA("ImageLabel") then
+					rIcon.Image = getKartIconAsset(rp.kartId)
+				end
 				local rx, ry = RaceHudMath.projectToMinimap(
 					rp.x,
 					rp.z,
@@ -1350,6 +1705,7 @@ RunService:BindToRenderStep("OpenKartGameHud", Enum.RenderPriority.Camera.Value 
 			row.rowFrame.Visible = true
 			row.rowFrame.Position = UDim2.fromOffset(0, yOff)
 			row.rowFrame.Size = UDim2.fromOffset(w, w)
+			row.icon.Image = getKartIconAsset(if entry then entry.entry.kartId else renderHud.localKartSpecId)
 			row.highlightFrame.Visible = isLocal
 			if isLocal then
 				local pulse = 0.5 + 0.5 * math.cos(os.clock() * 2.0)

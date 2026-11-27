@@ -13,6 +13,8 @@ export type KartCheckProgress = {
 	nextCheckpoint: number,
 	raceFinished: boolean,
 	finishTick: number,
+	lapStartTick: number?,
+	bestLapTicks: number?,
 }
 
 export type CheckpointGraph = {
@@ -139,6 +141,8 @@ function CheckManager.initKartProgress(
 		nextCheckpoint = initialNext,
 		raceFinished = false,
 		finishTick = -1,
+		lapStartTick = 240, -- RaceState.GO_TICK (READY_TICKS + SET_TICKS)
+		bestLapTicks = 0,
 	}
 end
 
@@ -157,7 +161,7 @@ local function resolveNextGroup(
 end
 
 -- Evaluates movement from prevPos -> currPos against the kart's currently active checkpoint group.
--- Returns (changed: boolean, lapIncremented: boolean, justFinished: boolean).
+-- Returns (changed: boolean, lapIncremented: boolean, justFinished: boolean, completedLapTicks: number?).
 function CheckManager.stepKart(
 	progress: KartCheckProgress,
 	checkpoints: { TrackRegistry.CheckpointSpec },
@@ -165,14 +169,14 @@ function CheckManager.stepKart(
 	currPos: { x: number, y: number, z: number },
 	raceTick: number,
 	totalLaps: number
-): (boolean, boolean, boolean)
+): (boolean, boolean, boolean, number?)
 	if #checkpoints == 0 then
-		return false, false, false
+		return false, false, false, nil
 	end
 	local graph = CheckManager.buildGraph(checkpoints)
 	local activeList = graph.byGroup[progress.nextCheckpoint]
 	if activeList == nil then
-		return false, false, false
+		return false, false, false, nil
 	end
 
 	for _, chk in activeList do
@@ -181,9 +185,24 @@ function CheckManager.stepKart(
 			if progress.nextCheckpoint == 0 then
 				local lapIncremented = false
 				local justFinished = false
+				local completedLapTicks: number? = nil
 				if not progress.raceFinished then
+					local prevLap = progress.lap
 					progress.lap += 1
 					lapIncremented = true
+					if prevLap >= 0 then
+						local lapStart = progress.lapStartTick or 240
+						local elapsedTicks = math.max(1, raceTick - lapStart)
+						completedLapTicks = elapsedTicks
+						if
+							progress.bestLapTicks == nil
+							or progress.bestLapTicks == 0
+							or elapsedTicks < progress.bestLapTicks
+						then
+							progress.bestLapTicks = elapsedTicks
+						end
+					end
+					progress.lapStartTick = raceTick
 					if progress.lap >= totalLaps then
 						progress.raceFinished = true
 						progress.finishTick = raceTick
@@ -191,15 +210,15 @@ function CheckManager.stepKart(
 					end
 				end
 				progress.nextCheckpoint = if graph.maxActivateGroup > 0 then nextGroup else 0
-				return true, lapIncremented, justFinished
+				return true, lapIncremented, justFinished, completedLapTicks
 			else
 				progress.nextCheckpoint = nextGroup
-				return true, false, false
+				return true, false, false, nil
 			end
 		end
 	end
 
-	return false, false, false
+	return false, false, false, nil
 end
 
 -- Converts active nextCheckpoint into a monotonic integer within a lap for Standings.compute:
@@ -411,18 +430,31 @@ function CheckManager.computeDrivelineQuadPose(
 	quadIdx: number,
 	fallbackY: number?,
 	_worldQuery: RescueWorldQuery?,
-	kartHeightMeters: number?
+	kartHeightMeters: number?,
+	branches: { TrackRegistry.DrivelineBranch }?,
+	branchIdx: number?
 ): ({ x: number, y: number, z: number }, number, boolean)
-	local n = #drivelinePoints
+	local pts = drivelinePoints
+	local isBranch = false
+	if branchIdx ~= nil and branchIdx > 0 and branches ~= nil and branches[branchIdx] ~= nil then
+		local brPts = branches[branchIdx].points
+		if #brPts >= 2 then
+			pts = brPts
+			isBranch = true
+		end
+	end
+	local n = #pts
 	if n == 0 then
 		return { x = 0, y = fallbackY or 0.0, z = 0 }, 0.0, false
 	end
-	local idx = ((quadIdx - 1) % n) + 1
-	local center = drivelinePoints[idx]
-	local nextIdx = (idx % n) + 1
-	local nextPt = drivelinePoints[nextIdx]
-	local dx = nextPt.x - center.x
-	local dz = nextPt.z - center.z
+	local idx = if isBranch then math.clamp(quadIdx, 1, n) else (((quadIdx - 1) % n) + 1)
+	local center = pts[idx]
+	local nextIdx = if isBranch then math.min(n, idx + 1) else ((idx % n) + 1)
+	local prevIdx = if isBranch and idx == n then math.max(1, idx - 1) else idx
+	local aPt = pts[prevIdx]
+	local bPt = pts[nextIdx]
+	local dx = bPt.x - aPt.x
+	local dz = bPt.z - aPt.z
 	local yawRad = if (dx * dx + dz * dz) > 1e-8 then math.atan2(dx, dz) else 0.0
 	local halfH = 0.5 * (kartHeightMeters or 0.7)
 	local quadY = if type(center.y) == "number" then center.y :: number else (fallbackY or 0.0)
@@ -432,19 +464,26 @@ function CheckManager.computeDrivelineQuadPose(
 end
 
 -- Checkline-requirement clamp matching TrackSector::update (src/tracks/track_sector.cpp:L91-L118):
--- returns true iff quadIdx is within the active sector [prevChecklineQuad, nextChecklineQuad).
+-- returns true iff quadIdx (or branch's entry/anchor quad) is within the active sector [prevChecklineQuad, nextChecklineQuad).
 function CheckManager.isQuadAllowedForProgress(
 	quadIdx: number,
 	lap: number,
 	nextCheckpoint: number,
 	checkpoints: { TrackRegistry.CheckpointSpec },
-	drivelinePoints: { { x: number, y: number?, z: number } }
+	drivelinePoints: { { x: number, y: number?, z: number } },
+	branchIdx: number?,
+	branches: { TrackRegistry.DrivelineBranch }?
 ): boolean
 	if #drivelinePoints == 0 or #checkpoints == 0 then
 		return true
 	end
 	if lap < 0 and nextCheckpoint == 0 then
 		return false
+	end
+	local checkQuad = quadIdx
+	if branchIdx ~= nil and branchIdx > 0 and branches ~= nil and branches[branchIdx] ~= nil then
+		-- Evaluate branch sector progress against the branch's main-loop anchor (fromQuad)
+		checkQuad = branches[branchIdx].fromQuad
 	end
 	local graph = CheckManager.buildGraph(checkpoints)
 	local nextQ = CheckManager.getCheckpointQuadIndex(checkpoints, nextCheckpoint, drivelinePoints)
@@ -454,45 +493,117 @@ function CheckManager.isQuadAllowedForProgress(
 		return true
 	end
 	if prevQ < nextQ then
-		return quadIdx >= prevQ and quadIdx < nextQ
+		return checkQuad >= prevQ and checkQuad < nextQ
 	end
-	return quadIdx >= prevQ or quadIdx < nextQ
+	return checkQuad >= prevQ or checkQuad < nextQ
 end
 
 function CheckManager.findNearestQuadIndex(
 	drivelinePoints: { { x: number, y: number?, z: number } },
 	x: number,
 	z: number,
-	hintQuadIdx: number?
+	hintQuadIdx: number?,
+	y: number?,
+	maxVerticalDeltaM: number?
 ): (number, number)
 	local n = #drivelinePoints
 	if n == 0 then
 		return 0, math.huge
 	end
-	local bestIdx = 1
-	local bestDistSq = math.huge
-	local bestHintDist = math.huge
-	for i = 1, n do
-		local pt = drivelinePoints[i]
-		local dx = pt.x - x
-		local dz = pt.z - z
-		local d2 = dx * dx + dz * dz
-		if d2 < bestDistSq - 1e-6 then
-			bestDistSq = d2
-			bestIdx = i
-			bestHintDist = if hintQuadIdx ~= nil then math.abs(i - hintQuadIdx) else 0
-		elseif hintQuadIdx ~= nil and math.abs(d2 - bestDistSq) <= 1e-6 then
-			local hd = math.abs(i - hintQuadIdx)
-			if hd < bestHintDist then
-				bestIdx = i
-				bestHintDist = hd
+	local maxDY = maxVerticalDeltaM or 6.0
+	local function search(enforceY: boolean): (number, number)
+		local bestIdx = 0
+		local bestDistSq = math.huge
+		local bestHintDist = math.huge
+		for i = 1, n do
+			local pt = drivelinePoints[i]
+			local dy = if y ~= nil and type(pt.y) == "number" then math.abs((pt.y :: number) - y) else 0.0
+			if not enforceY or dy <= maxDY then
+				local dx = pt.x - x
+				local dz = pt.z - z
+				local d2 = dx * dx + dz * dz + dy * dy
+				if d2 < bestDistSq - 1e-6 then
+					bestDistSq = d2
+					bestIdx = i
+					bestHintDist = if hintQuadIdx ~= nil then math.abs(i - hintQuadIdx) else 0
+				elseif hintQuadIdx ~= nil and math.abs(d2 - bestDistSq) <= 1e-6 then
+					local hd = math.abs(i - hintQuadIdx)
+					if hd < bestHintDist then
+						bestIdx = i
+						bestHintDist = hd
+					end
+				end
+			end
+		end
+		return bestIdx, bestDistSq
+	end
+	if y ~= nil then
+		local idxY, d2Y = search(true)
+		if idxY > 0 and d2Y <= 625.0 then
+			return idxY, d2Y
+		end
+	end
+	return search(false)
+end
+
+-- Branch-aware nearest-quad lookup with vertical proximity matching.
+-- Returns (quadIdx, branchIdx) where branchIdx == 0 for main driveline and 1..N for drivelineBranches.
+function CheckManager.findNearestQuadOnGraph(
+	drivelinePoints: { { x: number, y: number?, z: number } },
+	branches: { TrackRegistry.DrivelineBranch }?,
+	pos: { x: number, y: number, z: number },
+	currentBranchIdx: number?,
+	hintQuadIdx: number?,
+	maxVerticalDeltaM: number?
+): (number, number)
+	local maxDY = maxVerticalDeltaM or 6.0
+	local activeBranch = currentBranchIdx or 0
+	local mainIdx, mainD2 = CheckManager.findNearestQuadIndex(
+		drivelinePoints,
+		pos.x,
+		pos.z,
+		if activeBranch == 0 then hintQuadIdx else nil,
+		pos.y,
+		maxDY
+	)
+	local bestIdx = mainIdx
+	local bestBranch = 0
+	local bestD2 = mainD2
+
+	if branches ~= nil then
+		for bIdx, br in ipairs(branches) do
+			if #br.points >= 2 then
+				local bQuad, bD2 = CheckManager.findNearestQuadIndex(
+					br.points,
+					pos.x,
+					pos.z,
+					if activeBranch == bIdx then hintQuadIdx else nil,
+					pos.y,
+					maxDY
+				)
+				-- Stay on active branch if within road width, or enter branch when closer than main loop
+				if bQuad > 0 and (bD2 < bestD2 or (activeBranch == bIdx and bD2 <= 144.0 and bQuad < #br.points)) then
+					bestIdx = bQuad
+					bestBranch = bIdx
+					bestD2 = bD2
+				end
 			end
 		end
 	end
-	return bestIdx, bestDistSq
+	if bestIdx <= 0 then
+		bestIdx = CheckManager.findNearestQuadIndex(
+			drivelinePoints,
+			pos.x,
+			pos.z,
+			if activeBranch == 0 then hintQuadIdx else nil
+		)
+		bestBranch = 0
+	end
+	return bestIdx, bestBranch
 end
 
 -- Resolves rescue placement from recorded lastRescuePose, clamped so placement is never ahead of nextCheckpoint.
+-- Branch-aware: preserves branch identity and clamps within the current branch.
 -- When lastRescuePose is unrecorded (lastRescueQuadIdx <= 0), falls back to the nearest driveline quad center
 -- on the active track (never origin or StartPositions).
 function CheckManager.resolveClampedRescuePose(
@@ -507,38 +618,77 @@ function CheckManager.resolveClampedRescuePose(
 	startYawRad: number?,
 	_worldQuery: RescueWorldQuery?,
 	kartHeightMeters: number?,
-	currentPos: { x: number, y: number, z: number }?
-): ({ x: number, y: number, z: number }, number, number)
+	currentPos: { x: number, y: number, z: number }?,
+	lastRescueBranchIdx: number?,
+	branches: { TrackRegistry.DrivelineBranch }?
+): ({ x: number, y: number, z: number }, number, number, number)
+	local branchIdx = lastRescueBranchIdx or 0
 	if
 		lastRescueQuadIdx > 0
-		and CheckManager.isQuadAllowedForProgress(lastRescueQuadIdx, lap, nextCheckpoint, checkpoints, drivelinePoints)
+		and CheckManager.isQuadAllowedForProgress(
+			lastRescueQuadIdx,
+			lap,
+			nextCheckpoint,
+			checkpoints,
+			drivelinePoints,
+			branchIdx,
+			branches
+		)
 	then
-		return { x = lastRescuePos.x, y = lastRescuePos.y, z = lastRescuePos.z }, lastRescueYawRad, lastRescueQuadIdx
+		return { x = lastRescuePos.x, y = lastRescuePos.y, z = lastRescuePos.z },
+			lastRescueYawRad,
+			lastRescueQuadIdx,
+			branchIdx
 	end
 	local n = #drivelinePoints
 	if lastRescueQuadIdx > 0 and n > 0 then
+		if branchIdx > 0 and branches ~= nil and branches[branchIdx] ~= nil and #branches[branchIdx].points >= 2 then
+			-- Branch-aware clamp: keep within current branch
+			local br = branches[branchIdx]
+			local clampedBrQ = math.clamp(lastRescueQuadIdx, 1, #br.points)
+			local qPos, qYaw, valid = CheckManager.computeDrivelineQuadPose(
+				drivelinePoints,
+				clampedBrQ,
+				lastRescuePos.y,
+				nil,
+				kartHeightMeters,
+				branches,
+				branchIdx
+			)
+			if valid then
+				return qPos, qYaw, clampedBrQ, branchIdx
+			end
+		end
 		local nextQ = CheckManager.getCheckpointQuadIndex(checkpoints, nextCheckpoint, drivelinePoints)
 		if nextQ ~= nil then
 			local clampedQ = if nextQ > 1 then nextQ - 1 else n
 			local qPos, qYaw, valid =
 				CheckManager.computeDrivelineQuadPose(drivelinePoints, clampedQ, lastRescuePos.y, nil, kartHeightMeters)
 			if valid then
-				return qPos, qYaw, clampedQ
+				return qPos, qYaw, clampedQ, 0
 			end
 		end
 	end
 	if n > 0 then
 		local refPos = currentPos or startPos
-		local nearestQ = CheckManager.findNearestQuadIndex(drivelinePoints, refPos.x, refPos.z, nil)
+		local nearestQ, nearestBr =
+			CheckManager.findNearestQuadOnGraph(drivelinePoints, branches, refPos, branchIdx, nil)
 		if nearestQ > 0 then
-			local qPos, qYaw, valid =
-				CheckManager.computeDrivelineQuadPose(drivelinePoints, nearestQ, startPos.y, nil, kartHeightMeters)
+			local qPos, qYaw, valid = CheckManager.computeDrivelineQuadPose(
+				drivelinePoints,
+				nearestQ,
+				startPos.y,
+				nil,
+				kartHeightMeters,
+				branches,
+				nearestBr
+			)
 			if valid then
-				return qPos, qYaw, nearestQ
+				return qPos, qYaw, nearestQ, nearestBr
 			end
 		end
 	end
-	return { x = startPos.x, y = startPos.y, z = startPos.z }, startYawRad or 0.0, 0
+	return { x = startPos.x, y = startPos.y, z = startPos.z }, startYawRad or 0.0, 0, 0
 end
 
 -- Post-rescue assertion: verifies drivable ground exists within maxGroundDistMeters below pos.
@@ -549,7 +699,9 @@ function CheckManager.verifyRescuePlacement(
 	drivelinePoints: { { x: number, y: number?, z: number } },
 	worldQuery: RescueWorldQuery?,
 	kartHeightMeters: number?,
-	maxGroundDistMeters: number?
+	maxGroundDistMeters: number?,
+	branches: { TrackRegistry.DrivelineBranch }?,
+	branchIdx: number?
 ): ({ x: number, y: number, z: number }, number, boolean, string?)
 	if worldQuery == nil then
 		return pos, yawRad, true, nil
@@ -570,20 +722,28 @@ function CheckManager.verifyRescuePlacement(
 			return pos, yawRad, true, nil
 		end
 	end
-	local nearestQ = CheckManager.findNearestQuadIndex(drivelinePoints, pos.x, pos.z, nil)
+	local nearestQ, nearestBr = CheckManager.findNearestQuadOnGraph(drivelinePoints, branches, pos, branchIdx or 0, nil)
 	if nearestQ > 0 then
-		local snapPos, snapYaw =
-			CheckManager.computeDrivelineQuadPose(drivelinePoints, nearestQ, pos.y, nil, kartHeightMeters)
+		local snapPos, snapYaw = CheckManager.computeDrivelineQuadPose(
+			drivelinePoints,
+			nearestQ,
+			pos.y,
+			nil,
+			kartHeightMeters,
+			branches,
+			nearestBr
+		)
 		return snapPos,
 			snapYaw,
 			false,
 			string.format(
-				"no drivable ground within %.2fm below (%.2f, %.2f, %.2f); snapped to quad #%d",
+				"no drivable ground within %.2fm below (%.2f, %.2f, %.2f); snapped to quad #%d (branch %d)",
 				maxDist,
 				pos.x,
 				pos.y,
 				pos.z,
-				nearestQ
+				nearestQ,
+				nearestBr
 			)
 	end
 	return pos, yawRad, false, "no drivable ground below rescue placement and no driveline quads"

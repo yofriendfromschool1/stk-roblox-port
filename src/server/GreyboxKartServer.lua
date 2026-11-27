@@ -17,6 +17,7 @@ local FixedStep = require(Shared.sim.FixedStep)
 local Flyable = require(Shared.sim.Flyable)
 local GreyboxArenaData = require(Shared.track.GreyboxArenaData)
 local GreyboxProtocol = require(Shared.net.GreyboxProtocol)
+local ItemEffectState = require(Shared.sim.ItemEffectState)
 local ItemTuning = require(Shared.ItemTuning)
 local ItemWorld = require(Shared.items.ItemWorld)
 local KartAssetHydrator = require("./KartAssetHydrator")
@@ -508,6 +509,10 @@ function GreyboxKartServer.start()
 		return KartAssetHydrator.hydrateKart(rawKartId)
 	end
 
+	local fastestLapRemote = Instance.new("RemoteEvent")
+	fastestLapRemote.Name = "FastestLap"
+	fastestLapRemote.Parent = remotesFolder
+
 	local DIFFICULTY_INDEX: { [string]: number } = {
 		novice = 0,
 		intermediate = 1,
@@ -530,6 +535,9 @@ function GreyboxKartServer.start()
 	local sessionConfig: MenuFlow.SessionConfig = MenuFlow.sanitizeSessionConfig(nil)
 	local profile = KartTuning.buildProfileForKart(sessionConfig.kartId, sessionConfig.difficulty)
 	local raceClock = RaceState.create(sessionConfig.laps)
+	local fastestLapTicks = -1
+	local fastestLapKartId = ""
+	local fastestLapHolderName = ""
 	local function initRaceProgress(
 		state: KartSolver.KartState,
 		spawnPos: { x: number, y: number, z: number },
@@ -640,6 +648,9 @@ function GreyboxKartServer.start()
 		profile = KartTuning.buildProfileForKart(sessionConfig.kartId, sessionConfig.difficulty)
 		KartAssetHydrator.hydrateKart(profile.kartId)
 		raceClock = RaceState.create(sessionConfig.laps)
+		fastestLapTicks = -1
+		fastestLapKartId = ""
+		fastestLapHolderName = ""
 		itemWorld = ItemWorld.fromArenaSpec(activeTrack :: any, sessionConfig.raceType)
 		flyableWorld = Flyable.createWorld()
 		local playerTotal = 0
@@ -967,6 +978,105 @@ function GreyboxKartServer.start()
 			Workspace:SetAttribute("OpenKartActiveTrack", activeTrack.trackId)
 			resetFullRace()
 		end)
+
+		local debugHarness = Instance.new("BindableFunction")
+		debugHarness.Name = "OpenKartDebugHarness"
+		debugHarness.Parent = remotesFolder
+		debugHarness.OnInvoke = function(op: string, a: any, b: any, c: any, d: any, e: any): any
+			local firstEntry: any = nil
+			for _, entry in entries do
+				firstEntry = entry
+				break
+			end
+			if op == "teleportPlayer" and firstEntry ~= nil then
+				local st: KartSolver.KartState = firstEntry.state
+				local yaw = tonumber(d) or 0.0
+				local pitch = tonumber(e) or 0.0
+				st.pos = { x = tonumber(a) or st.pos.x, y = tonumber(b) or st.pos.y, z = tonumber(c) or st.pos.z }
+				local qY = Math3D.quatFromAxisAngle({ x = 0, y = 1, z = 0 }, yaw)
+				local qP = if pitch ~= 0.0
+					then Math3D.quatFromAxisAngle({ x = 1, y = 0, z = 0 }, pitch)
+					else Math3D.quatIdentity()
+				st.rot = Math3D.quatNormalize(Math3D.quatMul(qY, qP))
+				st.linVel = { x = 0, y = 0, z = 0 }
+				st.angVel = { x = 0, y = 0, z = 0 }
+				st.speed = 0.0
+				firstEntry.forceSnapshot = true
+				return true
+			elseif op == "setRaceTick" then
+				local tTick = math.max(0, math.floor(tonumber(a) or 0))
+				raceClock.raceTick = tTick
+				raceClock.phase = RaceState.phaseAtTick(tTick, -1) :: RaceState.RacePhase
+				for _, entry in entries do
+					entry.state.race.raceTick = tTick
+					entry.state.race.phase = raceClock.phase
+					entry.forceSnapshot = true
+				end
+				return raceClock.phase
+			elseif op == "triggerPlayerRescue" and firstEntry ~= nil then
+				local st: KartSolver.KartState = firstEntry.state
+				local targetPos, targetYawRad = CheckManager.resolveClampedRescuePose(
+					st.lastRescueQuadIdx,
+					st.lastRescuePos,
+					st.lastRescueYawRad,
+					activeTrack.checkpoints,
+					st.race.lap,
+					st.race.nextCheckpoint,
+					activeTrack.drivelineQuadCenters,
+					activeTrack.startPos,
+					activeTrack.startYawRad,
+					worldQuery,
+					profile.collisionHeight,
+					st.pos,
+					st.lastRescueBranchIdx,
+					activeTrack.drivelineBranches
+				)
+				local ok = KartSolver.triggerRescue(st, targetPos, targetYawRad)
+				firstEntry.forceSnapshot = true
+				return {
+					started = ok,
+					rescueTicks = st.rescueTicks,
+					originPos = { st.pos.x, st.pos.y, st.pos.z },
+					targetPos = { targetPos.x, targetPos.y, targetPos.z },
+				}
+			elseif op == "getPlayerState" and firstEntry ~= nil then
+				local st: KartSolver.KartState = firstEntry.state
+				return {
+					pos = { st.pos.x, st.pos.y, st.pos.z },
+					rot = { st.rot.w, st.rot.x, st.rot.y, st.rot.z },
+					rescueTicks = st.rescueTicks,
+					inputSuppressed = ItemEffectState.isDriverInputSuppressed(st.itemEffect),
+					racePhase = st.race.phase,
+					raceTick = st.race.raceTick,
+				}
+			elseif op == "driftFire" and firstEntry ~= nil then
+				local st: KartSolver.KartState = firstEntry.state
+				local visYaw = tonumber(a) or 0.0
+				local pType = tonumber(b) or ItemTuning.POWERUP_BOWLING
+				st.speed = 20.0
+				st.skid.visualRotation = visYaw
+				local proxy = KartSolver.makeFlyableProxy(firstEntry.player.UserId, st, 1, sessionConfig.difficulty)
+				local proxies = { proxy }
+				local spawned: Flyable.FlyableEntry? = nil
+				if pType == ItemTuning.POWERUP_BOWLING then
+					spawned = Flyable.spawnBowling(flyableWorld, proxy, false)
+				elseif pType == ItemTuning.POWERUP_CAKE then
+					spawned = Flyable.spawnCake(flyableWorld, proxy, proxies, false)
+				elseif pType == ItemTuning.POWERUP_PLUNGER then
+					spawned = Flyable.spawnPlunger(flyableWorld, proxy, proxies, false, false)
+				end
+				firstEntry.forceSnapshot = true
+				local _, _, alignedFwd = Math3D.quatBasis(KartSolver.getAlignedRotation(st))
+				local _, _, physFwd = Math3D.quatBasis(st.rot)
+				local launchVel = if spawned then spawned.vel else { x = 0, y = 0, z = 0 }
+				return {
+					launchVel = { launchVel.x, launchVel.y, launchVel.z },
+					alignedFwd = { alignedFwd.x, alignedFwd.y, alignedFwd.z },
+					physFwd = { physFwd.x, physFwd.y, physFwd.z },
+				}
+			end
+			return nil
+		end
 	end
 
 	local stepper: FixedStep.Accumulator
@@ -1207,7 +1317,7 @@ function GreyboxKartServer.start()
 			end
 
 			local function triggerKartRescue(kState: KartSolver.KartState, prof: KartTuning.KartProfile): boolean
-				local targetPos, targetYawRad = CheckManager.resolveClampedRescuePose(
+				local targetPos, targetYawRad, _, targetBranch = CheckManager.resolveClampedRescuePose(
 					kState.lastRescueQuadIdx,
 					kState.lastRescuePos,
 					kState.lastRescueYawRad,
@@ -1219,14 +1329,19 @@ function GreyboxKartServer.start()
 					activeTrack.startYawRad,
 					worldQuery,
 					prof.collisionHeight,
-					kState.pos
+					kState.pos,
+					kState.lastRescueBranchIdx,
+					activeTrack.drivelineBranches
 				)
 				local verifiedPos, verifiedYaw, groundOk, errReason = CheckManager.verifyRescuePlacement(
 					targetPos,
 					targetYawRad,
 					activeTrack.drivelineQuadCenters,
 					worldQuery,
-					prof.collisionHeight
+					prof.collisionHeight,
+					nil,
+					activeTrack.drivelineBranches,
+					targetBranch
 				)
 				if not groundOk then
 					warn(string.format("[OpenKart][Rescue] Post-rescue ground check failed: %s", tostring(errReason)))
@@ -1234,9 +1349,34 @@ function GreyboxKartServer.start()
 				return KartSolver.triggerRescue(kState, verifiedPos, verifiedYaw)
 			end
 
+			local function recordLapCompletion(kartId: string, holderName: string, completedLapTicks: number?)
+				if completedLapTicks ~= nil and completedLapTicks > 0 then
+					if fastestLapTicks < 0 or completedLapTicks < fastestLapTicks then
+						fastestLapTicks = completedLapTicks
+						fastestLapKartId = kartId
+						fastestLapHolderName = holderName
+						fastestLapRemote:FireAllClients({
+							kartId = kartId,
+							holderName = holderName,
+							timeTicks = completedLapTicks,
+						})
+						for _, e in entries do
+							e.forceSnapshot = true
+						end
+					end
+				end
+			end
+
+			local function formatAiDisplayName(kId: string): string
+				return string.upper(string.sub(kId, 1, 1)) .. string.sub(kId, 2) .. " (AI)"
+			end
+
 			if dummyEnabled then
+				local dummyAnimSuppressed = ItemEffectState.isDriverInputSuppressed(dummyState.itemEffect)
+				local dummyStuck =
+					AIController.stepStuckWatchdog(dummyAI, dummyState, racePhase == "RACE_PHASE", dummyAnimSuppressed)
 				if
-					(dummyState.pos.y < activeTrack.voidResetYMeters or dummyState.resetTriggered)
+					(dummyState.pos.y < activeTrack.voidResetYMeters or dummyState.resetTriggered or dummyStuck)
 					and not KartSolver.isRescuing(dummyState)
 				then
 					triggerKartRescue(dummyState, dummyState.profile)
@@ -1279,7 +1419,7 @@ function GreyboxKartServer.start()
 					end,
 				})
 				if not KartSolver.isRescuing(dummyState) then
-					CheckManager.stepKart(
+					local _, _, _, dLapTicks = CheckManager.stepKart(
 						dummyState.race,
 						activeTrack.checkpoints,
 						dummyState.prevPos,
@@ -1287,18 +1427,38 @@ function GreyboxKartServer.start()
 						raceTick,
 						raceClock.totalLaps
 					)
+					recordLapCompletion(
+						TestDummyKart.DUMMY_STRING_ID,
+						formatAiDisplayName(dummyState.profile.kartId),
+						dLapTicks
+					)
+					local dBrIdx, dQIdx = AIController.getCurrentBranchAndNode(
+						dummyAI,
+						activeTrack.drivelineQuadCenters,
+						activeTrack.drivelineBranches :: any
+					)
 					KartSolver.updateLastRescuePose(
 						dummyState,
 						activeTrack.checkpoints,
 						activeTrack.drivelineQuadCenters,
-						worldQuery
+						worldQuery,
+						activeTrack.drivelineBranches,
+						dBrIdx,
+						dQIdx
 					)
 				end
 			end
 
 			for aiIdx, extra in extraAIs do
+				local extraAnimSuppressed = ItemEffectState.isDriverInputSuppressed(extra.state.itemEffect)
+				local extraStuck = AIController.stepStuckWatchdog(
+					extra.ai,
+					extra.state,
+					racePhase == "RACE_PHASE",
+					extraAnimSuppressed
+				)
 				if
-					(extra.state.pos.y < activeTrack.voidResetYMeters or extra.state.resetTriggered)
+					(extra.state.pos.y < activeTrack.voidResetYMeters or extra.state.resetTriggered or extraStuck)
 					and not KartSolver.isRescuing(extra.state)
 				then
 					triggerKartRescue(extra.state, extra.state.profile)
@@ -1341,7 +1501,7 @@ function GreyboxKartServer.start()
 					end,
 				})
 				if not KartSolver.isRescuing(extra.state) then
-					CheckManager.stepKart(
+					local _, _, _, eLapTicks = CheckManager.stepKart(
 						extra.state.race,
 						activeTrack.checkpoints,
 						extra.state.prevPos,
@@ -1349,11 +1509,20 @@ function GreyboxKartServer.start()
 						raceTick,
 						raceClock.totalLaps
 					)
+					recordLapCompletion(extra.sid, formatAiDisplayName(extra.state.profile.kartId), eLapTicks)
+					local eBrIdx, eQIdx = AIController.getCurrentBranchAndNode(
+						extra.ai,
+						activeTrack.drivelineQuadCenters,
+						activeTrack.drivelineBranches :: any
+					)
 					KartSolver.updateLastRescuePose(
 						extra.state,
 						activeTrack.checkpoints,
 						activeTrack.drivelineQuadCenters,
-						worldQuery
+						worldQuery,
+						activeTrack.drivelineBranches,
+						eBrIdx,
+						eQIdx
 					)
 				end
 			end
@@ -1397,7 +1566,7 @@ function GreyboxKartServer.start()
 					end,
 				})
 				if not KartSolver.isRescuing(localP2State) then
-					CheckManager.stepKart(
+					local _, _, _, p2LapTicks = CheckManager.stepKart(
 						localP2State.race,
 						activeTrack.checkpoints,
 						localP2State.prevPos,
@@ -1405,11 +1574,20 @@ function GreyboxKartServer.start()
 						raceTick,
 						raceClock.totalLaps
 					)
+					recordLapCompletion(LOCAL_P2_STRING_ID, "Player 2", p2LapTicks)
+					local p2BrIdx, p2QIdx = AIController.getCurrentBranchAndNode(
+						localP2AI,
+						activeTrack.drivelineQuadCenters,
+						activeTrack.drivelineBranches :: any
+					)
 					KartSolver.updateLastRescuePose(
 						localP2State,
 						activeTrack.checkpoints,
 						activeTrack.drivelineQuadCenters,
-						worldQuery
+						worldQuery,
+						activeTrack.drivelineBranches,
+						p2BrIdx,
+						p2QIdx
 					)
 				end
 				AIController.updateProgress(localP2AI, localP2State.pos, activeTrack.drivelineQuadCenters)
@@ -1478,7 +1656,7 @@ function GreyboxKartServer.start()
 				})
 				local chkChanged = false
 				if not KartSolver.isRescuing(entry.state) then
-					chkChanged = CheckManager.stepKart(
+					local stepChanged, _, _justFin, pLapTicks = CheckManager.stepKart(
 						entry.state.race,
 						activeTrack.checkpoints,
 						entry.state.prevPos,
@@ -1486,11 +1664,22 @@ function GreyboxKartServer.start()
 						raceTick,
 						raceClock.totalLaps
 					)
+					chkChanged = stepChanged
+					local holder = if #entry.player.DisplayName > 0 then entry.player.DisplayName else entry.player.Name
+					recordLapCompletion(tostring(kartId), holder, pLapTicks)
+					local pBrIdx, pQIdx = AIController.getCurrentBranchAndNode(
+						entry.progress,
+						activeTrack.drivelineQuadCenters,
+						activeTrack.drivelineBranches :: any
+					)
 					KartSolver.updateLastRescuePose(
 						entry.state,
 						activeTrack.checkpoints,
 						activeTrack.drivelineQuadCenters,
-						worldQuery
+						worldQuery,
+						activeTrack.drivelineBranches,
+						pBrIdx,
+						pQIdx
 					)
 				end
 				AIController.updateProgress(entry.progress, entry.state.pos, activeTrack.drivelineQuadCenters)
@@ -1557,6 +1746,12 @@ function GreyboxKartServer.start()
 			end
 
 			local _, postProxies = computeStandingsAndProxies()
+			for _, proxy in postProxies do
+				local pState = (proxy :: any)._state
+				if pState ~= nil then
+					KartSolver.refreshFlyableProxy(proxy, pState, proxy.rank)
+				end
+			end
 			local preFlyCount = #flyableWorld.entries
 			local preEffects: { [Player]: number } = {}
 			for player, entry in entries do
@@ -1642,6 +1837,8 @@ function GreyboxKartServer.start()
 			nextCheckpoint = dummyState.race.nextCheckpoint,
 			raceFinished = dummyState.race.raceFinished,
 			finishTick = dummyState.race.finishTick,
+			bestLapTicks = dummyState.race.bestLapTicks,
+			rescueTicks = dummyState.rescueTicks,
 			trackNodeIdx = dummyAI.trackNodeIdx,
 			slipstreamTime = dummySSTime,
 			slipstreamBonusTime = dummySSBonus,
@@ -1716,6 +1913,8 @@ function GreyboxKartServer.start()
 						nextCheckpoint = extra.state.race.nextCheckpoint,
 						raceFinished = extra.state.race.raceFinished,
 						finishTick = extra.state.race.finishTick,
+						bestLapTicks = extra.state.race.bestLapTicks,
+						rescueTicks = extra.state.rescueTicks,
 						trackNodeIdx = extra.ai.trackNodeIdx,
 						slipstreamTime = eSSTime,
 						slipstreamBonusTime = eSSBonus,
@@ -1749,6 +1948,8 @@ function GreyboxKartServer.start()
 						nextCheckpoint = localP2State.race.nextCheckpoint,
 						raceFinished = localP2State.race.raceFinished,
 						finishTick = localP2State.race.finishTick,
+						bestLapTicks = localP2State.race.bestLapTicks,
+						rescueTicks = localP2State.rescueTicks,
 						trackNodeIdx = localP2AI.trackNodeIdx,
 						slipstreamTime = p2SSTime,
 						slipstreamBonusTime = p2SSBonus,
@@ -1784,12 +1985,17 @@ function GreyboxKartServer.start()
 							nextCheckpoint = other.state.race.nextCheckpoint,
 							raceFinished = other.state.race.raceFinished,
 							finishTick = other.state.race.finishTick,
+							bestLapTicks = other.state.race.bestLapTicks,
+							rescueTicks = other.state.rescueTicks,
 							trackNodeIdx = other.progress.trackNodeIdx,
 							slipstreamTime = oSSTime,
 							slipstreamBonusTime = oSSBonus,
 						})
 					end
 				end
+				entry.state.fastestLapTicks = fastestLapTicks
+				entry.state.fastestLapKartId = fastestLapKartId
+				entry.state.fastestLapHolderName = fastestLapHolderName
 				fireSnapshotPacket(telemetryRemote, entry, currentTick, now, itemWorld, flyableWorld, remotesForPlayer)
 			end
 		end

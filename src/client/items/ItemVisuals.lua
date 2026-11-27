@@ -40,6 +40,7 @@ local VARIANT_MODEL_MAP: { [string]: { [Variant]: string } } = {
 	["anvil"] = { attachment = "anchor", pickup = "anchor" },
 	["bomb"] = { attachment = "bomb", pickup = "bomb" },
 	["swatter"] = { attachment = "swatter", pickup = "swatter" },
+	["referee"] = { pickup = "referee" },
 }
 
 local ItemVisuals = {}

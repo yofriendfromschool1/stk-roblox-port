@@ -88,6 +88,9 @@ function ItemPresentation.sync(ctrl: ItemPresentationController, itemWorld: Item
 	debug.profilebegin("OpenKart_ItemSync")
 	local seen: { [number]: boolean } = {}
 	for _, entry in itemWorld.items do
+		if entry.itemType == "item" and not itemWorld.haveBonusBoxes then
+			continue
+		end
 		seen[entry.id] = true
 		local expectedModelId = TYPE_TO_MODEL_ID[entry.itemType]
 		local vis: ItemVisualInstance? = ctrl.instances[entry.id]

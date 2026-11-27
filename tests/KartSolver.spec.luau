@@ -1170,7 +1170,7 @@ local tests: { TestCase } = {
 		end,
 	},
 	{
-		name = "nitro activation requires accel > 0 and grounded; committed 64-tick burn survives accel release",
+		name = "nitro activation follows kart.cpp:L2249-L2296 (no accel gate; airborne drains without boost)",
 		fn = function()
 			local profile = KartTuning.buildProfile("medium", "best")
 			local roadWorld = makeMaterialPlaneWorld(function()
@@ -1178,7 +1178,7 @@ local tests: { TestCase } = {
 			end, 0.0)
 			local airWorld = makeEmptyAirWorld()
 
-			-- 1) Grounded kart pressing nitro without accel does NOT activate or drain reserve
+			-- 1) Grounded kart pressing nitro without accel activates and drains per kart.cpp:L2249
 			local sNoAccel = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
 			KartSolver.addNitro(sNoAccel, 10.0)
 			for _ = 1, 20 do
@@ -1189,11 +1189,11 @@ local tests: { TestCase } = {
 					FixedStep.FIXED_DT
 				)
 			end
-			assert(not sNoAccel.nitro.active, "nitro must not activate without accel > 0")
-			assert(sNoAccel.nitro.minNitroTicks == 0, "minNitroTicks stays 0 without accel > 0")
-			assertNear(sNoAccel.nitro.energy, 10.0, 1e-6, "no nitro energy drained without accel > 0")
+			assert(sNoAccel.nitro.active, "nitro activates on nitroPressed even without accel > 0")
+			assert(sNoAccel.nitro.minNitroTicks > 0, "minNitroTicks committed")
+			assert(sNoAccel.nitro.energy < 10.0, "nitro energy drained on burn")
 
-			-- 2) Airborne kart pressing nitro WITH accel does NOT activate or drain reserve
+			-- 2) Airborne kart pressing nitro commits burn & drains energy, but does NOT apply speed boost
 			local sAir = KartSolver.createState(profile, { x = 0, y = 10.0, z = 0 }, 0)
 			KartSolver.addNitro(sAir, 10.0)
 			for _ = 1, 10 do
@@ -1204,9 +1204,9 @@ local tests: { TestCase } = {
 					FixedStep.FIXED_DT
 				)
 			end
-			assert(not sAir.nitro.active, "nitro must not activate while airborne")
-			assert(sAir.nitro.minNitroTicks == 0, "minNitroTicks stays 0 while airborne")
-			assertNear(sAir.nitro.energy, 10.0, 1e-6, "no nitro energy drained while airborne")
+			assert(not sAir.nitro.active, "nitro speed boost is gated on isOnGround")
+			assert(sAir.nitro.minNitroTicks > 0, "minNitroTicks committed even while airborne")
+			assert(sAir.nitro.energy < 10.0, "nitro energy drains while committed in air")
 
 			-- 3) Committed 64-tick burn (activated with accel=1 & grounded) completes if accel + nitro are released
 			local sCommit = KartSolver.createState(profile, { x = 0, y = 0.291, z = 0 }, 0)
@@ -1231,14 +1231,14 @@ local tests: { TestCase } = {
 					string.format("committed burn must stay active at tick %d even with accel=0", tick)
 				)
 			end
-			-- On tick 64, holding nitro with accel=0 must NOT extend past the committed 64 ticks
+			-- On tick 64, releasing nitro ends the committed burn cleanly
 			KartSolver.step(
 				sCommit,
-				{ accel = 0, brake = false, steer = 0, drift = false, nitro = true },
+				{ accel = 0, brake = false, steer = 0, drift = false, nitro = false },
 				roadWorld,
 				FixedStep.FIXED_DT
 			)
-			assert(not sCommit.nitro.active, "committed burn ends at tick 64 and does not re-ignite while accel=0")
+			assert(not sCommit.nitro.active, "committed burn ends at tick 64 when nitro is released")
 			assert(sCommit.nitro.minNitroTicks == 0, "minNitroTicks returns to 0 after committed burn")
 		end,
 	},
