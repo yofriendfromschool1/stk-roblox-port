@@ -1091,6 +1091,7 @@ end
 
 function KartSolver.refreshFlyableProxy(proxy: Flyable.KartProxy, state: KartState, rank: number?)
 	proxy.pos = state.pos
+	proxy.prevPos = state.prevPos
 	proxy.rot = state.rot
 	proxy.alignedRot = KartSolver.getAlignedRotation(state)
 	proxy.linVel = state.linVel
@@ -1109,6 +1110,7 @@ function KartSolver.makeFlyableProxy(id: number, state: KartState, rank: number,
 		_state = state,
 		id = id,
 		pos = state.pos,
+		prevPos = state.prevPos,
 		rot = state.rot,
 		alignedRot = KartSolver.getAlignedRotation(state),
 		linVel = state.linVel,
@@ -1527,6 +1529,16 @@ local function adjustSpeed(state: KartState, minSpeed: number, maxSpeed: number,
 end
 
 local function computeChassisHalfExtents(profile: KartTuning.KartProfile): Vec3
+	assert(
+		profile.width > 0 and profile.collisionHeight > 0 and profile.length > 0,
+		string.format(
+			"KartProfile '%s' has non-positive collision dimensions (w=%.4f h=%.4f l=%.4f)",
+			tostring(profile.kartId),
+			profile.width,
+			profile.collisionHeight,
+			profile.length
+		)
+	)
 	return {
 		x = 0.5 * profile.width,
 		y = 0.5 * profile.collisionHeight,
@@ -2470,6 +2482,12 @@ function KartSolver.stepWithItems(
 		elseif firedPowerup == ItemTuning.POWERUP_PARACHUTE then
 			local proxies = options.allKartProxies
 			if proxies ~= nil then
+				for _, p in proxies do
+					local pState = (p :: any)._state
+					if pState ~= nil then
+						KartSolver.refreshFlyableProxy(p, pState, p.rank)
+					end
+				end
 				local ownerRank = options.rank or 2
 				local paraTargets: { { state: KartState, rank: number } } = {}
 				for _, p in proxies do
@@ -2518,6 +2536,14 @@ function KartSolver.stepWithItems(
 			)
 		elseif firedPowerup == ItemTuning.POWERUP_RUBBERBALL and options.flyableWorld ~= nil then
 			local ownerProxy = KartSolver.makeFlyableProxy(kartId, state, options.rank or 1, options.difficulty)
+			if options.allKartProxies ~= nil then
+				for _, p in options.allKartProxies do
+					local pState = (p :: any)._state
+					if pState ~= nil then
+						KartSolver.refreshFlyableProxy(p, pState, p.rank)
+					end
+				end
+			end
 			Flyable.spawnRubberBall(
 				options.flyableWorld,
 				ownerProxy,
@@ -2735,10 +2761,11 @@ function KartSolver.resolveKartKartCollisions(participants: { CollisionParticipa
 			continue
 		end
 		local hA = computeChassisHalfExtents(aState.profile)
-		local aRight, _, aFwd = Math3D.quatBasis(aState.rot)
+		local aRight, aUp, aFwd = Math3D.quatBasis(aState.rot)
+		local cA = computeBoxCenter(aState.pos, aState.rot, hA)
 		local aRx, aRz = normalizeXZAxis(aRight, 1.0, 0.0)
 		local aFx, aFz = normalizeXZAxis(aFwd, 0.0, 1.0)
-		local radA = math.sqrt(hA.x * hA.x + hA.z * hA.z)
+		local radA = math.sqrt(hA.x * hA.x + hA.y * hA.y + hA.z * hA.z)
 
 		for j = i + 1, n do
 			local bState = sorted[j].state
@@ -2746,18 +2773,28 @@ function KartSolver.resolveKartKartCollisions(participants: { CollisionParticipa
 				continue
 			end
 			local hB = computeChassisHalfExtents(bState.profile)
-			local dy = math.abs(bState.pos.y - aState.pos.y)
-			if dy >= (hA.y + hB.y) then
-				continue
-			end
-			local dx = bState.pos.x - aState.pos.x
-			local dz = bState.pos.z - aState.pos.z
-			local radB = math.sqrt(hB.x * hB.x + hB.z * hB.z)
-			if (dx * dx + dz * dz) > (radA + radB) * (radA + radB) then
+			local bRight, bUp, bFwd = Math3D.quatBasis(bState.rot)
+			local cB = computeBoxCenter(bState.pos, bState.rot, hB)
+
+			-- 3D oriented chassis-up vertical overlap test (Bullet 3D hull overlap: kart.cpp:L659-L731, physics.cpp:L674-L678)
+			local diff3 = Math3D.sub(cB, cA)
+			local avgUp = Math3D.normalize(Math3D.add(aUp, bUp), { x = 0, y = 1, z = 0 })
+			local projUpA = hA.x * math.abs(Math3D.dot(aRight, avgUp))
+				+ hA.y * math.abs(Math3D.dot(aUp, avgUp))
+				+ hA.z * math.abs(Math3D.dot(aFwd, avgUp))
+			local projUpB = hB.x * math.abs(Math3D.dot(bRight, avgUp))
+				+ hB.y * math.abs(Math3D.dot(bUp, avgUp))
+				+ hB.z * math.abs(Math3D.dot(bFwd, avgUp))
+			if math.abs(Math3D.dot(diff3, avgUp)) >= (projUpA + projUpB) then
 				continue
 			end
 
-			local bRight, _, bFwd = Math3D.quatBasis(bState.rot)
+			local dx = cB.x - cA.x
+			local dz = cB.z - cA.z
+			local radB = math.sqrt(hB.x * hB.x + hB.y * hB.y + hB.z * hB.z)
+			if (dx * dx + dz * dz) > (radA + radB) * (radA + radB) then
+				continue
+			end
 			local bRx, bRz = normalizeXZAxis(bRight, 1.0, 0.0)
 			local bFx, bFz = normalizeXZAxis(bFwd, 0.0, 1.0)
 

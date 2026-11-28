@@ -273,6 +273,7 @@ local itemVisuals = ItemPresentation.create()
 local flyableVisuals = FlyablePresentation.create()
 local latestRemoteKarts: { GreyboxProtocol.RemoteKartState } = {}
 local remoteKartStates: { [string]: KartSolver.KartState } = {}
+local remoteSnapshotBase: { [string]: { pos: Math3D.Vec3, linVel: Math3D.Vec3, rot: Math3D.Quat } } = {}
 local remoteKartVisuals: { [string]: KartPresentation.VisualKart } = {}
 local remoteInterpBuffers: { [string]: RemoteInterp.Buffer } = {}
 local sfxPlayer = SfxPlayer.create()
@@ -515,6 +516,7 @@ local function teardownClientMatch(destroyLocalVisuals: boolean)
 	table.clear(remoteKartVisuals)
 	table.clear(remoteInterpBuffers)
 	table.clear(remoteKartStates)
+	table.clear(remoteSnapshotBase)
 	table.clear(latestRemoteKarts)
 	local kartsFolder = Workspace:FindFirstChild(GreyboxProtocol.LOCAL_KARTS_FOLDER)
 	if kartsFolder then
@@ -659,12 +661,15 @@ local function syncRemoteKartStates(remotes: { GreyboxProtocol.RemoteKartState }
 	local seen: { [string]: boolean } = {}
 	for _, rk in remotes do
 		seen[rk.id] = true
+		local rKartId = rk.kartId or "tux"
 		local rs = remoteKartStates[rk.id]
-		if rs == nil then
-			rs = KartSolver.createState(profile, { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }, 0)
+		if rs == nil or rs.profile.kartId ~= rKartId then
+			local rProf = KartTuning.buildProfileForKart(rKartId, "best")
+			rs = KartSolver.createState(rProf, { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }, 0)
 			remoteKartStates[rk.id] = rs
 		end
 		rs.pos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
+		rs.prevPos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
 		rs.lastSafePos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] }
 		rs.rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] }
 		rs.lastSafeRot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] }
@@ -681,10 +686,53 @@ local function syncRemoteKartStates(remotes: { GreyboxProtocol.RemoteKartState }
 		rs.attachmentTicksLeft = rk.attachmentTicksLeft or 0
 		rs.itemEffect.plungerFaceTicks = rk.plungerFaceTicks
 		rs.timedImpulseTicks = rk.timedImpulseTicks or 0
+		if rk.isExploding then
+			rs.itemEffect.effectType = ItemEffectState.EFFECT_EXPLOSION
+			rs.itemEffect.ticksRemaining = math.max(1, rs.itemEffect.ticksRemaining)
+		elseif (rk.rescueTicks or 0) > 0 then
+			rs.itemEffect.effectType = ItemEffectState.EFFECT_RESCUE
+			rs.itemEffect.ticksRemaining = rk.rescueTicks :: number
+		elseif rk.isSquashed then
+			rs.itemEffect.effectType = ItemEffectState.EFFECT_SQUASH
+			rs.itemEffect.ticksRemaining = math.max(1, rs.itemEffect.ticksRemaining)
+		else
+			rs.itemEffect.effectType = ItemEffectState.EFFECT_NONE
+			rs.itemEffect.ticksRemaining = 0
+		end
+		remoteSnapshotBase[rk.id] = {
+			pos = { x = rs.pos.x, y = rs.pos.y, z = rs.pos.z },
+			linVel = { x = rs.linVel.x, y = rs.linVel.y, z = rs.linVel.z },
+			rot = { w = rs.rot.w, x = rs.rot.x, y = rs.rot.y, z = rs.rot.z },
+		}
 	end
 	for id, _ in remoteKartStates do
 		if not seen[id] then
 			remoteKartStates[id] = nil
+			remoteSnapshotBase[id] = nil
+		end
+	end
+end
+
+local function resetRemotesToSnapshotBase()
+	for id, base in remoteSnapshotBase do
+		local rs = remoteKartStates[id]
+		if rs ~= nil then
+			rs.pos = { x = base.pos.x, y = base.pos.y, z = base.pos.z }
+			rs.prevPos = { x = base.pos.x, y = base.pos.y, z = base.pos.z }
+			rs.lastSafePos = { x = base.pos.x, y = base.pos.y, z = base.pos.z }
+			rs.linVel = { x = base.linVel.x, y = base.linVel.y, z = base.linVel.z }
+			rs.rot = { w = base.rot.w, x = base.rot.x, y = base.rot.y, z = base.rot.z }
+		end
+	end
+end
+
+local function advanceRemotesKinematic(stepDt: number)
+	for _, rs in remoteKartStates do
+		rs.prevPos = { x = rs.pos.x, y = rs.pos.y, z = rs.pos.z }
+		if not ItemEffectState.isDriverInputSuppressed(rs.itemEffect) then
+			rs.pos.x += rs.linVel.x * stepDt
+			rs.pos.y += rs.linVel.y * stepDt
+			rs.pos.z += rs.linVel.z * stepDt
 		end
 	end
 end
@@ -696,7 +744,7 @@ local function buildClientCollisionParticipants(): { KartSolver.CollisionPartici
 	for idx, rk in latestRemoteKarts do
 		local rs = remoteKartStates[rk.id]
 		if rs ~= nil then
-			local numericId = tonumber(rk.id) or -(1000 + idx)
+			local numericId = GreyboxProtocol.resolveNumericKartId(rk.id, idx)
 			table.insert(list, { id = numericId, state = rs })
 		end
 	end
@@ -765,24 +813,26 @@ local function buildClientStandingsAndProxies(): ({ Standings.StandingsEntry }, 
 		KartSolver.makeFlyableProxy(localKartId, localState, myRank, "best"),
 	}
 	for idx, rk in latestRemoteKarts do
-		local numericId = tonumber(rk.id) or -(1000 + idx)
+		local numericId = GreyboxProtocol.resolveNumericKartId(rk.id, idx)
 		local rs = remoteKartStates[rk.id]
 		if rs ~= nil then
 			table.insert(proxies, KartSolver.makeFlyableProxy(numericId, rs, rk.rank, "best"))
 		else
+			local fbProf = KartTuning.buildProfileForKart(rk.kartId or "tux", "best")
 			table.insert(proxies, {
 				id = numericId,
 				pos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] },
+				prevPos = { x = rk.pos[1], y = rk.pos[2], z = rk.pos[3] },
 				rot = { w = rk.rot[1], x = rk.rot[2], y = rk.rot[3], z = rk.rot[4] },
 				linVel = { x = 0, y = 0, z = rk.speed },
 				speed = rk.speed,
-				width = profile.width,
-				height = profile.collisionHeight,
-				length = profile.length,
+				width = fbProf.width,
+				height = fbProf.collisionHeight,
+				length = fbProf.length,
 				rank = rk.rank,
-				baseMaxSpeed = profile.maxSpeed,
+				baseMaxSpeed = fbProf.maxSpeed,
 				isInvulnerable = false,
-				isInAnimation = false,
+				isInAnimation = rk.isExploding == true or (rk.rescueTicks or 0) > 0,
 				isShielded = (rk.attachmentType == ItemTuning.ATTACHMENT_BUBBLEGUM_SHIELD),
 				hasBomb = (rk.attachmentType == ItemTuning.ATTACHMENT_BOMB),
 				onExplode = function() end,
@@ -950,6 +1000,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				end
 				local replayCount = #inputHistory
 				if replayCount > 0 then
+					resetRemotesToSnapshotBase()
 					for idx, entry in inputHistory do
 						if idx == replayCount then
 							prevPose = capturePose(localState)
@@ -1002,6 +1053,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 								activeTrack.drivelineBranches
 							)
 						end
+						advanceRemotesKinematic(FixedStep.FIXED_DT)
 						local rParticipants = buildClientCollisionParticipants()
 						KartSolver.resolveKartKartCollisions(rParticipants)
 						if localState.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
@@ -1188,6 +1240,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 					activeTrack.drivelineBranches
 				)
 			end
+			advanceRemotesKinematic(fixedDt)
 			local lParticipants = buildClientCollisionParticipants()
 			KartSolver.resolveKartKartCollisions(lParticipants)
 			if localState.attachmentType == ItemTuning.ATTACHMENT_SWATTER then
@@ -1311,7 +1364,7 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 				else nil,
 			rk.rescueTicks
 		)
-		local numericId = tonumber(rk.id) or -(1000 + idx)
+		local numericId = GreyboxProtocol.resolveNumericKartId(rk.id, idx)
 		kartPositionsById[numericId] =
 			Vector3.new(Units.metersToStuds(rPos.x), Units.metersToStuds(rPos.y), Units.metersToStuds(-rPos.z))
 		table.insert(remoteMinimapPoses, { id = rk.id, kartId = rk.kartId, x = rPos.x, z = rPos.z })
@@ -1333,7 +1386,11 @@ RunService:BindToRenderStep("OpenKartClientFrame", Enum.RenderPriority.Camera.Va
 			heldPowerup = 0,
 			heldPowerupCount = 0,
 			attachmentType = rk.attachmentType,
-			itemEffectType = if rk.isSquashed then 2 elseif rRs then rRs.itemEffect.effectType else 0,
+			itemEffectType = if rk.isExploding
+				then ItemEffectState.EFFECT_EXPLOSION
+				elseif rk.isSquashed then ItemEffectState.EFFECT_SQUASH
+				elseif rRs then rRs.itemEffect.effectType
+				else 0,
 			plungerFaceTicks = rk.plungerFaceTicks,
 			bounceBackTicks = if rRs then rRs.bounceBackTicks else 0,
 		}, dt, false)

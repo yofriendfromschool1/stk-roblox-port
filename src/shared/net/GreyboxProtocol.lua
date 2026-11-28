@@ -30,6 +30,7 @@ export type RemoteKartState = {
 	plungerFaceTicks: number,
 	timedImpulseTicks: number?,
 	isSquashed: boolean,
+	isExploding: boolean?,
 	skidState: Skidding.SkidStateName?,
 	skidTier: number?,
 	nitroActive: boolean?,
@@ -207,6 +208,26 @@ GreyboxProtocol.PLANE_NAME = "GreyboxPlane"
 GreyboxProtocol.SNAPSHOT_RATE_HZ = 30
 GreyboxProtocol.SPAWN_HEIGHT_METERS = 0.35
 GreyboxProtocol.VOID_RESET_Y_METERS = -20.0
+
+function GreyboxProtocol.resolveNumericKartId(stringId: string, fallbackIdx: number?): number
+	if stringId == "Dummy_1" or stringId == "dummy" then
+		return -1001
+	elseif stringId == "local_p2" then
+		return -2
+	end
+	local aiStr = string.match(stringId, "^ai_(%d+)$")
+	if aiStr ~= nil then
+		local aiNum = tonumber(aiStr)
+		if aiNum ~= nil then
+			return -100 - aiNum
+		end
+	end
+	local num = tonumber(stringId)
+	if num ~= nil then
+		return num
+	end
+	return -(1000 + (fallbackIdx or 0))
+end
 
 local function clampU8(n: number): number
 	return math.clamp(math.round(n), 0, 255)
@@ -712,7 +733,8 @@ function GreyboxProtocol.packSnapshot(
 			buffer.writeu8(buf, rOff + 67, kartIdxByte + varBits)
 			buffer.writei32(buf, rOff + 68, clampI32(rk.bestLapTicks or -1))
 			buffer.writeu16(buf, rOff + 72, clampU16(rk.rescueTicks or 0))
-			buffer.writeu8(buf, rOff + 74, clampU8(rk.heldPowerup or 0))
+			local hpByte = bit32.band(clampU8(rk.heldPowerup or 0), 127) + (if rk.isExploding then 128 else 0)
+			buffer.writeu8(buf, rOff + 74, hpByte)
 			buffer.writeu8(buf, rOff + 75, clampU8(rk.heldPowerupCount or 0))
 			buffer.writei32(buf, rOff + 76, clampI32(rk.lapStartTick or 240))
 			off = rOff + REMOTE_KART_FIXED_BYTES
@@ -1358,9 +1380,10 @@ function GreyboxProtocol.unpackSnapshot(rawPayload: any, rawNotice: any): Teleme
 				kartId = KartTuning.KART_ORDER[bit32.band(buffer.readu8(buf, rOff + 67), 31)] or "tux",
 				bestLapTicks = buffer.readi32(buf, rOff + 68),
 				rescueTicks = buffer.readu16(buf, rOff + 72),
-				heldPowerup = buffer.readu8(buf, rOff + 74),
+				heldPowerup = bit32.band(buffer.readu8(buf, rOff + 74), 127),
 				heldPowerupCount = buffer.readu8(buf, rOff + 75),
 				lapStartTick = buffer.readi32(buf, rOff + 76),
+				isExploding = bit32.btest(buffer.readu8(buf, rOff + 74), 128),
 				skinVariantIdx = math.clamp(bit32.rshift(buffer.readu8(buf, rOff + 67), 5) + 1, 1, 6),
 			})
 			off = rNextOff

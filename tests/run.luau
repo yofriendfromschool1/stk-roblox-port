@@ -35,6 +35,7 @@ local suites = {
 	{ name = "EdgeRescueVoteAndGaps", tests = require("./EdgeRescueVoteAndGaps.spec") },
 	{ name = "NametagAndCartoonSkin", tests = require("./NametagAndCartoonSkin.spec") },
 	{ name = "MatchLifecycleAndBomb", tests = require("./MatchLifecycleAndBomb.spec") },
+	{ name = "CollisionAndBowling", tests = require("./CollisionAndBowling.spec") },
 }
 
 local passed = 0

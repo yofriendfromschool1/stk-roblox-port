@@ -1204,6 +1204,58 @@ function GreyboxKartServer.start()
 				targetSt.attachmentTicksLeft = ticks
 				firstEntry.forceSnapshot = true
 				return ticks
+			elseif op == "getCollisionParticipants" then
+				local outKarts = {}
+				local function pushK(idNum: number, sid: string, st: KartSolver.KartState)
+					table.insert(outKarts, {
+						id = idNum,
+						sid = sid,
+						kartId = st.profile.kartId,
+						pos = { st.pos.x, st.pos.y, st.pos.z },
+						rot = { st.rot.w, st.rot.x, st.rot.y, st.rot.z },
+						linVel = { st.linVel.x, st.linVel.y, st.linVel.z },
+						speed = st.speed,
+						effectType = st.itemEffect.effectType,
+						isSuppressed = ItemEffectState.isDriverInputSuppressed(st.itemEffect),
+					})
+				end
+				if dummyEnabled then
+					pushK(TestDummyKart.DUMMY_KART_ID, TestDummyKart.DUMMY_STRING_ID, dummyState)
+				end
+				for _, extra in extraAIs do
+					pushK(extra.id, extra.sid, extra.state)
+				end
+				if localP2State ~= nil then
+					pushK(LOCAL_P2_KART_ID, LOCAL_P2_STRING_ID, localP2State)
+				end
+				local pIdx = 1
+				for _, pEntry in entries do
+					pIdx += 1
+					local numId = if pEntry.player.UserId ~= 0 then pEntry.player.UserId else pIdx
+					pushK(numId, tostring(numId), pEntry.state)
+				end
+				return { count = #outKarts, karts = outKarts }
+			elseif op == "setPlayerVelocity" and firstEntry ~= nil then
+				local vx = tonumber(a) or 0.0
+				local vy = tonumber(b) or 0.0
+				local vz = tonumber(c) or 0.0
+				firstEntry.state.linVel = { x = vx, y = vy, z = vz }
+				local _, _, fwd = Math3D.quatBasis(firstEntry.state.rot)
+				firstEntry.state.speed = Math3D.dot(firstEntry.state.linVel, fwd)
+				firstEntry.forceSnapshot = true
+				return true
+			elseif op == "fireTestBowling" and firstEntry ~= nil then
+				local shooterSt = firstEntry.state
+				local shooterId = if firstEntry.player.UserId ~= 0 then firstEntry.player.UserId else 2
+				local proxy = KartSolver.makeFlyableProxy(shooterId, shooterSt, 1, sessionConfig.difficulty)
+				local entry = Flyable.spawnBowling(flyableWorld, proxy, a == true)
+				if type(b) == "number" and type(c) == "number" then
+					local speed = tonumber(d) or Math3D.len(entry.vel)
+					local dir = Math3D.normalize({ x = b :: number, y = 0, z = c :: number }, { x = 0, y = 0, z = 1 })
+					entry.vel = Math3D.scale(dir, speed)
+				end
+				firstEntry.forceSnapshot = true
+				return entry.id
 			end
 			return nil
 		end
@@ -2053,6 +2105,7 @@ function GreyboxKartServer.start()
 			plungerFaceTicks = dummyTel.plungerFaceTicks,
 			timedImpulseTicks = dummyState.timedImpulseTicks,
 			isSquashed = dummyTel.isSquashed,
+			isExploding = (dummyTel.effectType == ItemEffectState.EFFECT_EXPLOSION),
 			skidState = dummyTel.skidState,
 			skidTier = dummyTel.skidTier,
 			nitroActive = dummyTel.nitroActive,
@@ -2134,6 +2187,7 @@ function GreyboxKartServer.start()
 						plungerFaceTicks = eTel.plungerFaceTicks,
 						timedImpulseTicks = extra.state.timedImpulseTicks,
 						isSquashed = eTel.isSquashed,
+						isExploding = (eTel.effectType == ItemEffectState.EFFECT_EXPLOSION),
 						skidState = eTel.skidState,
 						skidTier = eTel.skidTier,
 						nitroActive = eTel.nitroActive,
@@ -2173,6 +2227,7 @@ function GreyboxKartServer.start()
 						plungerFaceTicks = p2Tel.plungerFaceTicks,
 						timedImpulseTicks = localP2State.timedImpulseTicks,
 						isSquashed = p2Tel.isSquashed,
+						isExploding = (p2Tel.effectType == ItemEffectState.EFFECT_EXPLOSION),
 						skidState = p2Tel.skidState,
 						skidTier = p2Tel.skidTier,
 						nitroActive = p2Tel.nitroActive,
@@ -2214,6 +2269,7 @@ function GreyboxKartServer.start()
 							plungerFaceTicks = oTel.plungerFaceTicks,
 							timedImpulseTicks = other.state.timedImpulseTicks,
 							isSquashed = oTel.isSquashed,
+							isExploding = (oTel.effectType == ItemEffectState.EFFECT_EXPLOSION),
 							skidState = oTel.skidState,
 							skidTier = oTel.skidTier,
 							nitroActive = oTel.nitroActive,

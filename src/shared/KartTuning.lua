@@ -623,9 +623,25 @@ function KartTuning.buildProfile(
 	local cls = KartTuning.kartClasses[clsName] or KartTuning.kartClasses.medium
 	local diff = KartTuning.difficulties[diffName] or KartTuning.difficulties.best
 	local d = dims or KartTuning.chassis.tux
+	assert(
+		type(d.width) == "number" and d.width > 0,
+		string.format("KartProfile '%s' has invalid width: %s", tostring(kartId), tostring(d.width))
+	)
+	assert(
+		type(d.length) == "number" and d.length > 0,
+		string.format("KartProfile '%s' has invalid length: %s", tostring(kartId), tostring(d.length))
+	)
+	assert(
+		type(d.height) == "number" and d.height > 0,
+		string.format("KartProfile '%s' has invalid height: %s", tostring(kartId), tostring(d.height))
+	)
 
 	local mass = KartTuning.mass.base * cls.massMult
 	local collisionHeight = math.min(d.height, KartTuning.chassis.maxHeightToLengthRatio * d.length)
+	assert(
+		collisionHeight > 0,
+		string.format("KartProfile '%s' has invalid collisionHeight: %s", tostring(kartId), tostring(collisionHeight))
+	)
 
 	-- Solid-box principal moments of inertia I_x, I_y, I_z (src/karts/kart.cpp:L659-L735)
 	local ix = (1 / 12) * mass * (collisionHeight * collisionHeight + d.length * d.length)
@@ -907,6 +923,20 @@ function KartTuning.computeKartStatBars(kartId: string?): KartStatSummary
 		accelBar = math.clamp(accelEff * 10.0, 0.0, 100.0), -- kart_stats_widget.cpp:L120
 		nitroBar = math.clamp(90.0 / nitroCons, 0.0, 100.0), -- kart_stats_widget.cpp:L126
 	}
+end
+
+for _, kid in ipairs(KartTuning.KART_ORDER) do
+	local p = KartTuning.buildProfileForKart(kid, "best")
+	assert(
+		p.width > 0 and p.length > 0 and p.collisionHeight > 0,
+		string.format(
+			"Roster kart '%s' must have positive width, length, and collisionHeight (got %.4f, %.4f, %.4f)",
+			kid,
+			p.width,
+			p.length,
+			p.collisionHeight
+		)
+	)
 end
 
 return deepFreeze(KartTuning)

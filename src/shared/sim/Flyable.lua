@@ -25,6 +25,7 @@ export type DrivelinePoint = {
 export type KartProxy = {
 	id: number,
 	pos: Vec3,
+	prevPos: Vec3?,
 	rot: Quat,
 	alignedRot: Quat?,
 	linVel: Vec3,
@@ -762,6 +763,125 @@ local function stepRubberBall(
 	entry.pos.y = groundY + entry.radius * 0.5 + heightCap * bounceFrac
 end
 
+local function clipSlabAxis(
+	p0: number,
+	d: number,
+	minB: number,
+	maxB: number,
+	tMin: number,
+	tMax: number
+): (boolean, number, number)
+	if math.abs(d) < 1e-12 then
+		if p0 < minB or p0 > maxB then
+			return false, tMin, tMax
+		end
+		return true, tMin, tMax
+	end
+	local invD = 1.0 / d
+	local t0 = (minB - p0) * invD
+	local t1 = (maxB - p0) * invD
+	if t0 > t1 then
+		t0, t1 = t1, t0
+	end
+	local nMin = if t0 > tMin then t0 else tMin
+	local nMax = if t1 < tMax then t1 else tMax
+	return nMin <= nMax, nMin, nMax
+end
+
+-- Analytic swept segment [0, 1] vs axis-aligned box [-h, h] expanded by sphere radius (exact piecewise-quadratic distance).
+function Flyable.segmentIntersectsExpandedOBB(p0: Vec3, p1: Vec3, halfExtents: Vec3, radius: number): (boolean, number)
+	local dx = p1.x - p0.x
+	local dy = p1.y - p0.y
+	local dz = p1.z - p0.z
+	local hx, hy, hz = halfExtents.x, halfExtents.y, halfExtents.z
+	local r = math.max(0.0, radius)
+
+	local ok, tMin, tMax = clipSlabAxis(p0.x, dx, -hx - r, hx + r, 0.0, 1.0)
+	if not ok then
+		return false, math.huge
+	end
+	ok, tMin, tMax = clipSlabAxis(p0.y, dy, -hy - r, hy + r, tMin, tMax)
+	if not ok then
+		return false, math.huge
+	end
+	ok, tMin, tMax = clipSlabAxis(p0.z, dz, -hz - r, hz + r, tMin, tMax)
+	if not ok then
+		return false, math.huge
+	end
+
+	local ts = { tMin, tMax }
+	local function addBreaks(p: number, d: number, h: number)
+		if math.abs(d) > 1e-12 then
+			local tNeg = (-h - p) / d
+			if tNeg > tMin + 1e-12 and tNeg < tMax - 1e-12 then
+				table.insert(ts, tNeg)
+			end
+			local tPos = (h - p) / d
+			if tPos > tMin + 1e-12 and tPos < tMax - 1e-12 then
+				table.insert(ts, tPos)
+			end
+		end
+	end
+	addBreaks(p0.x, dx, hx)
+	addBreaks(p0.y, dy, hy)
+	addBreaks(p0.z, dz, hz)
+	table.sort(ts)
+
+	local rSq = r * r + 1e-9
+	for idx = 1, #ts - 1 do
+		local ta = ts[idx]
+		local tb = ts[idx + 1]
+		if tb - ta < 1e-12 then
+			local px = p0.x + dx * ta
+			local py = p0.y + dy * ta
+			local pz = p0.z + dz * ta
+			local ex = px - math.clamp(px, -hx, hx)
+			local ey = py - math.clamp(py, -hy, hy)
+			local ez = pz - math.clamp(pz, -hz, hz)
+			if (ex * ex + ey * ey + ez * ez) <= rSq then
+				return true, ta
+			end
+			continue
+		end
+		local tm = 0.5 * (ta + tb)
+		local A, B, C = 0.0, 0.0, 0.0
+		local function accumAxis(p: number, d: number, h: number)
+			local pm = p + d * tm
+			if pm < -h then
+				local off = p + h
+				A += d * d
+				B += 2.0 * off * d
+				C += off * off
+			elseif pm > h then
+				local off = p - h
+				A += d * d
+				B += 2.0 * off * d
+				C += off * off
+			end
+		end
+		accumAxis(p0.x, dx, hx)
+		accumAxis(p0.y, dy, hy)
+		accumAxis(p0.z, dz, hz)
+
+		local tStar = if A > 1e-12 then math.clamp(-B / (2.0 * A), ta, tb) else ta
+		local minD2 = A * tStar * tStar + B * tStar + C
+		if minD2 <= rSq then
+			local d2a = A * ta * ta + B * ta + C
+			if d2a <= rSq then
+				return true, ta
+			end
+			if A > 1e-12 then
+				local disc = math.max(0.0, B * B - 4.0 * A * (C - rSq))
+				local tEntry = math.clamp((-B - math.sqrt(disc)) / (2.0 * A), ta, tb)
+				return true, tEntry
+			end
+			return true, tStar
+		end
+	end
+
+	return false, math.huge
+end
+
 -- Advance all active Flyables by one 120 Hz fixed step (server & client prediction parity).
 function Flyable.step(
 	world: FlyableWorldState,
@@ -952,40 +1072,41 @@ function Flyable.step(
 			updateRubberBand(entry, karts)
 		end
 
-		-- 3. Swept segment vs 3D kart chassis OBB hit check (prevents tunneling and matches 3D kart silhouette)
+		-- 3. Analytic relative swept segment vs 3D kart chassis OBB expanded by entry.radius (prevents tunneling)
 		local removed = false
-		local padRad = entry.radius + 0.25
-		local padRadSq = padRad * padRad
+		local hitCandidates: { { kart: KartProxy, tHit: number } } = {}
 		for _, k in karts do
+			if isOwnerImmune(entry, k.id) then
+				continue
+			end
 			local kHalfX = 0.5 * (k.width or 0.85)
 			local kHalfY = 0.5 * (k.height or 0.75)
 			local kHalfZ = 0.5 * k.length
 			local _, kUp, _ = Math3D.quatBasis(k.rot)
-			local kCenter = Math3D.add(k.pos, Math3D.scale(kUp, kHalfY))
+			local upHalf = Math3D.scale(kUp, kHalfY)
+			local kPrev = k.prevPos or k.pos
+			local kCenterPrev = Math3D.add(kPrev, upHalf)
+			local kCenterCurr = Math3D.add(k.pos, upHalf)
 			local invKRot = Math3D.quatConjugate(k.rot)
-			local p0 = Math3D.quatRotateVec(invKRot, Math3D.sub(prevBallPos, kCenter))
-			local p1 = Math3D.quatRotateVec(invKRot, Math3D.sub(entry.pos, kCenter))
+			local p0 = Math3D.quatRotateVec(invKRot, Math3D.sub(prevBallPos, kCenterPrev))
+			local p1 = Math3D.quatRotateVec(invKRot, Math3D.sub(entry.pos, kCenterCurr))
 
-			local hitKart = false
-			for sIdx = 0, 2 do
-				local alpha = sIdx * 0.5
-				local sx = p0.x + (p1.x - p0.x) * alpha
-				local sy = p0.y + (p1.y - p0.y) * alpha
-				local sz = p0.z + (p1.z - p0.z) * alpha
-				local cx = math.clamp(sx, -kHalfX, kHalfX)
-				local cy = math.clamp(sy, -kHalfY, kHalfY)
-				local cz = math.clamp(sz, -kHalfZ, kHalfZ)
-				local dx = sx - cx
-				local dy = sy - cy
-				local dz = sz - cz
-				if (dx * dx + dy * dy + dz * dz) <= padRadSq then
-					hitKart = true
-					break
-				end
-			end
-
+			local hitKart, tHit =
+				Flyable.segmentIntersectsExpandedOBB(p0, p1, { x = kHalfX, y = kHalfY, z = kHalfZ }, entry.radius)
 			if hitKart then
-				if resolveProjectileKartHit(entry, k, karts, ticksNow) then
+				table.insert(hitCandidates, { kart = k, tHit = tHit })
+			end
+		end
+
+		if #hitCandidates > 0 then
+			table.sort(hitCandidates, function(a, b)
+				if math.abs(a.tHit - b.tHit) > 1e-6 then
+					return a.tHit < b.tHit
+				end
+				return a.kart.id < b.kart.id
+			end)
+			for _, cand in hitCandidates do
+				if resolveProjectileKartHit(entry, cand.kart, karts, ticksNow) then
 					if entry.hasHitSomething then
 						removed = true
 						break
